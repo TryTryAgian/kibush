@@ -69,6 +69,7 @@ function dailyYield(nid, tilesCount) {
   for (const m of tradePartners(nid)) { y.gold += 2 * ports * mod(n, 'trade'); y.mat += 3 * ports * mod(n, 'trade'); }
   for (const k of ['gold', 'mat', 'know']) if (y[k] > 0) y[k] *= se;
   if (y.gold > 0) y.gold *= mod(n, 'gold');
+  if (n.isAI) { const k = CFG.AI_ECON[S.settings.diff || 'normal']; for (const r of ['gold', 'mat', 'know']) if (y[r] > 0) y[r] *= k; }   // רמת קושי
   const army = unitsOf(nid); let matUp = 0; for (const t of UKEYS) matUp += army[t] * UNITS[t].matUp;
   y.gold -= unitCount(army) * CFG.UNIT_UPKEEP + occ * CFG.OCC_GOLD;
   y.mat -= matUp;

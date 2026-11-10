@@ -61,7 +61,14 @@ function aiThink(n) {
   let desired = null;
   if (wars.length) {
     const cands = wars.filter(m => { for (let j = 0; j < S.owner.length; j++) if (S.owner[j] === m.id && reachable(nid, j, ports)) return true; return false; });
-    if (cands.length) desired = cands.sort((a, b) => allianceBloc(a.id) - allianceBloc(b.id))[0].id;
+    // יעד המלחמה: אויב חלש וקרוב — עם גבול משותף ארוך. לא מחליפים יעד בלי סיבה טובה (כדי שהגנרלים לא יחצו את המפה הלוך ושוב)
+    const contact = m => { let c = 0; for (let j = 0; j < S.owner.length; j++) if (S.owner[j] === m.id && nb4(j).some(k => S.owner[k] === nid)) c++; return c; };
+    const score = m => allianceBloc(m.id) / (1 + contact(m) * 0.15);
+    const cur = ops.find(o => o.target >= 0 && cands.some(m => m.id === o.target));
+    if (cands.length) {
+      const best = cands.sort((a, b) => score(a) - score(b))[0];
+      desired = cur && score(S.nations[cur.target]) <= score(best) * 1.6 ? cur.target : best.id;
+    }
   }
   if (desired == null && S.owner.some((o, j) => o === -1 && !isWater(j))) desired = -1;
   if (desired != null && !ops.some(o => o.target === desired)) { ops.forEach(cancelOp); createOp(nid, desired); }

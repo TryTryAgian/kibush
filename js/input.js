@@ -10,7 +10,7 @@ function onTap(i) {
   if (ui.pick?.kind === 'objective') {
     const op = S.ops.find(o => o.id === ui.pick.op);
     if (isWater(i) || S.owner[i] === 0) return toast('בחר משבצת יבשה שאינה שלך', 'bad');
-    if (op) { const ph = op.phases[op.cur] || (op.phases[0] = { objs: [], state: 'prep', name: '' }); for (const p of op.phases) p.objs = p.objs.filter(o => o.tile !== i); ph.objs.unshift({ tile: i, type: 'custom', custom: true, done: false }); ph.name = phaseName(ph.objs); op.objectives = op.phases.flatMap(p => p.objs); for (const f of opGenerals(op)) f.retarget = true; toast('🎯 יעד נוסף לשלב הנוכחי', 'good'); }
+    if (op) { op.objectives = [{ tile: i, type: 'custom', custom: true, done: false }, ...op.objectives.filter(o => o.custom && o.tile !== i)]; planOp(op); toast('🎯 המטה מכוון את ציר המבצע ליעד', 'good'); }
     ui.pick = null; ui.tab = 'fronts'; render(); return;
   }
   if (ui.pick?.kind === 'escort') {

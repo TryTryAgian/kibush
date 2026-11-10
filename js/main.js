@@ -2,6 +2,7 @@
 // שמירה, טעינה והפעלה
 /* ---------- 15. SAVE / LOAD ---------- */
 function save() {
+  if (S?.demo) return;   // משחק הרקע של מסך הבית לא נשמר
   try { const { terrain, owner, lastOwner, railMap, core, capDay, ...rest } = S; localStorage.setItem(CFG.SAVE_KEY, JSON.stringify({ ...rest, owner: Array.from(owner), lastOwner: Array.from(lastOwner), railMap: Array.from(railMap), core: Array.from(core), capDay: Array.from(capDay, v => Math.round(v)) })); } catch (e) { /* אין אחסון */ }
 }
 function load() {
@@ -23,18 +24,14 @@ function load() {
 let last = performance.now(), acc = 0, lastUi = 0;
 function loop(now) {
   const real = Math.min(0.25, (now - last) / 1000); last = now;
-  if (S && !S.over && S.speed > 0 && !modalOpen()) {
+  if (S && !S.over && S.speed > 0 && (!modalOpen() || S.demo)) {
     acc += real * S.speed / CFG.DAY_SEC; let n = 0;
     while (acc >= CFG.TICK && n++ < 20) { step(CFG.TICK); acc -= CFG.TICK; }
     if (n >= 20) acc = 0;
   }
-  view.anim = now / 380; draw();
+  view.anim = now / 380; if (S?.demo) homePan(real); draw();
   if (now - lastUi > 250) { lastUi = now; updateLive(); }
   requestAnimationFrame(loop);
 }
 resize();
-loadSprites().then(() => {
-if (load()) { render(); toast(`ממשיכים מיום ${fl(S.time)}`); if (S.over) showEnd(); }
-else newGame({ map: '', size: 'medium', ai: 3, seed: 0 });
-requestAnimationFrame(loop);
-});
+loadSprites().then(() => { showHome(); requestAnimationFrame(loop); });

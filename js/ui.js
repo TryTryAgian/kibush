@@ -8,6 +8,7 @@ function bar(fn) { const el = h('div', { class: 'bar' }, h('i')), upd = () => { 
 
 function render() {
   if (!S) return;
+  if (ui.home) { liveFns = []; document.getElementById('ui').replaceChildren(homeScreen()); return; }
   const oldSheet = document.querySelector('.sheet'), sc = oldSheet && ui.lastTab === ui.tab ? oldSheet.scrollTop : 0;
   liveFns = [];
   document.getElementById('ui').replaceChildren(topBar(), bottom());
@@ -22,7 +23,7 @@ function topBar() {
     h('div', { class: 'row' }, ...Object.keys(RES).map(chip)),
     h('div', { class: 'row' },
       h('button', { class: 'btn sm', onclick: openMenu }, '☰'),
-      h('div', { class: 'chip px' }, '📅', live(el => el.textContent = 'יום ' + fl(S.time))),
+      h('div', { class: 'chip px clock' }, live(el => el.textContent = (nightLevel() > 0.5 ? '☾ ' : '☀ ') + clockText()), live(el => el.textContent = 'יום ' + fl(S.time), 'small')),
       ...SPEEDS.map((s, i) => h('button', { class: 'btn sm' + (S.speed === s ? ' on' : ''), dir: 'ltr', onclick: () => { S.speed = s; render(); } }, ['⏸', '×1', '×2', '×4'][i])),
       h('div', { class: 'chip px' }, '🗺', live(el => el.textContent = Math.round(counts()[0] / S.landTotal * 100) + '%'))),
     live(el => {
@@ -125,7 +126,7 @@ function armyTab() {
 function genCard(f) {
   const p = player(), sel = f.id === ui.selFront, kinds = f.kind === 'navy' ? ['ship'] : LAND_UNITS.filter(t => unlocked(p, UNITS[t])), tr = TRAITS[f.gen.trait];
   return h('div', { class: 'card' + (sel ? ' sel' : ''), onclick: () => { if (!sel) { ui.selFront = f.id; render(); } } },
-    h('div', { class: 'uline' }, h('span', { class: 'nm' }, h('b', {}, '🎖 ' + f.gen.name), ' ', h('span', { class: 'dim' }, tr.name)), live(el => el.textContent = f.status, 'b')),
+    h('div', { class: 'uline' }, h('span', { class: 'nm' }, h('b', {}, '🎖 ' + f.gen.name), ' ', h('span', { class: 'dim' }, tr.name)), live(el => el.textContent = f.status + (f.op != null && f.planWhy ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע לשכן', 'דחיפה': '➡ דוחף קדימה' }[f.planWhy]}` : ''), 'b')),
     h('div', { class: 'kv' },
       live(el => { const ds = frontDivs(f), here = ds.filter(d => d.loc === 'front').length; el.textContent = ds.length ? `${here} אוגדות${ds.length > here ? ` (+${ds.length - here} בדרך)` : ''} · ${unitCount(f.units)} יחידות` : 'אין אוגדות'; }),
       f.kind === 'land' ? live(el => { const o = f.org ?? 1; el.textContent = `מורל ${Math.round(o * 100)}%`; el.style.color = o > 0.6 ? '#7ad07a' : o > 0.3 ? '#e8b820' : '#ff7060'; }) : null,
@@ -279,6 +280,7 @@ function refreshHint() {
   if (ui.pick?.kind === 'build') { const s = new Set(); for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === 0 && canBuild(0, ui.pick.type, i, true, ui.pick.dt).ok) s.add(i); ui.hint = s; }
 }
 function toast(msg, kind = '') {
+  if (S?.demo) return;
   const el = h('div', { class: 'toast px ' + kind }, msg), box = document.getElementById('toasts');
   box.append(el); while (box.children.length > 4) box.firstChild.remove();
   setTimeout(() => el.remove(), 4000);
@@ -288,9 +290,11 @@ function modal(...content) { const m = document.getElementById('modal'); m.repla
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
 function openMenu() {
   modal(h('h2', {}, '☰ תפריט'),
-    h('button', { class: 'btn pri', onclick: openNewGame }, '🆕 משחק חדש'),
+    h('button', { class: 'btn pri', onclick: () => { save(); closeModal(); showHome('new'); } }, '🆕 משחק חדש'),
     h('button', { class: 'btn', onclick: () => { save(); toast('נשמר', 'good'); closeModal(); } }, '💾 שמירה'),
     h('button', { class: 'btn', onclick: openHelp }, '❓ איך משחקים'),
+    prefToggle(),
+    h('button', { class: 'btn', onclick: () => { save(); closeModal(); showHome(); } }, '🏠 תפריט ראשי'),
     h('div', { class: 'dim' }, S.settings.map ? `מפה: ${FIXED_MAPS[S.settings.map].name}` : `מפה אקראית ${SIZES[S.settings.size][2]} · זרע ${S.seed}`),
     h('button', { class: 'btn', onclick: closeModal }, 'חזרה למשחק'));
 }
@@ -327,7 +331,62 @@ function showEnd() {
   const win = S.over === 'win', c = counts();
   modal(h('h2', {}, win ? '🏆 ניצחון!' : '💀 הפסד'),
     h('p', {}, win ? `כבשת ${Math.round(c[0] / S.landTotal * 100)}% מהמפה ביום ${fl(S.time)}.` : 'האומה שלך לא שרדה הפעם.'),
-    h('button', { class: 'btn pri', onclick: openNewGame }, 'משחק חדש'),
+    h('button', { class: 'btn pri', onclick: () => { closeModal(); showHome('new'); } }, 'משחק חדש'),
+    h('button', { class: 'btn', onclick: () => { closeModal(); showHome(); } }, '🏠 תפריט ראשי'),
     h('button', { class: 'btn', onclick: closeModal }, 'הצג מפה'));
 }
 
+
+// ===================== מסך הבית =====================
+// ברקע: משחק הדגמה שבו כל האומות הן מחשב, והמצלמה משייטת לאט מעל המפה
+const DIFFS = { easy: ['קל', 'המחשב מרוויח פחות'], normal: ['רגיל', ''], hard: ['קשה', 'המחשב מרוויח יותר'] };
+let NG = { map: '', size: 'medium', ai: 3, diff: 'normal', seed: '' };
+const hasSave = () => { try { const r = localStorage.getItem(CFG.SAVE_KEY); return !!r && JSON.parse(r).v === 8; } catch (e) { return false; } };
+function prefToggle() {
+  return h('button', { class: 'btn' + (PREFS.night ? ' on' : ''), onclick: e => { PREFS.night = !PREFS.night; savePrefs(); e.currentTarget.classList.toggle('on', PREFS.night); e.currentTarget.textContent = (PREFS.night ? '🌙 מחזור יום/לילה: פעיל' : '☀ מחזור יום/לילה: כבוי'); } }, PREFS.night ? '🌙 מחזור יום/לילה: פעיל' : '☀ מחזור יום/לילה: כבוי');
+}
+function startDemo() {
+  const keep = ui.home; newGame({ map: '', size: 'small', ai: 5, seed: (Math.random() * 1e9) | 0, demo: true });
+  S.demo = true; S.nations[0].isAI = true; S.nations[0].pers = 'aggr'; S.speed = 4; ui.home = keep;
+  for (let d = 0; d < 120; d++) for (let k = 0; k < 10; k++) step(0.1);   // קדימה בזמן — שיהיו כבר גבולות ומלחמות
+  view.cam.zoom = 2.2; view.pan = { a: Math.random() * 6.28 }; centerOnXY(W / 2, H / 2);
+}
+function homePan(dt) {
+  const p = view.pan || (view.pan = { a: 0 }); p.a += dt * 0.04;
+  const cx = W / 2 + Math.cos(p.a) * W * 0.28, cy = H / 2 + Math.sin(p.a * 1.3) * H * 0.25; centerOnXY(cx, cy);
+}
+function showHome(page) {
+  closeModal(); ui.home = page || 'main'; ui.tab = null; ui.sel = null; ui.pick = null; ui.selFront = null;
+  if (!S?.demo) startDemo();
+  render();
+}
+function startGame(settings) {
+  ui.home = null; newGame(settings); S.speed = 1; render();
+}
+function homeScreen() {
+  const page = ui.home, box = (...c) => h('div', { class: 'home-box px' }, ...c);
+  const title = h('div', { class: 'home-title' }, h('div', { class: 'logo' }, 'כיבוש פיקסלים'), h('div', { class: 'sub' }, 'אסטרטגיה בזמן אמת · כבוש 80% מהמפה'));
+  if (page === 'new') {
+    const maxFor = (map, size) => map ? Math.min(5, parseAscii(FIXED_MAPS[map].rows).starts.length - 1) : { small: 5, medium: 6, large: 7 }[size];
+    const maxAI = maxFor(NG.map, NG.size);
+    const set = (k, v) => { NG[k] = v; NG.ai = Math.min(NG.ai, maxFor(NG.map, NG.size)); render(); };
+    const seg = (k, opts) => h('div', { class: 'seg' }, opts.map(([v, label]) => h('button', { class: 'btn' + (NG[k] === v ? ' on' : ''), onclick: () => set(k, v) }, label)));
+    return h('div', { class: 'home' }, title, box(
+      h('h2', {}, 'משחק חדש'),
+      h('div', { class: 'field' }, 'מפה', seg('map', [['', '🎲 אקראית'], ...Object.entries(FIXED_MAPS).map(([k, m]) => [k, '🗺 ' + m.name])])),
+      NG.map ? null : h('div', { class: 'field' }, 'גודל מפה', seg('size', Object.entries(SIZES).map(([k, v]) => [k, `${v[2]} · ${v[0]}×${v[1]}`]))),
+      h('div', { class: 'field' }, 'מספר יריבים', seg('ai', Array.from({ length: maxAI }, (_, i) => [i + 1, String(i + 1)]))),
+      h('div', { class: 'field' }, 'רמת קושי', seg('diff', Object.entries(DIFFS).map(([k, v]) => [k, v[0]])), DIFFS[NG.diff][1] ? h('span', { class: 'dim' }, DIFFS[NG.diff][1]) : null),
+      NG.map ? null : h('div', { class: 'field' }, 'זרע מפה (ריק = אקראי — אותו מספר = אותה מפה)', h('input', { inputmode: 'numeric', value: NG.seed, oninput: e => NG.seed = e.target.value })),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה'),
+        h('button', { class: 'btn pri grow', onclick: () => startGame({ map: NG.map, size: NG.size, ai: NG.ai, diff: NG.diff, seed: parseInt(NG.seed) || 0 }) }, '⚔ התחל משחק'))));
+  }
+  if (page === 'settings') return h('div', { class: 'home' }, title, box(h('h2', {}, 'הגדרות'), prefToggle(), h('div', { class: 'dim' }, 'בלילה המפה מקבלת גוון כחול והערים נדלקות. אפשר לשנות גם מתוך התפריט במשחק.'), h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה')));
+  return h('div', { class: 'home' }, title, box(
+    hasSave() ? h('button', { class: 'btn pri big', onclick: () => { ui.home = null; if (load()) { S.speed = 1; render(); toast(`ממשיכים מיום ${fl(S.time)}`); if (S.over) showEnd(); } else showHome('new'); } }, '▶ המשך משחק') : null,
+    h('button', { class: 'btn big' + (hasSave() ? '' : ' pri'), onclick: () => { ui.home = 'new'; render(); } }, '⚔ משחק חדש'),
+    h('button', { class: 'btn big', onclick: () => { ui.home = 'settings'; render(); } }, '⚙ הגדרות'),
+    h('button', { class: 'btn big', onclick: openHelp }, '❓ איך משחקים')),
+    h('div', { class: 'home-foot dim' }, 'v0.9 · כל האומות ברקע משחקות עכשיו נגד עצמן'));
+}

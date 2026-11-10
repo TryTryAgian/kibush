@@ -3,10 +3,10 @@
 from PIL import Image
 import json, sys
 PAL = {
- 'k':'#14141c','K':'#2c2c38','w':'#ecdcb8','W':'#fbf6ea','r':'#c0482e','R':'#7c2a1c','o':'#e08a3a',
- 'g':'#9a9aa6','G':'#5c5c6a','h':'#c8ccd6','H':'#e6e9ef','y':'#ffd84a','Y':'#c89a20','b':'#8a5a2e','B':'#4e2e16',
- 'e':'#6f7f3a','d':'#3f4a22','E':'#94a856','s':'#e2b48c','S':'#b07a56','l':'#3a8ad8','L':'#8ac4f4','c':'#9adcf4',
- 'f':'#d4d4d4','F':'#9c9c9c','t':'#c8a868','T':'#8c7444','z':'#2a5a18','Z':'#4c8a2c',
+ 'k':'#14141c','K':'#2c2c38','w':'#d6ccb0','W':'#e8e2d0','r':'#a05a42','R':'#6a3a2a','o':'#c08040',
+ 'g':'#8e9088','G':'#55574f','h':'#b4b6b0','H':'#d0d0c8','y':'#d8b84a','Y':'#a8882a','b':'#7a5a3a','B':'#4a3422',
+ 'e':'#6a6e44','d':'#3f4430','E':'#868a5a','s':'#e2b48c','S':'#b07a56','l':'#2f5660','L':'#5d8088','c':'#8ab8c8',
+ 'f':'#d4d4d4','F':'#9c9c9c','t':'#9c8a62','T':'#7a6a48','z':'#2a5a18','Z':'#4c8a2c',
  'M':'#ff00ff','P':'#b000b0','Q':'#ff80ff',
 }
 def g(rows, w):
@@ -413,10 +413,144 @@ B['airport']=[
 '........................',
 '........................',
 '........................']
+
+# מבט מלמעלה (12x12) — ליחידות בודדות בזום קרוב. כולם פונים ימינה; המשחק מסובב לפי כיוון התנועה
+TD={}
+TD['td_inf']=[[
+'............',
+'............',
+'............',
+'....kkk.....',
+'...kPMMk....',
+'...kMQMkkkk.',
+'...kMMMk....',
+'....kkk.....',
+'............',
+'............',
+'............',
+'............'],[
+'............',
+'............',
+'............',
+'....kkk.....',
+'...kPMMkkkk.',
+'...kMQMk....',
+'...kMMMk....',
+'....kkk.....',
+'............',
+'............',
+'............',
+'............']]
+TD['td_cmdo']=[[r.replace('M','d').replace('Q','z').replace('P','M') for r in f] for f in TD['td_inf']]
+TD['td_ltank']=[[
+'............',
+'.kkkkkkkk...',
+'.kGgGgGgGk..',
+'.kMMMMMMMk..',
+'.kMMPPPMMk..',
+'.kMMPQPkkkkk',
+'.kMMPPPMMk..',
+'.kMMMMMMMk..',
+'.kGgGgGgGk..',
+'.kkkkkkkk...',
+'............',
+'............'],[
+'............',
+'.kkkkkkkk...',
+'.kgGgGgGgk..',
+'.kMMMMMMMk..',
+'.kMMPPPMMk..',
+'.kMMPQPkkkkk',
+'.kMMPPPMMk..',
+'.kMMMMMMMk..',
+'.kgGgGgGgk..',
+'.kkkkkkkk...',
+'............',
+'............']]
+TD['td_htank']=[[
+'kkkkkkkkkk..',
+'kGgGgGgGgGk.',
+'kMMMMMMMMMk.',
+'kMMPPPPMMMk.',
+'kMMPQQPkkkkk',
+'kMMPQQPkkkkk',
+'kMMPPPPMMMk.',
+'kMMMMMMMMMk.',
+'kGgGgGgGgGk.',
+'kkkkkkkkkk..',
+'............',
+'............'],[
+'kkkkkkkkkk..',
+'kgGgGgGgGgk.',
+'kMMMMMMMMMk.',
+'kMMPPPPMMMk.',
+'kMMPQQPkkkkk',
+'kMMPQQPkkkkk',
+'kMMPPPPMMMk.',
+'kMMMMMMMMMk.',
+'kgGgGgGgGgk.',
+'kkkkkkkkkk..',
+'............',
+'............']]
+TD['td_art']=[[
+'............',
+'..kk........',
+'.kBBk.......',
+'..kk........',
+'..kMMkkkkkkk',
+'.kMPMMkGGGGk',
+'..kMMkkkkkkk',
+'..kk........',
+'.kBBk.......',
+'..kk........',
+'............',
+'............']]
+TD['td_aa']=[[
+'............',
+'.kkkkkkk....',
+'.kGGGGGGk...',
+'.kMMMMMMkkkk',
+'.kMMPPMMk...',
+'.kMMPPMMk...',
+'.kMMMMMMkkkk',
+'.kGGGGGGk...',
+'.kkkkkkk....',
+'............',
+'............',
+'............']]
+TD['td_truck']=[[
+'............',
+'............',
+'.kkkkkkk.kk.',
+'.kMMMMMMkcck',
+'.kMPMPMMkMMk',
+'.kMMMMMMkcck',
+'.kkkkkkk.kk.',
+'............',
+'............',
+'............',
+'............',
+'............']]
+TD['td_ship']=[[
+'............',
+'..kkkkkkk...',
+'.kMMMMMMMkk.',
+'kPMGGkhhMMQk',
+'kPMGGkhhMMQk',
+'.kMMMMMMMkk.',
+'..kkkkkkk...',
+'............',
+'............',
+'............',
+'............',
+'............']]
+for k,v in TD.items(): items_td=None
+
 def frames(v): return v if isinstance(v[0],list) else [v]
 items=[]
 for k,v in U.items(): items.append((k,16,[g(f,16) for f in frames(v)]))
 for k,v in B.items(): items.append((k,24,[g(f,24) for f in frames(v)]))
+for k,v in TD.items(): items.append((k,12,[g(f,12) for f in frames(v)]))
 W=24*2*4; x=y=0; rowh=0; atlas={}; placed=[]
 for k,sz,fr in items:
     w=sz*len(fr)

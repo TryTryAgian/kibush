@@ -241,6 +241,12 @@ function typePref(nd, enemyAir) {
   if (nd.sea) p = ['cmdo', 'light', 'inf', ...p.filter(t => !['cmdo', 'light', 'inf'].includes(t))];
   return p.filter(t => t !== 'aa' || enemyAir || nd.kind === 'def');
 }
+// נקודת העוגן של גנרל: במבצע — נקודת הזינוק של הציר (או החזית הנוכחית אם כבר התקדם רחוק), אחרת המיקום שלו
+function frontAnchor(f) {
+  const op = f.op != null && S.ops.find(o => o.id === f.op), ft = tileOf(...f.pos);
+  if (!op?.ax) return ft;
+  return dist(ft, op.ax.origin) > CFG.NEAR_CAMP ? ft : op.ax.origin;
+}
 function allocateDivisions(nid) {
   const items = S.fronts.filter(f => f.n === nid && f.kind === 'land' && !f.solo && !f.flying).map(f => ({ f, nd: frontNeed(f) }));
   items.sort((a, b) => b.nd.prio - a.nd.prio);
@@ -252,8 +258,9 @@ function allocateDivisions(nid) {
     if (!f.auto || f.retreating) continue;
     let have = power(f, it.nd.kind);
     if (have >= it.nd.power * 0.9) continue;
-    const pref = typePref(it.nd, enemyAir), ft = tileOf(...f.pos);
-    const free = freeDivs().filter(d => pref.includes(d.type)).sort((a, b) => pref.indexOf(a.type) - pref.indexOf(b.type) || dist(a.home, ft) - dist(b.home, ft));
+    // מחנות קרובים לאזור המבצע קודם (לפי סוג מועדף); מחנות רחוקים — רק אם הקרובים לא מספיקים
+    const pref = typePref(it.nd, enemyAir), anc = frontAnchor(f), near = d => dist(d.home, anc) <= CFG.NEAR_CAMP;
+    const free = freeDivs().filter(d => pref.includes(d.type)).sort((a, b) => (near(b) - near(a)) || pref.indexOf(a.type) - pref.indexOf(b.type) || dist(a.home, anc) - dist(b.home, anc));
     for (const d of free) { if (have >= it.nd.power) break; if (sendDivision(d, f)) have += divPow(d, it.nd.kind); }
     if (have < it.nd.power * 0.7 && it.nd.prio >= 3) {
       for (const donor of items.slice().reverse()) {
@@ -265,12 +272,16 @@ function allocateDivisions(nid) {
       }
     }
   }
-  // במלחמה: רוב העתודה יוצאת לגנרלים בהתקפה (לחלש קודם); אוגדה אחת נשארת בעתודה
+  // במלחמה: אוגדות פנויות שנמצאות ליד אזור של מבצע מצטרפות אליו (לגנרל החלש שם). מחנות רחוקים נשארים בעתודה
   const attackers = items.filter(it => it.nd.prio >= 3 && it.f.auto && !it.f.retreating).map(it => it.f);
   if (attackers.length) {
     const free = freeDivs().filter(d => d.type !== 'aa' || enemyAir);
     let send = Math.max(0, free.length - 1);
-    for (const d of free) { if (send <= 0) break; const f = attackers.slice().sort((x, y) => power(x, 'atk') - power(y, 'atk'))[0]; if (sendDivision(d, f)) send--; }
+    for (const d of free) {
+      if (send <= 0) break;
+      const f = attackers.filter(g => dist(d.home, frontAnchor(g)) <= CFG.NEAR_CAMP).sort((x, y) => power(x, 'atk') - power(y, 'atk'))[0];
+      if (f && sendDivision(d, f)) send--;
+    }
   }
   const fleets = S.fronts.filter(f => f.n === nid && f.kind === 'navy' && f.auto);
   if (fleets.length) for (const d of divsOf(nid).filter(d => d.type === 'navy' && d.loc === 'camp' && d.front == null && divTotal(d) >= 2)) {
@@ -372,12 +383,15 @@ function captureTile(nid, j) {
 // משבצות שמוקפות יותר בשטח שלנו מקבלות עדיפות — הקו מתיישר ולא נשארים "שיניים".
 // approach='sea': אם אין עדיין ראש גשר ליד היעד — נחיתה בחוף הקרוב ליעד
 function computeZone(f) {
+  // במבצע: הגנרל נשאר בנתיב שלו — משבצות רחוקות מהנתיב פחות עדיפות
+  const op = f.op != null ? S.ops.find(o => o.id === f.op) : null, lane = op?.lanes?.[f.id];
+  const laneDev = j => lane == null || !op.ax ? 0 : Math.max(0, Math.abs(opXY(op, j).l - lane) - 2) * 0.5;
   const nid = f.n, [px, py] = f.pos, N = clamp(2 + Math.floor(unitCount(f.units) / 6), 2, 7);
   let cands = [];
   for (let j = 0; j < S.owner.length; j++) {
     if (!validTarget(nid, j)) continue;
     const ownN = nb4(j).filter(k => S.owner[k] === nid).length; if (!ownN) continue;
-    const [x, y] = XY(j); cands.push([dist(j, f.target) + 0.6 * Math.hypot(x - px, y - py) - 0.7 * ownN, j]);
+    const [x, y] = XY(j); cands.push([dist(j, f.target) + 0.6 * Math.hypot(x - px, y - py) - 0.7 * ownN + laneDev(j), j]);
   }
   if (f.approach === 'sea') cands = cands.filter(c => dist(c[1], f.target) <= 8);
   f.landing = false;
@@ -496,46 +510,70 @@ function distField(nid) {   // מרחק BFS מהשטח שלך
   for (let h = 0; h < q.length; h++) { const u = q[h]; for (const v of nb4(u)) if (d[v] < 0) { d[v] = d[u] + 1; q.push(v); } }
   return d;
 }
-function createOp(nid, target) { const op = { id: S.nextId++, n: nid, target, objectives: [], phases: [], cur: 0, gens: [], encT: 0, prepT: 0, replanT: 0, status: 'מתכנן' }; S.ops.push(op); planOp(op); return op; }
+function createOp(nid, target) { const op = { id: S.nextId++, n: nid, target, objectives: [], phases: [], cur: 0, gens: [], encT: 0, prepT: 0, replanT: 0, started: false, ax: null, lanes: null, status: 'מתכנן' }; S.ops.push(op); planOp(op); return op; }
 function cancelOp(op) { for (const id of op.gens) { const f = S.fronts.find(x => x.id === id); if (f) { f.role = 'defend'; f.op = null; f.target = null; f.plan = null; f.zone = []; } } S.ops = S.ops.filter(o => o !== op); }
 const OBJ_VAL = o => o.type === 'capital' ? 12 : KEY_VAL[o.type] || 0;
 const PHASE_NAMES = { capital: 'הבירה', city: 'ערים', factory: 'תעשייה', port: 'נמלים', airport: 'שדות תעופה', camp: 'בסיסים', university: 'אוניברסיטאות', land: 'שטח', custom: 'יעד מיוחד', encircle: 'כיתור' };
 const phaseName = g => [...new Set(g.map(o => o.custom ? 'custom' : o.type))].map(t => PHASE_NAMES[t]).join(' ו');
-// תכנון בשלבים: שלב 1 — יעדים קרובים לגבול ומקובצים יחד; כל שלב הבא נמדד מהשלב שלפניו; הבירה — בשלב האחרון.
-// בין שלב לשלב הגנרלים מתארגנים ומתרכזים בנקודות הזינוק, ורק אז תוקפים יחד.
+// ===================== מבצעים: ציר התקדמות ונתיבים =====================
+// המטה בוחר כיוון: מנקודת זינוק על הגבול שלנו אל לב האויב (הבירה, או יעד שסימנת). זה ציר המבצע.
+// היעדים הם רק מה שנמצא ברצועה סביב הציר — לא קופצים לצד השני של המפה.
+// כל גנרל מקבל נתיב מקביל לציר (ימין / מרכז / שמאל), כובש את היעדים שבנתיב שלו לפי הסדר,
+// ובין יעדים ממשיך לדחוף קדימה בנתיב — כך הקו מתקדם ברצף. גנרל שמקדים מדי או שאין לו יעד — מסייע לשכן.
+const OP_BAND = 10;            // עומק כל שלב לאורך הציר (משבצות)
+const opXY = (op, tile) => { const [x, y] = XY(tile), vx = x + 0.5 - op.ax.ox, vy = y + 0.5 - op.ax.oy; return { a: vx * op.ax.dx + vy * op.ax.dy, l: -vx * op.ax.dy + vy * op.ax.dx }; };
+const opPoint = (op, a, l) => [op.ax.ox + op.ax.dx * a - op.ax.dy * l, op.ax.oy + op.ax.dy * a + op.ax.dx * l];
+function nearestOwn(nid, x, y, inMain) {
+  const m = inMain ? mainComp(nid) : null; let best = null, bd = Infinity;
+  for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid && (!m || m[i])) { const [ix, iy] = XY(i), d = (ix - x) ** 2 + (iy - y) ** 2; if (d < bd) { bd = d; best = i; } }
+  return best;
+}
 function planOp(op) {
   const nid = op.n, own = []; for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid) own.push(i);
-  const landF = travelField(own, false, nid), keep = op.objectives.filter(o => o.custom && !objDone(op, o));
-  // יעדים שמגיעים אליהם ביבשה — קודם. יעד מעבר לים רק כשאין שום יעד יבשתי (ואז המבצע הוא מבצע נחיתה)
-  const collect = fld => {
+  const custom = op.objectives.filter(o => o.custom && !objDone(op, o));
+  let fld = travelField(own, false, nid); op.naval = false;
+  // כל היעדים האפשריים (ממוינים בהמשך לפי הציר)
+  const collect = F => {
     const out = [];
-    if (op.target >= 0) {
-      eachBuilding((b, j) => { if (b.n === op.target && KEY_VAL[b.type] && isFinite(fld[j])) out.push({ tile: j, type: b.capital ? 'capital' : b.type, d: fld[j] }); });
-      out.sort((a, b) => (a.d - OBJ_VAL(a) * 2) - (b.d - OBJ_VAL(b) * 2));
-      const cap = out.find(o => o.type === 'capital'), rest = out.filter(o => o !== cap).slice(0, 10); if (cap) rest.push(cap); return rest;
+    if (op.target >= 0) eachBuilding((b, j) => { if (b.n === op.target && KEY_VAL[b.type] && isFinite(F[j])) out.push({ tile: j, type: b.capital ? 'capital' : b.type }); });
+    else {
+      const neutral = []; for (let j = 0; j < S.owner.length; j++) if (S.owner[j] === -1 && !isWater(j) && isFinite(F[j])) neutral.push(j);
+      neutral.sort((a, b) => F[a] - F[b]);
+      for (const j of neutral) { if (out.length >= 10) break; if (out.every(o => dist(o.tile, j) >= 5)) out.push({ tile: j, type: 'land' }); }
     }
-    const neutral = []; for (let j = 0; j < S.owner.length; j++) if (S.owner[j] === -1 && !isWater(j) && isFinite(fld[j])) neutral.push(j);
-    neutral.sort((a, b) => fld[a] - fld[b]);
-    for (const j of neutral) { if (out.length >= 8) break; if (out.every(o => dist(o.tile, j) >= 6)) out.push({ tile: j, type: 'land', d: fld[j] }); }
     return out;
   };
-  let cands = collect(landF); op.naval = false;
-  if (!cands.length && ownPorts(nid).length) { cands = collect(travelField(own, true, nid)); op.naval = cands.length > 0; }
-  const phases = [], cap = cands.find(o => o.type === 'capital');
-  let rest = cands.filter(o => o !== cap);
-  while (rest.length) {
-    rest.sort((a, b) => a.d - b.d);
-    const first = rest[0], group = rest.filter(o => o.d <= first.d + 12 && dist(o.tile, first.tile) <= 16).slice(0, 4);
-    phases.push(group); rest = rest.filter(o => !group.includes(o));
-    for (const o of rest) o.d = Math.min(...group.map(g => dist(g.tile, o.tile)));
-  }
-  if (cap) { const last = phases[phases.length - 1]; if (last && last.length < 4 && dist(last[0].tile, cap.tile) < 10) last.push(cap); else phases.push([cap]); }
-  if (keep.length) phases.unshift(keep);
-  const fresh = !op.phases.length;
-  op.phases = phases.map((g, k) => ({ objs: g.map(o => ({ tile: o.tile, type: o.type, custom: !!o.custom, done: false })), state: fresh && k === 0 ? 'prep' : 'exec', name: phaseName(g) }));
-  op.cur = 0; op.prepT = 0;
+  let cands = collect(fld);
+  if (!cands.length && !custom.length && ownPorts(nid).length) { fld = travelField(own, true, nid); cands = collect(fld); op.naval = cands.length > 0; }
+  op.phases = []; op.objectives = []; op.ax = null;
+  if (!cands.length && !custom.length) return;
+  // יעד הכיוון: יעד שסימנת > הבירה > מרכז הכובד של היעדים הקרובים
+  let goal;
+  if (custom.length) goal = custom[0].tile;
+  else if (op.target >= 0) { const cap = cands.find(o => o.type === 'capital'); goal = cap ? cap.tile : cands.slice().sort((a, b) => fld[a.tile] - fld[b.tile])[0].tile; }
+  else goal = cands.slice().sort((a, b) => fld[a.tile] - fld[b.tile])[0].tile;
+  // נקודת זינוק: המשבצת שלנו שהכי קרובה ליעד הכיוון (בדרך שאפשר לעבור בה)
+  const back = travelField([goal], op.naval, nid); let origin = null, bd = Infinity; const m = mainComp(nid);
+  for (const i of own) if (m[i] && back[i] < bd) { bd = back[i]; origin = i; }
+  if (origin == null) origin = own[0];
+  const [ox, oy] = XY(origin), [gx, gy] = XY(goal), L = Math.hypot(gx - ox, gy - oy) || 1;
+  op.ax = { ox: ox + 0.5, oy: oy + 0.5, dx: (gx - ox) / L, dy: (gy - oy) / L, len: L, origin, goal };
+  op.landF = fld;
+  // הרצועה: רוחב לפי מספר הגנרלים. יעדים מחוצה לה לא נכנסים למבצע (מבצע אחר יטפל בהם)
+  const half = 7 + 3 * Math.min(4, Math.max(1, op.gens.length));
+  const inBand = cands.filter(o => { const c = opXY(op, o.tile); o.a = c.a; o.l = c.l; return c.a >= -4 && c.a <= L + 8 && Math.abs(c.l) <= half; });
+  const objs = [...custom.map(o => ({ ...o, ...opXY(op, o.tile) })), ...inBand.filter(o => !custom.some(c => c.tile === o.tile))];
+  // שלבים = רצועות עומק לאורך הציר; הבירה תמיד בשלב האחרון
+  const cap = objs.find(o => o.type === 'capital'), rest = objs.filter(o => o !== cap), bands = new Map();
+  for (const o of rest) { const k = Math.max(0, Math.floor(o.a / OP_BAND)); if (!bands.has(k)) bands.set(k, []); bands.get(k).push(o); }
+  const groups = [...bands.keys()].sort((a, b) => a - b).map(k => bands.get(k));
+  if (cap) { const last = groups[groups.length - 1]; if (last && Math.floor(cap.a / OP_BAND) === Math.floor(last[0].a / OP_BAND)) last.push(cap); else groups.push([cap]); }
+  const fresh = !op.started;
+  op.phases = groups.map((g, k) => ({ objs: g.map(o => ({ tile: o.tile, type: o.type, custom: !!o.custom, done: false, a: o.a, l: o.l })), state: fresh && k === 0 ? 'prep' : 'exec', name: phaseName(g) }));
+  op.cur = 0; op.prepT = 0; op.started = true;
   op.objectives = op.phases.flatMap(p => p.objs);
-  for (const f of opGenerals(op)) f.retarget = true;
+  op.lanes = null;
+  for (const f of opGenerals(op)) { f.retarget = true; f.bad = []; }
 }
 function objDone(op, o) {
   if (o.skip) return true;
@@ -557,7 +595,7 @@ function planEncircle(op) {
     const vx = (e.pos[0] - g0.pos[0]) / (d0 || 1), vy = (e.pos[1] - g0.pos[1]) / (d0 || 1), objs = [];
     for (const side of [-1, 1]) {
       const t = tileOf(e.pos[0] + vx * 4 - vy * side * 3, e.pos[1] + vy * 4 + vx * side * 3);
-      if (!isWater(t) && S.owner[t] === op.target) objs.push({ tile: t, type: 'encircle', army: e.id, until: S.time + 25, done: false });
+      if (!isWater(t) && S.owner[t] === op.target) objs.push({ tile: t, type: 'encircle', army: e.id, until: S.time + 25, done: false, ...(op.ax ? opXY(op, t) : { a: 0, l: 0 }) });
     }
     if (!objs.length) continue;
     ph.objs.unshift(...objs); op.objectives = op.phases.flatMap(p => p.objs);
@@ -567,45 +605,53 @@ function planEncircle(op) {
   }
 }
 function enemyPowerNear(nid, tile, r) { const [x, y] = XY(tile); let p = 0; for (const g of S.fronts) if (g.kind === 'land' && atWar(nid, g.n) && Math.hypot(g.pos[0] - x, g.pos[1] - y) <= r) p += frontPower(g, 'def'); return p; }
-// חלוקת יעדים בין הגנרלים: כל גנרל מקבל ציר משלו (יעד שאף גנרל אחר לא לוקח), לפי זמן הגעה, ערך והתנגדות.
-// גנרל שסיים את היעד שלו ממשיך מיד ליעד הבא — גם משלב הבא (בלי לחכות שכל השלב ייגמר), כך שהחזית זורמת.
-// גנרל עודף (יותר גנרלים מיעדים) מצטרף כתגבור ליעד הקשה ביותר.
-function assignGenerals(op, gens, open, next) {
-  const nid = op.n, hasPort = ownPorts(nid).length > 0;
-  const taken = new Map(); for (const g of opGenerals(op)) if (g.plan != null && !gens.includes(g)) taken.set(g.plan, (taken.get(g.plan) || 0) + 1);
-  const pool = [...open.map(o => ({ o, la: 0 })), ...next.map(o => ({ o, la: 1 }))].filter(p => !p.o.skip);
-  const fields = new Map();
-  for (const f of gens) {
-    const pt = tileOf(...f.pos), land = travelField([pt], false, nid), sea = (hasPort || op.naval || !mainComp(nid)[pt]) ? travelField([pt], true, nid) : null;
-    fields.set(f, { land, sea });
-  }
-  const cost = (f, p) => {
-    const F = fields.get(f), dl = F.land[p.o.tile], ds = F.sea ? F.sea[p.o.tile] + 10 : Infinity, d = Math.min(dl, ds);
-    if (!isFinite(d) || (f.bad || []).includes(p.o.tile)) return Infinity;
-    let c = d + p.la * 22 - OBJ_VAL(p.o) * 1.5 + (p.o.custom ? -15 : 0) + (p.o.type === 'encircle' ? -12 : 0);
-    if (enemyPowerNear(nid, p.o.tile, 6) > frontPower(f, 'atk') * 1.5) c += 15;
-    return c;
-  };
-  const left = gens.slice(), set = (f, p) => { const F = fields.get(f); f.plan = p.o.tile; f.approach = isFinite(F.land[p.o.tile]) && F.land[p.o.tile] <= (F.sea ? F.sea[p.o.tile] + 10 : Infinity) * 1.3 ? 'land' : 'sea'; f.jump = null; f.stuck = 0; f.retarget = false; taken.set(p.o.tile, (taken.get(p.o.tile) || 0) + 1); };
-  while (left.length) {
-    let best = null, bc = Infinity;
-    for (const f of left) for (const p of pool) { if (taken.has(p.o.tile)) continue; const c = cost(f, p); if (c < bc) { bc = c; best = [f, p]; } }
-    if (!best) break;
-    set(best[0], best[1]); left.splice(left.indexOf(best[0]), 1);
-  }
-  for (const f of left) {   // תגבור: ליעד הפתוח עם הכי הרבה התנגדות ביחס לכוח שכבר שם
-    let best = null, bc = Infinity;
-    for (const p of pool) { if (p.la) continue; const c = cost(f, p); if (!isFinite(c)) continue; const s = c - enemyPowerNear(nid, p.o.tile, 6) * 0.3 + (taken.get(p.o.tile) || 0) * 25; if (s < bc) { bc = s; best = p; } }
-    if (best) set(f, best); else { f.plan = null; f.retarget = false; }
-  }
+// נתיבים: גנרלים ממוינים לפי המיקום הצידי שלהם (כדי שלא יחצו זה את זה) ומקבלים היסט קבוע מהציר
+function assignLanes(op, gens) {
+  const k = gens.length; if (!k || !op.ax) return;
+  const gap = clamp(18 / k, 4, 8), sorted = gens.slice().sort((a, b) => opXY(op, tileOf(...a.pos)).l - opXY(op, tileOf(...b.pos)).l);
+  op.lanes = {}; op.laneJump = {};
+  sorted.forEach((f, i) => {
+    const l = (i - (k - 1) / 2) * gap; op.lanes[f.id] = l;
+    const [px, py] = opPoint(op, -1, l); op.laneJump[f.id] = nearestOwn(op.n, px, py, true) ?? op.ax.origin;
+  });
+  op.laneKey = gens.map(f => f.id).sort().join(',');
 }
-// נקודת זינוק: המשבצת שלנו הקרובה ליעד (בנחיתה — הנמל שלנו הקרוב ליעד)
-function jumpOff(f) {
-  if (f.jump != null && f.jumpFor === f.plan) return f.jump;
+// מה הגנרל עושה עכשיו: היעד הבא בנתיב שלו → סיוע לשכן שנתקע → דחיפה קדימה בנתיב
+function pickLaneTarget(op, f, gens, open, next) {
+  const nid = op.n, L = op.lanes[f.id], me = opXY(op, tileOf(...f.pos)), bad = f.bad || [];
+  const laneOf = o => { let best = null, bd = Infinity; for (const g of gens) { const d = Math.abs(o.l - op.lanes[g.id]); if (d < bd) { bd = d; best = g; } } return best; };
+  const pool = [...open.map(o => ({ o, la: 0 })), ...next.map(o => ({ o, la: 1 }))].filter(p => !p.o.skip && !bad.includes(p.o.tile));
+  // 1. היעדים בנתיב שלי — הקרוב ביותר לאורך הציר (לא חוזרים אחורה ולא קופצים לנתיב אחר)
+  const mine = pool.filter(p => laneOf(p.o) === f || p.o.custom || p.o.type === 'encircle' && Math.abs(p.o.l - L) < 8);
+  if (mine.length) {
+    const s = p => Math.max(p.o.a - me.a, -3) + Math.abs(p.o.l - L) * 0.6 + p.la * 6 - OBJ_VAL(p.o) * 0.4 - (p.o.custom ? 8 : 0) - (p.o.type === 'encircle' ? 8 : 0);
+    const best = mine.sort((x, y) => s(x) - s(y))[0];
+    return { tile: best.o.tile, why: 'יעד' };
+  }
+  // 2. סיוע: שכן בנתיב סמוך שנאבק ביעד שלו (חלש מהצורך) או שאני מקדים אותו ביותר מ-10 משבצות
+  const others = gens.filter(g => g !== f && g.plan != null && !g.retreating && op.lanes[g.id] != null);
+  const behind = others.map(g => ({ g, c: opXY(op, tileOf(...g.pos)) })).sort((a, b) => Math.abs(op.lanes[a.g.id] - L) - Math.abs(op.lanes[b.g.id] - L));
+  for (const { g, c } of behind) {
+    const struggling = g.engaged && frontPower(g, 'atk') < (g.needPow || 0) * 0.8 && g.planWhy !== 'דחיפה';
+    if (struggling || me.a - c.a > 10 && g.planWhy !== 'דחיפה') return { tile: g.plan, why: 'סיוע' };
+  }
+  // 3. דחיפה: נקודה 6 משבצות קדימה בנתיב שלי (לא מעבר לעומק השלב) — המשבצת של האויב הקרובה אליה
+  const maxA = Math.max(...[...open, ...next].map(o => o.a), op.ax.len);
+  const a = Math.min(me.a + 6, maxA + 2), [px, py] = opPoint(op, a, L);
   let best = null, bd = Infinity;
-  if (f.approach === 'sea') { for (const p of ownPorts(f.n)) { const d = dist(p, f.plan); if (d < bd) { bd = d; best = p; } } }
-  if (best == null) { const m = mainComp(f.n); for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === f.n && m[i]) { const d = dist(i, f.plan); if (d < bd) { bd = d; best = i; } } }
-  f.jump = best ?? tileOf(...f.pos); f.jumpFor = f.plan; return f.jump;
+  for (let r = 0; r <= 8 && best == null; r += 2) for (let y = Math.floor(py - r); y <= py + r; y++) for (let x = Math.floor(px - r); x <= px + r; x++) {
+    if (x < 0 || y < 0 || x >= W || y >= H) continue; const j = idx(x, y);
+    if (!validTarget(nid, j) || (op.target >= 0 && S.owner[j] !== op.target && S.owner[j] !== -1) || !isFinite(op.landF?.[j] ?? 0)) continue;
+    const d = (x - px) ** 2 + (y - py) ** 2; if (d < bd) { bd = d; best = j; }
+  }
+  if (best != null) return { tile: best, why: 'דחיפה' };
+  const any = others.find(g => g.planWhy !== 'דחיפה'); return any ? { tile: any.plan, why: 'סיוע' } : null;
+}
+// נקודת זינוק לנתיב (בנחיתה — הנמל שלנו הקרוב ליעד)
+function jumpOff(f) {
+  const op = S.ops.find(o => o.id === f.op);
+  if (f.approach === 'sea') { let best = null, bd = Infinity; for (const p of ownPorts(f.n)) { const d = dist(p, f.plan); if (d < bd) { bd = d; best = p; } } if (best != null) return best; }
+  return op?.laneJump?.[f.id] ?? op?.ax?.origin ?? tileOf(...f.pos);
 }
 function updateOp(op, dt) {
   const nid = op.n;
@@ -617,53 +663,63 @@ function updateOp(op, dt) {
   for (const f of gens) { f.role = 'attack'; f.op = op.id; }
   if (paused) { op.status = `לא במלחמה עם ${nm(op.target)}`; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
   let ph = op.phases[op.cur];
-  if (ph && ph.objs.every(o => o.done)) {
+  while (ph && ph.objs.every(o => o.done)) {
     ph.state = 'done';
     if (nid === 0) toast(`✅ מבצע ${opName(op)}: שלב ${op.cur + 1} (${ph.name}) הושלם`, 'good');
-    op.cur++; op.prepT = 0; ph = op.phases[op.cur];
-    if (ph) ph.state = 'exec';   // בלי עצירה: הגנרלים כבר ממשיכים ליעדי השלב הבא
+    op.cur++; ph = op.phases[op.cur];
+    if (ph) ph.state = 'exec';   // בלי עצירה: הקו ממשיך לרצועה הבאה
   }
-  if (!ph && (op.replanT || 0) <= S.time) { op.replanT = S.time + 4; for (const f of gens) f.bad = []; planOp(op); ph = op.phases[op.cur]; }
-  if (!ph) { { op.status = 'הושלם'; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; } }
+  if (!ph && (op.replanT || 0) <= S.time) { op.replanT = S.time + 4; planOp(op); ph = op.phases[op.cur]; }
+  if (!ph) { op.status = 'הושלם'; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
   op.encT -= dt; if (op.encT <= 0 && ph.state === 'exec') { planEncircle(op); op.encT = 3; }
+  const act = gens.filter(f => !f.retreating);
+  if (!op.lanes || op.laneKey !== act.map(f => f.id).sort().join(',')) { assignLanes(op, act); for (const f of act) f.retarget = true; }
   const open = ph.objs.filter(o => !o.done && !o.skip), next = (op.phases[op.cur + 1]?.objs || []).filter(o => !o.done && !o.skip);
-  const live_ = new Set([...open, ...next].map(o => o.tile)), need = [];
-  for (const f of gens) {
-    if (f.retreating) continue;
-    const cur = [...open, ...next].find(o => o.tile === f.plan);
+  const live_ = new Set([...open, ...next].map(o => o.tile));
+  // בחירת יעד לכל גנרל: כשהיעד נכבש, כשנתקע, או פעם ביומיים (דחיפה וסיוע מתעדכנים כל הזמן)
+  for (const f of act) {
     if ((f.stuck || 0) >= 3 && f.plan != null) {   // תקוע: היעד לא נגיש לגנרל הזה — מסמנים ועוברים הלאה
       (f.bad = f.bad || []).push(f.plan);
+      const cur = [...open, ...next].find(o => o.tile === f.plan);
       if (cur && !cur.custom) { cur.fails = (cur.fails || 0) + 1; if (cur.fails >= 2) cur.skip = true; }
-      f.stuck = 0; need.push(f); continue;
+      f.stuck = 0; f.retarget = true;
     }
-    if (!cur || !live_.has(f.plan) || f.retarget) need.push(f);
+    const lost = f.plan == null || (f.planWhy === 'יעד' && !live_.has(f.plan)) || S.owner[f.plan] === nid;
+    f.planT = (f.planT || 0) - dt;
+    if (!lost && !f.retarget && f.planT > 0) continue;
+    const pick = pickLaneTarget(op, f, act, open, next);
+    f.planT = f.planWhy === 'יעד' && pick?.why === 'יעד' ? 4 : 2; f.retarget = false;
+    if (!pick) { f.plan = null; f.planWhy = null; continue; }
+    if (pick.tile !== f.plan) { f.plan = pick.tile; f.stuck = 0; f.jump = null; }
+    f.planWhy = pick.why;
+    f.approach = !op.landF || isFinite(op.landF[f.plan]) ? 'land' : 'sea';
   }
-  if (need.length) assignGenerals(op, need, open, next);
-  const active = gens.filter(f => !f.retreating && f.plan != null);
-  // אף גנרל לא מצליח להגיע לאף יעד בשלב — מדלגים על השלב (אחרת המבצע נתקע)
-  if (gens.some(f => !f.retreating) && !active.length && open.length) { op.idleT = (op.idleT || 0) + dt; if (op.idleT > 4) { open.forEach(o => o.skip = true); op.idleT = 0; } } else op.idleT = 0;
+  const active = act.filter(f => f.plan != null);
+  if (act.length && !active.length && open.length) { op.idleT = (op.idleT || 0) + dt; if (op.idleT > 4) { open.forEach(o => o.skip = true); op.idleT = 0; } } else op.idleT = 0;
   if (ph.state === 'prep') {
-    // ריכוז כוחות: כל גנרל לנקודת הזינוק שלו; יוצאים כשכולם הגיעו וחזקים מספיק, או כשנגמר זמן ההכנה
+    // ריכוז כוחות: כל גנרל לנקודת הזינוק של הנתיב שלו; יוצאים כשכולם הגיעו וחזקים מספיק, או כשנגמר זמן ההכנה
     op.prepT += dt;
     let ready = true, have = 0, need = 0;
     for (const f of active) {
       const jt = jumpOff(f); f.target = null; f.zone = []; f.defend = jt;
       const [jx, jy] = XY(jt); if (Math.hypot(f.pos[0] - jx, f.pos[1] - jy) > 3 && f.status !== 'אין דרך ליעד') ready = false;
+      if (S.convoys.some(c => c.front === f.id && c.div != null)) ready = false;   // אוגדות עדיין בדרך מהמחנות
       have += frontPower(f, 'atk'); need += f.needPow || 0;
     }
     const limit = op.target < 0 ? 3 : CFG.PREP_MAX_DAYS;
     if (active.length && ((ready && have >= need * 0.6) || op.prepT > limit)) {
       ph.state = 'exec';
-      if (nid === 0) toast(`⚔ מבצע ${opName(op)}: שלב ${op.cur + 1} — יוצאים להתקפה (${ph.name})`, 'good');
+      if (nid === 0) toast(`⚔ מבצע ${opName(op)}: יוצאים להתקפה (${ph.name})`, 'good');
     }
     op.status = `שלב ${op.cur + 1}/${op.phases.length} · ריכוז כוחות${have < need * 0.6 ? ' (ממתין לתגבורת)' : ''}`;
   }
   if (ph.state === 'exec') {
     for (const f of active) if (f.target !== f.plan) { f.target = f.plan; f.defend = null; f.zone = []; f.prog = {}; f.zoneT = 0; }
-    for (const f of gens) if (!f.retreating && f.plan == null) { f.target = null; f.defend = tileOf(...f.pos); }
+    for (const f of act) if (f.plan == null) { f.target = null; f.defend = tileOf(...f.pos); }
     op.status = `שלב ${op.cur + 1}/${op.phases.length} · התקפה: ${ph.name}`;
   }
 }
+// הצנחה
 const paraDivs = nid => divsOf(nid).filter(d => d.type === 'cmdo' && d.loc === 'camp' && d.front == null && divStrength(d) >= 0.5);
 function paraCheck(nid, tile) {
   const n = S.nations[nid];

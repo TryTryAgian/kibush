@@ -110,7 +110,7 @@ function loadTerrain(settings, seed) {
 function newGame(settings) {
   const seed = settings.seed || (Math.random() * 1e9 | 0);
   const m = loadTerrain(settings, seed);
-  S = { v: 8, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null,
+  S = { v: 8, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
         terrain: m.terrain, owner: new Int8Array(W * H).fill(-1), buildings: {}, nations: [], diplo: {},
         fronts: [], convoys: [], offers: [], ops: [], rails: [], divs: [], nextId: 1, lastOwner: new Int8Array(W * H).fill(-1), railMap: new Uint8Array(W * H), core: new Int8Array(W * H).fill(-1), capDay: new Float32Array(W * H), lastWarDay: 0 };
   S.landTotal = S.terrain.reduce((a, t) => a + (TER[t].water ? 0 : 1), 0);

@@ -53,7 +53,11 @@ const CFG = {
   TRUCK_SPD: 2.5,              // משאיות (חי״ר ומערכות הגנה)
   BATCH_MIN: 4, BATCH_WAIT: 3, // שיירה יוצאת כשיש לפחות 4 יחידות, או אחרי 3 ימי המתנה
   // --- מבצעים בשלבים ---
-  PREP_MAX_DAYS: 6,
+  PREP_MAX_DAYS: 10,
+  DAY_CYCLE: 24,
+  AI_ECON: { easy: 0.75, normal: 1, hard: 1.3 },   // מכפיל כלכלה של אומות המחשב לפי רמת קושי
+  UNIT_ZOOM: 2.6,              // מהזום הזה ומעלה רואים יחידות בודדות במקום סמל               // אורך מחזור יום/לילה על המפה (ימי משחק) — קוסמטי בלבד
+  NEAR_CAMP: 16,               // מחנה "קרוב" לאזור מבצע (משבצות): ממנו נאספים הכוחות קודם
   TECH_COST: 2.6,              // מכפיל עלות מחקר (קצב המשחק)            // זמן מרבי לריכוז כוחות לפני שלב
 };
 const SPEEDS = [0, 1, 2, 4];
@@ -147,6 +151,18 @@ const TRAITS = {
   logistic:   { name: 'לוגיסטיקן',  desc: '+50% מהירות תגבור', reinforce: 1.5 },
   storm:      { name: 'סוער',       desc: '+25% מהירות כיבוש', capture: 1.25 },
 };
+// העדפות שחקן (נשמרות בנפרד מהמשחק)
+const PREFS = (() => { try { return { night: true, ...JSON.parse(localStorage.getItem('pixelConquest.prefs') || '{}') }; } catch (e) { return { night: true }; } })();
+function savePrefs() { try { localStorage.setItem('pixelConquest.prefs', JSON.stringify(PREFS)); } catch (e) {} }
+// שמות ערים (דמיוניים). עיר מקבלת שם לפי המשבצת שלה — קבוע לאורך המשחק
+const CITY_NAMES = ['גבעת ארז', 'נחל עוז', 'רמת שקד', 'עין תמר', 'כפר אלון', 'מגדל צור', 'בית הדר', 'נווה ים', 'תל רימון', 'קריית ברק', 'אשל', 'מעלה גפן', 'שדות', 'הר יונה', 'עמק זית', 'גשר הנחל', 'מצפה רוח', 'נמל אבן', 'כרם יער', 'גבע', 'אור נחל', 'צוק לבן', 'שער הגיא', 'בארות', 'מבוא חורש', 'רמת אגם', 'יער אלה', 'חוף כסף', 'גן ורד', 'מגן', 'תל ערבה', 'נחלים', 'קריית עוז', 'עין צבי', 'דליה', 'אבני חן', 'שקמה', 'רכס', 'פלגים', 'גבעות זהב', 'כפר רוח', 'נווה מדבר', 'מעיין', 'סלעית', 'אלומה', 'זרזיר', 'אפיק', 'מגדלים'];
+function cityName(i, b) {
+  if (b?.name) return b.name;
+  const used = new Set(); eachBuilding(c => { if (c.name) used.add(c.name); });
+  const start = (i * 2654435761 >>> 0) % CITY_NAMES.length;
+  for (let k = 0; k < CITY_NAMES.length; k++) { const nm = CITY_NAMES[(start + k) % CITY_NAMES.length]; if (!used.has(nm)) { if (b) b.name = nm; return nm; } }
+  const nm = CITY_NAMES[start] + ' ' + (used.size / CITY_NAMES.length + 1 | 0); if (b) b.name = nm; return nm;
+}
 const GEN_NAMES = ['אבירם', 'נועה', 'גדעון', 'מיכל', 'עמרי', 'טליה', 'יואב', 'שירה', 'ברק', 'הדס', 'אלון', 'רותם', 'עידו', 'מאיה', 'דורון', 'ליאת', 'צור', 'ענבל'];
 const NATION_PRESETS = [
   { name: 'האומה שלך',         color: '#4a8cff' },
@@ -155,6 +171,8 @@ const NATION_PRESETS = [
   { name: 'רפובליקת האיים',    color: '#b060e0' },
   { name: 'שבט היער',          color: '#20c0a8' },
   { name: 'קונפדרציית ההרים',  color: '#f07830' },
+  { name: 'מסדר הערבות',       color: '#d0509a' },
+  { name: 'נסיכות החוף',       color: '#88b83a' },
 ];
 const DEALS = { peace: 'הסכם שלום', trade: 'הסכם סחר', nap: 'הסכם אי-תקיפה', alliance: 'ברית הגנה הדדית', coalition: 'קואליציה' };
 // אישיות המחשב: warTh = יחס כוח נדרש למלחמה, risk = נכונות לסכן (מול קואליציה), join = נטייה להצטרף לקואליציות
