@@ -393,7 +393,7 @@ function draw() {
     }
     const pocket = f.kind === 'land' && f.supply !== 'ok' && inPocket(f);
     if (pocket && (now / 400 | 0) % 2) { ctx.strokeStyle = f.supply === 'cut' ? '#ff4060' : '#ffa030'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(X + 8, Y + 8, 10, 0, 7); ctx.stroke(); }
-    const type = f.kind === 'navy' ? 'ship' : f.flying ? 'plane' : mainType(f.units), strip = f.kind === 'navy' ? '#5fe0ff' : f.role === 'defend' ? '#7ad07a' : f.solo ? '#ff7ad8' : '#ffd84a';
+    const type = f.kind === 'navy' ? 'ship' : f.flying ? 'plane' : mainType(f.units), strip = f.kind === 'navy' ? '#5fe0ff' : f.role === 'defend' ? (f.defRole === 'reserve' ? '#3fb8a0' : '#7ad07a') : f.solo ? '#ff7ad8' : f.opRole === 'ME' ? '#ff9a3c' : f.opRole === 'EXP' ? '#ff5ab4' : '#ffd84a';
     if (cam.zoom >= CFG.UNIT_ZOOM && cnt && !f.flying) {   // זום קרוב: היחידות עצמן, ומעליהן סמל קטן ושם
       if (sel) { ctx.strokeStyle = 'rgba(95,224,255,.5)'; ctx.lineWidth = 0.6; ctx.setLineDash([1.5, 1]); ctx.beginPath(); ctx.arc(X + 8, Y + 8, 13, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
       drawTroops(f, X, Y, now);

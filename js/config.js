@@ -43,6 +43,20 @@ const CFG = {
   ORG_LOSS: 0.18,              // ירידת ארגון ליום בקרב שקול
   ORG_REGEN: 0.08,             // התאוששות ליום כשיש אספקה ואין קרב
   RETREAT_ORG: 0.15, RESUME_ORG: 0.7,   // מתחת לזה נסוג; מעל זה חוזר לפעולה
+  // --- מטה כללי (תורת הפיקוד — ראו מסמך המחקר) ---
+  HQ_TICK: 6,                  // כל כמה ימים המטה בוחן מחדש את המאמץ העיקרי (פיקוד משימה — לא כל יום)
+  SECTOR_W: 12,                // רוחב גזרה בסריקת הגבול
+  THREAT_R: 10, DEPTH: 8,      // טווח סריקת כוח אויב; עומק המבנים שנספרים כערך הגזרה
+  ME_SWITCH: 1.5, ME_STALL: 20,// הגזרה החדשה טובה פי X מהנוכחית; ימים בלי כיבוש יעד = המאמץ נתקע
+  ME_NEED: 2.2,                // המאמץ העיקרי מבקש פי X מכוח האויב מולו
+  BREAK_RATIO: 1.6,            // יחס כוחות מקומי שנחשב פרצה (שחרור הדרג השני)
+  EXP_COMMIT: 10,              // ימים שהדרג השני מחכה לפרצה לפני שהוא נכנס לקרב בכל מקרה
+  CULM_RATIO: 0.9, CULM_ORG: 0.35, CULM_SUPPLY: 22, CONSOL_DAYS: 3,   // נקודת השיא והתבססות
+  PIN_RATIO: 1.3, PIN_LEAD: 10, PULL_LEAD: 6,   // קיבוע: תוקף רק ביתרון; לא מקדים את המאמץ העיקרי; משיכת סיור
+  SCREEN_THREAT: 4, DELAY_THREAT: 1.6,          // תנוחת הגנה: מסך מתחת לאיום הזה; השהיה כשהאיום גדול פי X מכל ההגנה
+  MAIN_BELT: 3, RESERVE_BACK: 6, RES_RANGE: 16, // קו עיקרי בעומק; מיקום ועוצמת תגובה של העתודה
+  CA_RATIO: 1.4, OVEREXT: 6,                    // מכת נגד; עומק חדירה שנחשב "ראש חץ שהתארך"
+  DELAY_BREAK: 0.7, DELAY_STEP: 4, ENCIRCLE_SHARE: 0.35, COUNTER_RATIO: 1.5,
   // --- ערים ---
   CITY_MAX_LVL: 4, CITY_POP: 1000,     // אוכלוסייה לכל רמת עיר
   UPGRADE_GOLD: 150, UPGRADE_MAT: 100, UPGRADE_DAYS: 15,  // עלות שדרוג = × הרמה הנוכחית
@@ -177,16 +191,16 @@ const NATION_PRESETS = [
 const DEALS = { peace: 'הסכם שלום', trade: 'הסכם סחר', nap: 'הסכם אי-תקיפה', alliance: 'ברית הגנה הדדית', coalition: 'קואליציה' };
 // אישיות המחשב: warTh = יחס כוח נדרש למלחמה, risk = נכונות לסכן (מול קואליציה), join = נטייה להצטרף לקואליציות
 const PERS = {
-  aggr:   { name: 'תוקפני', warTh: 1.15, peaceTh: 0.5, risk: 1.25, join: 1.2, maxWars: 2, tradeP: 0.03, mob: [0.4, 0.7],
+  aggr:   { culm: 0.8, defFirst: 2.5, name: 'תוקפני', warTh: 1.15, peaceTh: 0.5, risk: 1.25, join: 1.2, maxWars: 2, tradeP: 0.03, mob: [0.4, 0.7],
             build: { camp: 2, factory: 3, city: 2, university: 1, airport: 1.5, port: 0.8, fortress: 0.4, upgrade: 1.5 }, camps: { inf: 2, cmdo: 1, light: 3, heavy: 3, art: 1.5, aa: 0.5 },
             tech: ['motor', 'drill', 'industry', 'logistics', 'heavy_armor', 'artillery', 'armor', 'commando', 'generals', 'blitz', 'science', 'aviation', 'bombers', 'mass_prod', 'air_def', 'agri', 'staff'] },
-  trade:  { name: 'סוחר', warTh: 1.8, peaceTh: 0.9, risk: 0.7, join: 0.8, maxWars: 1, tradeP: 0.12, mob: [0.25, 0.5],
+  trade:  { culm: 1.1, defFirst: 1.2, name: 'סוחר', warTh: 1.8, peaceTh: 0.9, risk: 0.7, join: 0.8, maxWars: 1, tradeP: 0.12, mob: [0.25, 0.5],
             build: { city: 3, port: 3, university: 2, factory: 2, camp: 1, airport: 0.6, fortress: 0.5, upgrade: 3 }, camps: { inf: 3, cmdo: 0.5, light: 2, heavy: 1, art: 1.5, aa: 1 },
             tech: ['trade', 'science', 'agri', 'industry', 'motor', 'logistics', 'banking', 'research', 'artillery', 'drill', 'air_def', 'fort', 'naval', 'generals', 'mass_prod', 'heavy_armor'] },
-  turtle: { name: 'מתבצר', warTh: 2.0, peaceTh: 0.75, risk: 0.6, join: 0.7, maxWars: 1, tradeP: 0.05, mob: [0.35, 0.6],
+  turtle: { culm: 1.2, defFirst: 0.9, name: 'מתבצר', warTh: 2.0, peaceTh: 0.75, risk: 0.6, join: 0.7, maxWars: 1, tradeP: 0.05, mob: [0.35, 0.6],
             build: { fortress: 3, camp: 2, factory: 2, city: 2, university: 1.5, airport: 1, port: 0.6, upgrade: 2 }, camps: { inf: 3, cmdo: 0.3, light: 1, heavy: 1.5, art: 3, aa: 2 },
             tech: ['fort', 'drill', 'industry', 'artillery', 'science', 'air_def', 'deep_def', 'barrage', 'motor', 'agri', 'logistics', 'heavy_armor', 'aviation', 'radar', 'generals'] },
-  naval:  { name: 'ימי', warTh: 1.4, peaceTh: 0.65, risk: 1.0, join: 1.0, maxWars: 1, tradeP: 0.08, mob: [0.3, 0.55],
+  naval:  { culm: 1.0, defFirst: 1.6, name: 'ימי', warTh: 1.4, peaceTh: 0.65, risk: 1.0, join: 1.0, maxWars: 1, tradeP: 0.08, mob: [0.3, 0.55],
             build: { port: 3, factory: 2, city: 2, university: 1.5, camp: 1, airport: 1.5, fortress: 0.5, upgrade: 2 }, camps: { inf: 2, cmdo: 3, light: 2, heavy: 1, art: 1, aa: 1 },
             tech: ['naval', 'trade', 'industry', 'drill', 'motor', 'commando', 'marines', 'logistics', 'escort', 'science', 'aviation', 'airborne', 'battleship', 'generals', 'artillery'] },
 };

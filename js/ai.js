@@ -74,10 +74,13 @@ function aiThink(n) {
   if (desired != null && !ops.some(o => o.target === desired)) { ops.forEach(cancelOp); createOp(nid, desired); }
   const op = S.ops.find(o => o.n === nid);
   const all = landGenerals(nid);
-  const nDef = !op ? all.length : wars.length ? Math.max(1, Math.round(all.length / 3)) : (all.length > 2 ? 1 : 0);
+  // הגנה קודמת להתקפה כשהסיכון גבוה (סף לפי אישיות); מ-4 גנרלים יש תמיד שני מגינים — כדי שתהיה עתודה ניידת
+  const hot = (n.hq?.sectors || []).filter(s => s.posture !== 'screen' && s.risk > P.defFirst).length;
+  let nDef = !op ? all.length : wars.length ? Math.max(1, Math.round(all.length / 3), all.length >= 4 ? 2 : 1) : (all.length > 2 ? 1 : 0);
+  if (op && wars.length && (n.hq?.risk || 0) > P.defFirst) nDef = Math.min(all.length - 1, Math.max(nDef, hot + 1));
   all.forEach((f, k) => {
     f.auto = true;
-    if (k < nDef) { if (f.role !== 'defend') { if (op) op.gens = op.gens.filter(id => id !== f.id); f.role = 'defend'; f.op = null; f.target = null; } }
+    if (k < nDef) { if (f.role !== 'defend') { if (op) op.gens = op.gens.filter(id => id !== f.id); f.role = 'defend'; f.op = null; f.target = null; f.opRole = null; f.consol = null; f.planHold = false; } }
     else if (op && !op.gens.includes(f.id)) { op.gens.push(f.id); f.role = 'attack'; f.op = op.id; }
   });
   // צי: חוסם נמל אויב קרוב

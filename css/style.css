@@ -74,3 +74,5 @@ input{font:inherit;background:#0b121e;color:var(--txt);border:1px solid var(--li
 .btn.big{padding:13px;font-size:16px}
 .btn.grow{flex:1}
 .home-foot{font-size:11px;text-shadow:0 1px 0 #000}
+
+.card .role{font-size:11px;color:var(--accent,#5fe0ff);margin:2px 0}

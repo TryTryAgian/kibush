@@ -21,7 +21,8 @@ function step(dt) {
   for (const f of S.fronts.slice()) { syncFront(f); if ((f.solo || f.airborne) && !f.flying && !frontDivs(f).length && !S.convoys.some(c => c.front === f.id)) S.fronts.splice(S.fronts.indexOf(f), 1); }
   for (const n of S.nations) {
     if (!n.alive) continue;
-    n.defT = (n.defT || 0) - dt; if (n.defT <= 0) { n.defT = 2; planDefense(n.id); }
+    n.defT = (n.defT || 0) - dt; if (n.defT <= 0) { n.defT = 1; planDefense(n.id); }
+    n.hqT = (n.hqT || 0) - dt; if (n.hqT <= 0) { n.hqT = CFG.HQ_TICK; hqPlan(n.id); }
     n.railT = (n.railT || 0) - dt; if (n.railT <= 0) { n.railT = 5; planRails(n.id); }
     if (n.isAI) { n.aiT += dt; if (n.aiT >= CFG.AI_THINK) { n.aiT = 0; aiThink(n); } }
   }
