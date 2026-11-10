@@ -353,7 +353,7 @@ function startDemo() {
   const keep = ui.home; newGame({ map: '', size: 'small', ai: 5, seed: (Math.random() * 1e9) | 0, demo: true });
   S.demo = true; S.nations[0].isAI = true; S.nations[0].pers = 'aggr'; S.speed = 4; ui.home = keep;
   for (let d = 0; d < 120; d++) for (let k = 0; k < 10; k++) step(0.1);   // קדימה בזמן — שיהיו כבר גבולות ומלחמות
-  view.cam.zoom = 2.2; view.pan = { a: Math.random() * 6.28 }; centerOnXY(W / 2, H / 2);
+  view.cam.zoom = 1.1; view.pan = { a: Math.random() * 6.28 }; centerOnXY(W / 2, H / 2);
 }
 function homePan(dt) {
   const p = view.pan || (view.pan = { a: 0 }); p.a += dt * 0.04;

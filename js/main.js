@@ -8,7 +8,7 @@ function save() {
 function load() {
   try {
     const raw = localStorage.getItem(CFG.SAVE_KEY); if (!raw) return false;
-    const d = JSON.parse(raw); if (d.v !== 8) return false;
+    const d = JSON.parse(raw); if (d.v !== 9) return false;
     const m = loadTerrain(d.settings, d.seed);
     S = { ...d, terrain: m.terrain, owner: Int8Array.from(d.owner), lastOwner: Int8Array.from(d.lastOwner), railMap: Uint8Array.from(d.railMap), core: Int8Array.from(d.core), capDay: Float32Array.from(d.capDay) };
     view.railDirty = true;

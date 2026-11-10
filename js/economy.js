@@ -2,13 +2,12 @@
 // כלכלה: תפוקה, בנייה, ערים, רכבות
 /* ---------- 7. ECONOMY ---------- */
 function claim(nid, i, r) {
-  const [x0, y0] = XY(i);
+  const [x0, y0] = XY(i); r = Math.round(r * G);
   for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
     if (dx * dx + dy * dy > r * r + r) continue;
     const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue;
-    const j = idx(x, y); if (!isWater(j) && S.owner[j] === -1) { S.owner[j] = nid; S.core[j] = nid; }
+    const j = idx(x, y); if (!isWater(j) && S.owner[j] === -1) { S.owner[j] = nid; S.core[j] = nid; markTile(j); }
   }
-  view.ownerDirty = true;
 }
 const SCALE = { city: 0.2, university: 0.5, factory: 0.1, airport: 0.3, camp: 0.12 };   // עלות עולה עם כל מבנה נוסף
 function buildCost(nid, type, dt) { const k = (1 + (SCALE[type] || 0) * countBuilding(nid, type)) * (type === 'camp' ? DIV_TYPES[dt || 'inf'].cost : 1); return Object.fromEntries(Object.entries(BUILD[type].cost).map(([r, v]) => [r, Math.round(v * k)])); }
@@ -23,8 +22,9 @@ function canBuild(nid, type, i, ignoreCost, dt) {
   if (S.buildings[i]) return no('יש כבר מבנה במשבצת');
   if (!B.terrain.includes(t)) return no(`${B.name} לא נבנה על ${TER[t].name}`);
   if (B.coastal && !isCoastal(i)) return no(`${B.name} חייב להיות צמוד לים`);
-  let close = false;
-  eachBuilding((b, j) => { if (b.type === type && cheb(i, j) < B.spacing) close = true; });
+  // מבנה מאותו סוג קרוב מדי: בודקים רק את החלון סביב המשבצת (ולא את כל המבנים במפה)
+  let close = false; const [ix, iy] = XY(i), sp = Math.ceil(B.spacing * G) - 1;
+  for (let y = Math.max(0, iy - sp); y <= Math.min(H - 1, iy + sp) && !close; y++) for (let x = Math.max(0, ix - sp); x <= Math.min(W - 1, ix + sp); x++) { const b = S.buildings[idx(x, y)]; if (b && b.type === type) { close = true; break; } }
   if (close) return no(`קרוב מדי ל${B.name} אחר`);
   if (type === 'camp' && dt && !kindReady(n, dt)) return no(`דורש מחקר: ${TECH[DIV_TYPES[dt].req].name}`);
   if (!ignoreCost && !canAfford(n, buildCost(nid, type, dt))) return no(`חסרים משאבים (${fmtCost(buildCost(nid, type, dt))})`);
@@ -51,7 +51,7 @@ function occupiedCount(nid) { let c = 0; for (let i = 0; i < S.owner.length; i++
 function dailyYield(nid, tilesCount) {
   const n = S.nations[nid], y = { gold: 0, mat: 0, man: 0.5, know: 1.5 * mod(n, 'know') }, em = econMul(n);
   const tiles = tilesCount ?? counts()[nid], se = snowEff(n, tiles), occ = occupiedCount(nid);
-  y.gold += Math.floor(tiles / 8) * em;
+  y.gold += Math.floor(tiles / (8 * G * G)) * em;
   eachBuilding((b, i) => {
     if (b.n !== nid || !done(b)) return;
     const Y = BUILD[b.type].yield, e = tileEff(i, nid), lv = b.type === 'city' ? 1 + CFG.CITY_LVL_BONUS * ((b.lvl || 1) - 1) : 1;
@@ -96,7 +96,7 @@ function shortages(n) {
   if (n.res.mat <= 0 && (n.last.mat || 0) < 0) { loseFrac(['ltank', 'htank', 'art', 'plane', 'ship', 'aa'], 0.01); if (n.id === 0 && S.day % 7 === 0) toast('⚠ אין חומרים: הציוד מתבלה. בנה מפעלים או ייבא חומרים', 'bad'); }
 }
 function stockOf(nid) { const u = zeroUnits(); eachBuilding(b => { if (b.n === nid && b.stock) for (const t of UKEYS) u[t] += b.stock[t] || 0; }); return u; }
-function militaryPower(nid) { const u = unitsOf(nid); let p = 0; for (const t of UKEYS) p += u[t] * (UNITS[t].atk + UNITS[t].def); return p + counts()[nid] * 0.2; }
+function militaryPower(nid) { const u = unitsOf(nid); let p = 0; for (const t of UKEYS) p += u[t] * (UNITS[t].atk + UNITS[t].def); return p + counts()[nid] * 0.2 / (G * G); }
 function allianceBloc(nid) { let p = militaryPower(nid); for (const m of S.nations) if (m.alive && allied(nid, m.id)) p += militaryPower(m.id) * 0.7; return p; }
 
 // מאיפה מאחסנים יחידה חדשה: מחנה (או שדה תעופה למטוסים) הקרוב

@@ -5,49 +5,6 @@ const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const terrainCv = document.createElement('canvas'), ownerCv = document.createElement('canvas'), railCv = document.createElement('canvas');
 const spriteCache = new Map();
 let iconURLs = null;
-// --- תשתית: כבישים ישרים בין ערים ומבנים (קוסמטי) + מסילות ---
-function roadNet() {
-  const cities = [], others = [];
-  eachBuilding((b, j) => { if (!done(b)) return; (b.type === 'city' ? cities : others).push(j); });
-  const clearLine = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b), n = Math.ceil(Math.hypot(bx - ax, by - ay) * 2); for (let k = 1; k < n; k++) { const t = tileOf(ax + (bx - ax) * k / n, ay + (by - ay) * k / n); if (isWater(t)) return false; } return true; };
-  const seen = new Set(), roads = [];
-  const add = (a, b, w) => { const k = a < b ? a + ':' + b : b + ':' + a; if (seen.has(k) || !clearLine(a, b)) return; seen.add(k); roads.push([a, b, w]); };
-  for (const a of cities) cities.filter(b => b !== a && dist(a, b) <= 18).sort((x, y) => dist(a, x) - dist(a, y)).slice(0, 2).forEach(b => add(a, b, 2));
-  for (const a of others) { const b = [...cities, ...others.filter(o => o !== a)].sort((x, y) => dist(a, x) - dist(a, y))[0]; if (b != null && dist(a, b) <= 7) add(a, b, 1.4); }
-  return roads;
-}
-function rebuildRails() {
-  const T = CFG.T; railCv.width = W * T * 2; railCv.height = H * T * 2; const c = railCv.getContext('2d'); c.scale(2, 2); c.lineCap = 'round';
-  // כבישים: קו כהה רחב ומעליו אפור בהיר — כמו במפה צבאית
-  const roads = roadNet();
-  for (const [w, col] of [[0, 'rgba(30,30,28,.55)'], [1, '#8c8a80']]) { c.strokeStyle = col; for (const [a, b, rw] of roads) { const [ax, ay] = XY(a), [bx, by] = XY(b); c.lineWidth = w ? rw - 1 : rw + 1; c.beginPath(); c.moveTo(ax * T + 8, ay * T + 8); c.lineTo(bx * T + 8, by * T + 8); c.stroke(); } }
-  c.lineCap = 'butt';
-  const segs = [];
-  for (let i = 0; i < S.railMap.length; i++) if (S.railMap[i]) {
-    const [x, y] = XY(i);
-    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
-      const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= W || Y >= H || !S.railMap[idx(X, Y)]) continue;
-      if (dx && dy && (S.railMap[idx(x + dx, y)] || S.railMap[idx(x, y + dy)])) continue;
-      segs.push([x, y, X, Y]);
-    }
-  }
-  const pass = (w, col, dash) => { c.lineWidth = w; c.strokeStyle = col; c.setLineDash(dash); c.beginPath(); for (const [a, b, X, Y] of segs) { c.moveTo(a * T + 8, b * T + 8); c.lineTo(X * T + 8, Y * T + 8); } c.stroke(); };
-  pass(4, '#3a362e', [0.7, 1.3]); pass(1.4, '#2a2a28', []); pass(0.5, '#b8b4a8', []);
-  c.setLineDash([]); view.railDirty = false; view.roadKey = roadKey();
-}
-const roadKey = () => { let k = 0; eachBuilding((b, j) => { if (done(b)) k += j + 1; }); return k; };
-// --- עיר: גוש בתים קטנים עם צל, גודל לפי רמת העיר ---
-const ROOFS = ['#c9b68c', '#b7a47c', '#a89670', '#d4c8a4', '#9c8c6c', '#bfae88'];
-function drawTown(i, b) {
-  const T = CFG.T, [x, y] = XY(i), cx = x * T + 8, cy = y * T + 8, lvl = b.lvl || 1, n = 6 + lvl * 6 + (b.capital ? 8 : 0), rad = 5 + lvl * 2.6;
-  for (let pass = 0; pass < 2; pass++) for (let k = 0; k < n; k++) {
-    const a = hash01(i, k, 11) * 6.283, r = Math.sqrt(hash01(k, i, 12)) * rad, hx = Math.round(cx + Math.cos(a) * r), hy = Math.round(cy + Math.sin(a) * r * 0.8);
-    const w = 1.5 + (hash01(i + k, 3, 13) * 3 | 0) * 0.75, h = 1.5 + (hash01(k, i + 3, 14) * 2 | 0) * 0.75;
-    if (pass === 0) { ctx.fillStyle = 'rgba(20,18,12,.45)'; ctx.fillRect(hx + 0.8, hy + 0.8, w, h); }
-    else { ctx.fillStyle = ROOFS[(hash01(i, k, 15) * ROOFS.length) | 0]; ctx.fillRect(hx, hy, w, h); ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(hx, hy, w, 0.5); }
-  }
-  if (b.capital) { ctx.fillStyle = 'rgba(20,18,12,.5)'; ctx.fillRect(cx - 2, cy - 2, 6, 6); ctx.fillStyle = '#d8d0b8'; ctx.fillRect(cx - 3, cy - 3, 6, 6); ctx.fillStyle = '#9a927c'; ctx.fillRect(cx - 2, cy - 2, 4, 4); }
-}
 // תווית מקום: קופסה כהה עם שם בהיר (ובבירה — שורה קטנה "בירה")
 function drawLabel(x, y, text, sub, col) {
   const k = view.lk || 1; if (k !== 1) { ctx.save(); ctx.translate(x, y); ctx.scale(k, k); drawLabel_(0, 0, text, sub, col); ctx.restore(); return; }
@@ -155,106 +112,43 @@ function nightLevel() { if (!PREFS.night || S?.demo) return 0;
 function nightLevel_() { const ph = (S.time / CFG.DAY_CYCLE) % 1; return clamp((-Math.cos(ph * Math.PI * 2) - 0.15) / 0.85, 0, 1); }
 function clockText() { const m = Math.floor(((S.time / CFG.DAY_CYCLE + 0.5) % 1) * 1440); return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60 - m % 10).padStart(2, '0')}`; }
 
-// --- גרפיקה בסגנון "מפה צבאית": פלטה עמומה ואדמתית, טלאי שדות, גושי יער כהים, קווי גובה, ים כהה עם נקודות אור ---
-// המפה מצוירת ברזולוציה כפולה (32 פיקסלים למשבצת). מעברים בין סוגי שטח בדיתור שחמט — פיקסלי ונקי.
-const MAPPAL = {
-  deep: '#1b2f38', sea: '#22404a', shallow: '#2f5660', speck: '#5d8088',
-  sand: '#9c8a62', sand2: '#8f7e58', dune: '#857552',
-  grass: '#6b6a44', grass2: '#646340',
-  fields: ['#7d8448', '#8f8c52', '#a3965e', '#6c7a40', '#8a7650', '#75703f', '#97a05a', '#5f6c3a'],
-  forest: '#3d4630', tree: '#2c3424', treeL: '#4b5638', treeS: '#232a1c',
-  hills: '#7c7452', mount: '#857c66', mountL: '#9c937a', mountD: '#625a4a', snow: '#b8bcbc', contour: '#4a4434',
-};
-function buildTerrainCanvas() {
-  const R = CFG.TR, T = CFG.T * R, PW = W * T, PH = H * T;
-  terrainCv.width = PW; terrainCv.height = PH; ownerCv.width = PW; ownerCv.height = PH;
-  const c = terrainCv.getContext('2d'), img = c.createImageData(PW, PH), d = img.data, seed = S.seed, C = hex2rgb, P = {};
-  for (const k in MAPPAL) P[k] = Array.isArray(MAPPAL[k]) ? MAPPAL[k].map(C) : C(MAPPAL[k]);
-  const put = (x, y, rgb, a = 1) => { if (x < 0 || y < 0 || x >= PW || y >= PH) return; const o = (y * PW + x) * 4; if (a >= 1) { d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; } else { d[o] += (rgb[0] - d[o]) * a; d[o + 1] += (rgb[1] - d[o + 1]) * a; d[o + 2] += (rgb[2] - d[o + 2]) * a; } d[o + 3] = 255; };
-  const coastD = new Float32Array(W * H).fill(99), q = [];
-  for (let i = 0; i < W * H; i++) if (!isWater(i)) { coastD[i] = 0; q.push(i); }
-  for (let h = 0; h < q.length; h++) { const u = q[h]; for (const v of nb4(u)) if (coastD[v] > coastD[u] + 1) { coastD[v] = coastD[u] + 1; q.push(v); } }
-  // הסטה בבלוקים של 4 פיקסלים: קווי חוף וגבולות שטח במדרגות פיקסליות
-  const nz = makeNoise(seed + 5), B = 4, BW = Math.ceil(PW / B), BH = Math.ceil(PH / B), jx = new Float32Array(BW * BH), jy = new Float32Array(BW * BH), el = new Float32Array(BW * BH);
-  for (let by = 0; by < BH; by++) for (let bx = 0; bx < BW; bx++) { const k = by * BW + bx, u = bx * B / T, v = by * B / T; jx[k] = (nz(u * 1.5, v * 1.5, 3) - 0.5) * T * 0.8; jy[k] = (nz(u * 1.5 + 40, v * 1.5 - 20, 3) - 0.5) * T * 0.8; el[k] = nz(u * 0.35 + 90, v * 0.35 + 9, 4); }
-  const terAt = (gx, gy) => { const k = ((gy / B) | 0) * BW + ((gx / B) | 0), x = clamp(Math.floor((gx + jx[k]) / T), 0, W - 1), y = clamp(Math.floor((gy + jy[k]) / T), 0, H - 1); return y * W + x; };
-  // טלאי שדות: מלבנים באורך/רוחב משתנים, בכל אחד צבע וכיוון חריש — רק במישור, וצפוף יותר ליד בירות
-  const caps = []; eachBuilding((b, j) => { if (b.capital) caps.push(XY(j)); });
-  const FS = 20;   // גודל תא בסיס לשדות (פיקסלים)
-  const fieldOf = (gx, gy) => {
-    const cx = Math.floor(gx / FS), cy = Math.floor(gy / FS), sx = hash01(cx, cy, seed + 61) < 0.5, h = hash01(cx >> 1, cy >> 1, seed + 62);
-    const fx = sx ? Math.floor(gx / (FS * 2)) : cx, fy = sx ? cy : Math.floor(gy / (FS * 2));
-    return { id: fx * 7919 + fy * 104729 + (sx ? 1 : 0), dir: hash01(fx, fy, seed + 63) < 0.5, col: (hash01(fx, fy, seed + 64) * MAPPAL.fields.length) | 0, x0: sx ? fx * FS * 2 : fx * FS, y0: sx ? fy * FS : fy * FS * 2, w: sx ? FS * 2 : FS, h: sx ? FS : FS * 2, r: h };
-  };
-  const farm = (tx, ty) => { const n = nz(tx * 0.18 + 300, ty * 0.18 - 70, 3); let near = 99; for (const [x, y] of caps) near = Math.min(near, Math.hypot(x - tx, y - ty)); return n > 0.52 - (near < 9 ? 0.25 : 0); };
-  const isW = (gx, gy) => TER[S.terrain[terAt(clamp(gx, 0, PW - 1), clamp(gy, 0, PH - 1))]].water;
-  for (let gy = 0; gy < PH; gy++) for (let gx = 0; gx < PW; gx++) {
-    const ti = terAt(gx, gy), t = S.terrain[ti], k = ((gy / B) | 0) * BW + ((gx / B) | 0), r = hash01(gx, gy, seed + 7), chk = (gx + gy) & 1;
-    let col;
-    if (TER[t].water) {
-      const dd = coastD[ti]; col = dd <= 1 ? P.shallow : dd <= 3 ? P.sea : P.deep;
-      if (dd === 2 && chk) col = P.shallow; if (dd === 4 && chk) col = P.sea;   // דיתור בין עומקים
-      if (r < 0.004) col = P.speck;
-    } else if (t === SAND) { col = r < 0.5 ? P.sand : P.sand2; if (((gx + Math.floor(gy / 3) * 5) % 11 === 0) && r < 0.6) col = P.dune; }
-    else if (t === GRASS) {
-      const [tx, ty] = XY(ti);
-      if (farm(tx, ty)) {
-        const f = fieldOf(gx, gy), lx = gx - f.x0, ly = gy - f.y0, edge = lx === 0 || ly === 0;
-        col = P.fields[f.col];
-        if ((f.dir ? lx : ly) % 3 === 0) col = col.map(v => v * 0.9);   // שורות חריש
-        if (edge) col = P.grass2;
-        if (f.r < 0.12) col = r < 0.5 ? P.grass : P.grass2;   // שטח בור בין השדות
-      } else col = r < 0.6 ? P.grass : P.grass2;
-    } else if (t === FOREST) col = P.forest;
-    else if (t === HILLS) col = P.hills;
-    else if (t === MOUNT) col = P.mount;
-    else col = P.snow;
-    // קווי גובה: גבעות והרים (וקצת במישור) — מפה טופוגרפית
-    if (!TER[t].water && t !== SAND) {
-      const e = el[k] * (t === MOUNT || t === SNOW ? 7 : t === HILLS ? 5 : 2.5), fl_ = Math.floor(e), fr = e - fl_;
-      if (t === MOUNT || t === SNOW || t === HILLS) col = col.map(v => v * (0.9 + 0.06 * (fl_ % 3)));   // מדרגות גובה
-      if (fr < 0.06 && (t !== GRASS || !farm(...XY(ti)))) col = col.map(v => v * 0.8);
-    }
-    put(gx, gy, col);
-  }
-  // חוף: פס בהיר דק בצד היבשה וקו כהה בצד המים, בדיתור
-  const beach = C('#a89870'), wetEdge = C('#2a4a52');
-  for (let gy = 0; gy < PH; gy++) for (let gx = 0; gx < PW; gx++) {
-    const w0 = isW(gx, gy), n = isW(gx + 1, gy) !== w0 || isW(gx - 1, gy) !== w0 || isW(gx, gy + 1) !== w0 || isW(gx, gy - 1) !== w0;
-    if (!n) continue; if (w0) put(gx, gy, wetEdge, 0.7); else if ((gx + gy) & 1) put(gx, gy, beach, 0.8);
-  }
-  // יערות: גושים של עצים עגולים כהים עם צל
-  const blob = (cx, cy, rr) => {
-    for (let y = -rr; y <= rr; y++) for (let x = -rr; x <= rr; x++) if (x * x + y * y <= rr * rr + 1) put(cx + x + 2, cy + y + 2, P.treeS, 0.55);
-    for (let y = -rr; y <= rr; y++) for (let x = -rr; x <= rr; x++) { const q2 = x * x + y * y; if (q2 > rr * rr + 1) continue; put(cx + x, cy + y, x + y < -rr * 0.6 ? P.treeL : P.tree); }
-  };
-  for (let ty = 0; ty < H; ty++) for (let tx = 0; tx < W; tx++) {
-    const i = idx(tx, ty), t = S.terrain[i], X0 = tx * T, Y0 = ty * T;
-    if (t === FOREST) { const n = 7 + (hash01(tx, ty, seed + 31) * 5 | 0); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 9 + k2, ty, seed + 3) * T | 0), Y0 + (hash01(tx, ty * 9 + k2, seed + 4) * T | 0), 2 + (hash01(k2, tx + ty, seed) * 3 | 0)); }
-    else if (t === GRASS && !farm(tx, ty) && hash01(tx, ty, seed + 33) < 0.18) { const n = 1 + (hash01(tx, ty, seed + 34) * 3 | 0); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 5 + k2, ty, seed + 35) * T | 0), Y0 + (hash01(tx, ty * 5 + k2, seed + 36) * T | 0), 2 + (k2 & 1)); }
-    else if ((t === MOUNT || t === SNOW) && hash01(tx, ty, seed + 40) < 0.45) {   // רכסים: קו בהיר מול קו כהה
-      const cx = X0 + 16, cy = Y0 + 16, a = hash01(tx, ty, seed + 41) * Math.PI;
-      for (let s = -8; s <= 8; s++) { const x = Math.round(cx + Math.cos(a) * s), y = Math.round(cy + Math.sin(a) * s); put(x, y, P.mountL); put(x + 1, y + 1, P.mountD); put(x + 2, y + 2, P.mountD, 0.5); }
-    }
-  }
-  c.putImageData(img, 0, 0);
+// גבולות: מילוי קל מאוד, קו גבול בצבע האומה עם קו כהה מבחוץ לניגודיות, שטח כבוש מקווקו.
+// השכבה נבנית פעם אחת; אחר כך מציירים מחדש רק משבצות שהבעלות עליהן השתנתה (והשכנות שלהן)
+const hatchPat = new Map();
+function hatchFor(col, c) {
+  if (hatchPat.has(col)) return hatchPat.get(col);
+  const p = document.createElement('canvas'); p.width = p.height = 6; const x = p.getContext('2d'); x.fillStyle = col;
+  for (let k = 0; k < 6; k++) x.fillRect(k, k, 1, 1);
+  const pat = c.createPattern(p, 'repeat'); hatchPat.set(col, pat); return pat;
 }
-// גבולות: מילוי קל מאוד, קו גבול בצבע האומה עם קו כהה מבחוץ לניגודיות, שטח כבוש מקווקו
-function rebuildOwner() {
-  const R = CFG.TR, T = CFG.T * R, c = ownerCv.getContext('2d');
-  c.clearRect(0, 0, ownerCv.width, ownerCv.height);
-  for (let i = 0; i < S.owner.length; i++) {
-    const o = S.owner[i]; if (o < 0) continue;
-    const [x, y] = XY(i), col = S.nations[o].color, X = x * T, Y = y * T;
-    c.globalAlpha = 0.13; c.fillStyle = col; c.fillRect(X, Y, T, T);
-    const L = x === 0 || S.owner[i - 1] !== o, Rr = x === W - 1 || S.owner[i + 1] !== o, U = y === 0 || S.owner[i - W] !== o, D = y === H - 1 || S.owner[i + W] !== o;
+function drawOwnerTile(c, i, P) {
+  const [x, y] = XY(i), X = x * P, Y = y * P, o = S.owner[i];
+  c.clearRect(X, Y, P, P); if (o < 0) return;
+  const col = S.nations[o].color, b = Math.max(1, P / 16);
+  c.globalAlpha = 0.06; c.fillStyle = col; c.fillRect(X, Y, P, P);
+  const L = x === 0 || S.owner[i - 1] !== o, Rr = x === W - 1 || S.owner[i + 1] !== o, U = y === 0 || S.owner[i - W] !== o, D = y === H - 1 || S.owner[i + W] !== o;
+  if (L || Rr || U || D) {
     c.globalAlpha = 0.6; c.fillStyle = '#0c1018';
-    if (L) c.fillRect(X, Y, 1, T); if (Rr) c.fillRect(X + T - 1, Y, 1, T); if (U) c.fillRect(X, Y, T, 1); if (D) c.fillRect(X, Y + T - 1, T, 1);
+    if (L) c.fillRect(X, Y, b, P); if (Rr) c.fillRect(X + P - b, Y, b, P); if (U) c.fillRect(X, Y, P, b); if (D) c.fillRect(X, Y + P - b, P, b);
     c.globalAlpha = 0.95; c.fillStyle = col;
-    if (L) c.fillRect(X + 1, Y, 2, T); if (Rr) c.fillRect(X + T - 3, Y, 2, T); if (U) c.fillRect(X, Y + 1, T, 2); if (D) c.fillRect(X, Y + T - 3, T, 2);
-    if (S.core[i] !== o) { c.globalAlpha = 0.35; c.fillStyle = col; for (let k = -T; k < T; k += 6) for (let q = 0; q < T; q += 2) { const xx = k + q; if (xx >= 0 && xx < T) c.fillRect(X + xx, Y + q, 2, 2); } }
+    if (L) c.fillRect(X + b, Y, 2 * b, P); if (Rr) c.fillRect(X + P - 3 * b, Y, 2 * b, P); if (U) c.fillRect(X, Y + b, P, 2 * b); if (D) c.fillRect(X, Y + P - 3 * b, P, 2 * b);
   }
-  c.globalAlpha = 1; view.ownerDirty = false;
+  if (S.core[i] !== o) { c.globalAlpha = 0.28; c.fillStyle = hatchFor(col, c); c.fillRect(X, Y, P, P); }
+  c.globalAlpha = 1;
+}
+const ownerPx = () => ownerCv.width / W;
+function rebuildOwner() {
+  const c = ownerCv.getContext('2d'), P = ownerPx();
+  c.clearRect(0, 0, ownerCv.width, ownerCv.height);
+  for (let i = 0; i < S.owner.length; i++) if (S.owner[i] >= 0) drawOwnerTile(c, i, P);
+  view.ownerDirty = false; view.ownDirty.clear();
+}
+function updateOwnerTiles() {
+  if (!view.ownDirty.size) return;
+  const c = ownerCv.getContext('2d'), P = ownerPx(), all = new Set();
+  for (const k of view.ownDirty) { all.add(k); for (const n of nb4(k)) all.add(n); }
+  for (const k of all) drawOwnerTile(c, k, P);
+  view.ownDirty.clear();
 }
 // ספרייטים: גיליון PNG אחד. פיקסלים במג'נטה (#ff00ff רגיל, #b000b0 כהה, #ff80ff בהיר) נצבעים בצבע האומה.
 // הגיליון מצויר ברזולוציה כפולה: יחידה 16×16 מוצגת בגודל 8, מבנה 24×24 בגודל 12 — פרטים חדים בזום.
@@ -318,22 +212,25 @@ function draw() {
   view.lk = clamp(2.6 / cam.zoom, 0.4, 1);   // תוויות לא גדלות בלי סוף בזום
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0b1018'; ctx.fillRect(0, 0, cv.width, cv.height);
   ctx.setTransform(z, 0, 0, z, -cam.x * z, -cam.y * z); ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(terrainCv, 0, 0, W * T, H * T);
-  if (view.ownerDirty) rebuildOwner();
+  // האזור הנראה (יחידות עולם) — מציירים רק מה שבתוכו
+  const vis = { x0: cam.x, y0: cam.y, x1: cam.x + cv.width / z, y1: cam.y + cv.height / z };
+  const inVis = (x, y, m = 24) => x > vis.x0 - m && x < vis.x1 + m && y > vis.y0 - m && y < vis.y1 + m;
+  drawTerrain(z, vis);
+  if (view.ownerDirty) rebuildOwner(); else updateOwnerTiles();
   ctx.drawImage(ownerCv, 0, 0, W * T, H * T);
   if (view.railDirty || view.roadKey !== roadKey() && (now - (view.roadT || 0) > 2000)) { view.roadT = now; rebuildRails(); }
-  ctx.drawImage(railCv, 0, 0, W * T, H * T);
+  if (z < TP.ZD) ctx.drawImage(railCv, 0, 0, W * T, H * T); else drawInfraChunks(vis);
+  // ספינות מסחר: זזות לפי זמן המשחק (עוצרות בהשהיה)
+  if (TRADE.last != null && TRADE.s === S) updateTrade(S.time - TRADE.last); else TRADE.ships = [];
+  TRADE.last = S.time; TRADE.s = S;
+  drawTradeShips(vis);
   if (ui.pick?.kind === 'build' && ui.hint) { ctx.fillStyle = 'rgba(95,224,255,.28)'; for (const i of ui.hint) { const [x, y] = XY(i); ctx.fillRect(x * T + 1, y * T + 1, T - 2, T - 2); } }
   ctx.textAlign = 'center';
   // ערים: גושי בתים; שאר המבנים: משטח בטון ועליו הספרייט
   eachBuilding((b, i) => {
-    const [x, y] = XY(i);
-    if (b.type === 'city' && done(b)) { drawTown(i, b); return; }
-    const bt = b.type === 'camp' ? 'camp:' + (b.dt || 'inf') : b.type;
-    if (b.type !== 'city' && b.type !== 'port') { ctx.fillStyle = 'rgba(15,15,10,.45)'; ctx.fillRect(x * T + 2, y * T + 2, 14, 14); ctx.fillStyle = '#6a6a60'; ctx.fillRect(x * T + 1, y * T + 1, 14, 14); ctx.fillStyle = '#5a5a52'; ctx.fillRect(x * T + 1.5, y * T + 1.5, 13, 13); }
-    if (!done(b)) { ctx.globalAlpha = 0.5; spr(bt, b.n, x * T + 2, y * T + 2); ctx.globalAlpha = 1; ctx.fillStyle = '#0c1018'; ctx.fillRect(x * T + 1, y * T + 13, 14, 2.5); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(x * T + 1.5, y * T + 13.5, 13 * b.prog, 1.5); }
-    else spr(bt, b.n, x * T + 2, y * T + 2, 0, true);
-    if (b.upg != null) { ctx.fillStyle = '#0c1018'; ctx.fillRect(x * T + 1, y * T + 13, 14, 2.5); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(x * T + 1.5, y * T + 13.5, 13 * b.upg, 1.5); }
+    const [x, y] = XY(i); if (!inVis(x * T, y * T, 40)) return;
+    if (b.type === 'city') { if (done(b)) { drawTown(i, b); if (b.upg != null) { ctx.fillStyle = '#0c1018'; ctx.fillRect(x * T + 1, y * T + 13, 14, 2.5); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(x * T + 1.5, y * T + 13.5, 13 * b.upg, 1.5); } } else { ctx.globalAlpha = 0.5; drawTown(i, { ...b, lvl: 1 }); ctx.globalAlpha = 1; ctx.fillStyle = '#0c1018'; ctx.fillRect(x * T + 1, y * T + 13, 14, 2.5); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(x * T + 1.5, y * T + 13.5, 13 * b.prog, 1.5); } return; }
+    drawBuilding(b, i, now);
   });
   // יעדי המבצעים שלך
   for (const op of S.ops) {
@@ -354,6 +251,7 @@ function draw() {
   // שיירות: סמל קטן בצבע האומה לאורך המסלול
   for (const c of S.convoys) {
     const [x, y] = pathPos(c.path, c.t), here = tileOf(x, y), u = c.units;
+    if (!inVis(x * T, y * T, 30)) continue;
     const air = c.mode === 'air' && (isWater(here) || S.owner[here] !== c.n);
     const arm = u.htank ? 'htank' : u.ltank ? 'ltank' : u.art ? 'art' : null;
     const lead = u.ship ? 'ship' : u.plane || air ? 'plane' : isWater(here) ? 'ship' : arm || 'truck';
@@ -361,12 +259,12 @@ function draw() {
     else drawCounter(x * T + 4, y * T + 5, 9, 6, S.nations[c.n].color, lead, cam.zoom >= 1.6 && c.cnt > 1 ? c.cnt : null, { dim: false });
   }
   // רכבות
-  for (const r of S.rails) { const [x, y] = pathPos(r.path, r.t); spr('train', r.n, x * T + 4, y * T + 4, 0, true); }
+  if (z >= 0.5) for (const r of S.rails) { const [x, y] = pathPos(r.path, r.t); if (inVis(x * T, y * T, 40)) drawTrain(r); }
   // תוויות ערים
-  if (cam.zoom >= 0.8) eachBuilding((b, i) => {
+  if (cam.zoom >= 0.45) eachBuilding((b, i) => {
     if (b.type !== 'city' || !done(b)) return;
-    const [x, y] = XY(i); if (!b.capital && cam.zoom < 1.3) return;
-    drawLabel(x * T + 8, y * T + 15 + (b.lvl || 1), cityName(i, b), b.capital ? 'בירה' : (cam.zoom >= 2 ? 'רמה ' + (b.lvl || 1) : null), S.nations[b.n].color);
+    const [x, y] = XY(i); if (!b.capital && cam.zoom < 0.9) return; if (!inVis(x * T, y * T, 60)) return;
+    drawLabel(x * T + 8, y * T + 8 + townRad(b) * 0.85, cityName(i, b), b.capital ? 'בירה' : (cam.zoom >= 2 ? 'רמה ' + (b.lvl || 1) : null), S.nations[b.n].color);
   });
   // גנרלים וציים: סמלי יחידה (קרב: הבזקים, קווי ירי ופיצוצים)
   ctx.textAlign = 'center';
@@ -380,6 +278,7 @@ function draw() {
     }
     if (sel && f.target != null) { const [tx, ty] = XY(f.target), cx = tx * T + 8, cy = ty * T + 8; ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.moveTo(cx - 7, cy); ctx.lineTo(cx - 3, cy); ctx.moveTo(cx + 3, cy); ctx.lineTo(cx + 7, cy); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx, cy - 3); ctx.moveTo(cx, cy + 3); ctx.lineTo(cx, cy + 7); ctx.stroke(); }
     const [px, py] = f.pos, X = px * T, Y = py * T;
+    if (!inVis(X, Y, 60)) continue;
     if (f.kind === 'land') {
       f.zone.forEach(j => {
         const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K));
@@ -416,7 +315,7 @@ function draw() {
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = `rgba(6,14,38,${0.5 * nl})`; ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.setTransform(z, 0, 0, z, -cam.x * z, -cam.y * z); ctx.globalCompositeOperation = 'lighter';
     eachBuilding((b, i) => {
-      if (b.type !== 'city' || !done(b)) return; const [x, y] = XY(i), r = 8 + (b.lvl || 1) * 4 + (b.capital ? 6 : 0);
+      if (b.type !== 'city' || !done(b)) return; const [x, y] = XY(i), r = townRad(b) * 1.5; if (!inVis(x * T, y * T, r)) return;
       const g = ctx.createRadialGradient(x * T + 8, y * T + 8, 0, x * T + 8, y * T + 8, r); g.addColorStop(0, `rgba(255,190,100,${0.4 * nl})`); g.addColorStop(1, 'rgba(255,190,100,0)');
       ctx.fillStyle = g; ctx.fillRect(x * T + 8 - r, y * T + 8 - r, r * 2, r * 2);
     });

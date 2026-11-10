@@ -36,16 +36,26 @@ const pick = (arr, r = Math.random) => arr[r() * arr.length | 0];
 let S = null;          // מצב המשחק (נשמר)
 let W = 0, H = 0;
 const ui = { tab: null, pick: null, sel: null, selFront: null, lastTab: null };
-const view = { cam: { x: 0, y: 0, zoom: 2 }, ownerDirty: true };
+const view = { cam: { x: 0, y: 0, zoom: 2 }, ownerDirty: true, ownDirty: new Set() };
+// שינוי בעלות על משבצת: מסמנים לציור מחדש רק אותה (ולא את כל שכבת הגבולות) ומעדכנים את מונה הגרסה
+let OWNV = 0;
+function markTile(k) { view.ownDirty.add(k); OWNV++; }
 const idx = (x, y) => y * W + x;
 const XY = i => [i % W, (i / W) | 0];
 const isWater = i => TER[S.terrain[i]].water;
 function nb4(i) { const x = i % W, y = (i / W) | 0, o = []; if (x > 0) o.push(i - 1); if (x < W - 1) o.push(i + 1); if (y > 0) o.push(i - W); if (y < H - 1) o.push(i + W); return o; }
 const isCoastal = i => !isWater(i) && nb4(i).some(isWater);
-const dist = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b); return Math.hypot(ax - bx, ay - by); };
-const cheb = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b); return Math.max(Math.abs(ax - bx), Math.abs(ay - by)); };
+// מרחקים ביחידות משחק (משבצת מקורית = G משבצות)
+const dist = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b); return Math.hypot(ax - bx, ay - by) / G; };
+const cheb = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b); return Math.max(Math.abs(ax - bx), Math.abs(ay - by)) / G; };
+const hyp = (dx, dy) => Math.hypot(dx, dy) / G;
 const tileOf = (x, y) => idx(clamp(Math.round(x), 0, W - 1), clamp(Math.round(y), 0, H - 1));
-function counts() { const c = S.nations.map(() => 0); for (let i = 0; i < S.owner.length; i++) if (S.owner[i] >= 0) c[S.owner[i]]++; return c; }
+const _cnt = { v: -1, c: null, s: null };
+function counts() {
+  if (_cnt.v === OWNV && _cnt.s === S) return _cnt.c.slice();
+  const c = S.nations.map(() => 0); for (let i = 0; i < S.owner.length; i++) if (S.owner[i] >= 0) c[S.owner[i]]++;
+  _cnt.v = OWNV; _cnt.s = S; _cnt.c = c; return c.slice();
+}
 function eachBuilding(fn) { for (const k in S.buildings) fn(S.buildings[k], +k); }
 const done = b => b.prog >= 1;
 function bCount(nid, type) { let c = 0; eachBuilding(b => { if (b.n === nid && b.type === type && done(b)) c++; }); return c; }
@@ -82,7 +92,8 @@ function parseAscii(rows) {
 function upscaleMap(m, k, seed) {
   const w = Math.round(m.w * k), h = Math.round(m.h * k), t = new Uint8Array(w * h), nz = makeNoise(seed + 3);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const ox = clamp(Math.floor((x + (nz(x / 5, y / 5, 3) - 0.5) * 2.6) / k), 0, m.w - 1), oy = clamp(Math.floor((y + (nz(x / 5 + 30, y / 5 - 30, 3) - 0.5) * 2.6) / k), 0, m.h - 1);
+    const f = 6 * G, A = 4.5 * G, g = 1.6 * G, B = 1.6 * G;
+    const ox = clamp(Math.floor((x + (nz(x / f, y / f, 3) - 0.5) * A + (nz(x / g + 9, y / g, 2) - 0.5) * B) / k), 0, m.w - 1), oy = clamp(Math.floor((y + (nz(x / f + 30, y / f - 30, 3) - 0.5) * A + (nz(x / g - 7, y / g + 5, 2) - 0.5) * B) / k), 0, m.h - 1);
     t[y * w + x] = m.terrain[oy * m.w + ox];
   }
   const starts = m.starts.map(i => { const x = Math.round((i % m.w + 0.5) * k), y = Math.round(((i / m.w | 0) + 0.5) * k), j = y * w + x; t[j] = GRASS; for (const d of [1, -1, w, -w]) if (TER[t[j + d]]?.water) t[j + d] = GRASS; return j; });
@@ -96,21 +107,21 @@ function placeCapitals(n, rnd) {
     const x = 3 + (rnd() * (W - 6) | 0), y = 3 + (rnd() * (H - 6) | 0), i = idx(x, y);
     if (!ok.includes(S.terrain[i])) continue;
     if (out.some(j => { const [a, b] = XY(j); return Math.hypot(a - x, b - y) < minD; })) continue;
-    let land = 0; for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H && !isWater(idx(xx, yy))) land++; }
-    if (land < 50) continue;
+    let land = 0; const R5 = 5 * G; for (let dy = -R5; dy <= R5; dy++) for (let dx = -R5; dx <= R5; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H && !isWater(idx(xx, yy))) land++; }
+    if (land < 50 * G * G) continue;
     out.push(i);
   }
   return out;
 }
 function loadTerrain(settings, seed) {
-  if (settings.map && FIXED_MAPS[settings.map]) { const m = upscaleMap(parseAscii(FIXED_MAPS[settings.map].rows), 1.6, seed); W = m.w; H = m.h; return m; }
+  if (settings.map && FIXED_MAPS[settings.map]) { const m = upscaleMap(parseAscii(FIXED_MAPS[settings.map].rows), 1.6 * G, seed); W = m.w; H = m.h; return m; }
   [W, H] = SIZES[settings.size];
   return { terrain: genTerrain(seed, W, H), starts: null };
 }
 function newGame(settings) {
   const seed = settings.seed || (Math.random() * 1e9 | 0);
   const m = loadTerrain(settings, seed);
-  S = { v: 8, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
+  S = { v: 9, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
         terrain: m.terrain, owner: new Int8Array(W * H).fill(-1), buildings: {}, nations: [], diplo: {},
         fronts: [], convoys: [], offers: [], ops: [], rails: [], divs: [], nextId: 1, lastOwner: new Int8Array(W * H).fill(-1), railMap: new Uint8Array(W * H), core: new Int8Array(W * H).fill(-1), capDay: new Float32Array(W * H), lastWarDay: 0 };
   S.landTotal = S.terrain.reduce((a, t) => a + (TER[t].water ? 0 : 1), 0);
@@ -167,7 +178,7 @@ function findPath(nid, from, to, opt = {}) {
   while (heap.size) {
     const u = heap.pop()[1]; if (closed[u]) continue; closed[u] = 1;
     if (u === to) { found = true; break; }
-    if (++iter > 30000) break;
+    if (++iter > 30000 * G * G) break;
     const ux = u % W, uy = (u / W) | 0, uw = isWater(u);
     for (const [dx, dy, m] of DIRS8) {
       const vx = ux + dx, vy = uy + dy; if (vx < 0 || vy < 0 || vx >= W || vy >= H) continue;
@@ -206,7 +217,8 @@ function travelField(sources, sea, nid) {
   }
   return d;
 }
-function straightPath(from, to, w = 1) { const d = dist(from, to) * w; return { tiles: [from, to], cum: [0, d], total: d }; }
+// אורך במשבצות, כמו מסלולי A*
+function straightPath(from, to, w = 1) { const d = dist(from, to) * G * w; return { tiles: [from, to], cum: [0, d], total: d }; }
 function joinPaths(...ps) {
   const out = { tiles: [], cum: [], total: 0 };
   for (const p of ps) { p.tiles.forEach((t, k) => { if (k === 0 && out.tiles.length) return; out.tiles.push(t); out.cum.push(out.total + p.cum[k]); }); out.total += p.total; }

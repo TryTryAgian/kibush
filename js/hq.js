@@ -6,7 +6,7 @@
 //         נסיגה מפני כיתור; מעבר למתקפת נגד כשהתוקף נעצר.
 /* ---------- HQ ---------- */
 const enemiesOf = nid => S.nations.filter(m => m.alive && atWar(nid, m.id)).map(m => m.id);
-const armiesNear = (pred, x, y, r) => S.fronts.filter(g => g.kind === 'land' && !g.flying && unitCount(g.units) && pred(g) && Math.hypot(g.pos[0] - x, g.pos[1] - y) <= r);
+const armiesNear = (pred, x, y, r) => S.fronts.filter(g => g.kind === 'land' && !g.flying && unitCount(g.units) && pred(g) && hyp(g.pos[0] - x, g.pos[1] - y) <= r);
 const powNear = (pred, x, y, r, kind) => armiesNear(pred, x, y, r).reduce((a, g) => a + frontPower(g, kind), 0);
 const persOf = nid => PERS[S.nations[nid].pers] || PERS.aggr;
 // מרחק BFS ביבשה בלבד ממקורות
@@ -30,7 +30,7 @@ function sectorScan(nid) {
     if (S.owner[i] !== nid) continue;
     let e = -1; for (const k of nb4(i)) { const o = S.owner[k]; if (o >= 0 && en.includes(o)) { e = o; break; } }
     if (e < 0) continue;
-    const [x, y] = XY(i), key = `${e}:${Math.floor(x / SW)}:${Math.floor(y / SW)}`;
+    const [x, y] = XY(i), key = `${e}:${Math.floor(x / (SW * G))}:${Math.floor(y / (SW * G))}`;
     if (!cells.has(key)) cells.set(key, { e, tiles: [] }); cells.get(key).tiles.push(i);
   }
   const mine = [], theirs = {};
@@ -103,10 +103,10 @@ function localRatio(f, tile, r = 6) { return frontPower(f, 'atk') / (enemyPowerN
 function consolidateTile(f) {
   const nid = f.n, m = mainComp(nid), [px, py] = f.pos.map(Math.round), foes = armiesNear(g => atWar(nid, g.n), px, py, 14);
   let best = null, bs = Infinity;
-  for (let y = py - 7; y <= py + 7; y++) for (let x = px - 7; x <= px + 7; x++) {
+  const R7 = 7 * G; for (let y = py - R7; y <= py + R7; y++) for (let x = px - R7; x <= px + R7; x++) {
     if (x < 0 || y < 0 || x >= W || y >= H) continue; const j = idx(x, y); if (S.owner[j] !== nid || !m[j]) continue;
-    const fd = foes.reduce((a, g) => Math.min(a, Math.hypot(g.pos[0] - x, g.pos[1] - y)), 99);
-    const s = Math.hypot(x - px, y - py) + (fd <= CFG.ENGAGE_R + 1 ? 20 : 0);
+    const fd = foes.reduce((a, g) => Math.min(a, hyp(g.pos[0] - x, g.pos[1] - y)), 99);
+    const s = hyp(x - px, y - py) + (fd <= CFG.ENGAGE_R + 1 ? 20 : 0);
     if (s < bs) { bs = s; best = j; }
   }
   return best ?? nearestOwn(nid, px, py, true) ?? tileOf(...f.pos);
@@ -122,15 +122,15 @@ function checkCulmination(f) {
 // ===================== הגנה =====================
 // קו הגנה בעומק: משבצת שלנו במרחק depth מהאויב, הכי קרובה לגזרה
 function beltTile(nid, at, depth, ef) {
-  const m = mainComp(nid), [cx, cy] = XY(at), R = depth + 6; let best = null, bs = Infinity;
+  const m = mainComp(nid), [cx, cy] = XY(at), R = Math.round((depth + 6) * G); let best = null, bs = Infinity;
   for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
     if (x < 0 || y < 0 || x >= W || y >= H) continue; const j = idx(x, y); if (S.owner[j] !== nid || !m[j] || ef[j] < 0) continue;
-    const s = Math.abs(ef[j] - depth) * 2 + Math.hypot(x - cx, y - cy) * 0.5;
+    const s = Math.abs(ef[j] / G - depth) * 2 + hyp(x - cx, y - cy) * 0.5;
     if (s < bs) { bs = s; best = j; }
   }
   return best ?? at;
 }
-function ownShare(nid, x, y, r = 3) { let o = 0, t = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const xx = Math.round(x) + dx, yy = Math.round(y) + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue; const j = idx(xx, yy); if (isWater(j)) continue; t++; if (S.owner[j] === nid) o++; } return t ? o / t : 1; }
+function ownShare(nid, x, y, r = 3 * G) { let o = 0, t = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const xx = Math.round(x) + dx, yy = Math.round(y) + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue; const j = idx(xx, yy); if (isWater(j)) continue; t++; if (S.owner[j] === nid) o++; } return t ? o / t : 1; }
 function planDefense(nid) {
   const n = S.nations[nid];
   const defs = S.fronts.filter(f => f.n === nid && f.kind === 'land' && f.role === 'defend' && !f.retreating && !f.solo && !f.airborne); if (!defs.length) return;
@@ -180,8 +180,8 @@ function planDefense(nid) {
   if (unitCount(reserve.units) && reserve.org > 0.5) for (const e of S.fronts) {
     if (e.kind !== 'land' || !en.includes(e.n) || !unitCount(e.units) || e.flying) continue;
     const et = tileOf(...e.pos); if (S.core[et] !== nid && S.owner[et] !== nid) continue;   // רק צבאות שחדרו לשטח שלנו
-    const cf = cores[e.n] || (cores[e.n] = coreField(e.n)), depth = cf[et] < 0 ? 99 : cf[et];
-    const d = Math.hypot(e.pos[0] - reserve.pos[0], e.pos[1] - reserve.pos[1]); if (d > CFG.RES_RANGE) continue;
+    const cf = cores[e.n] || (cores[e.n] = coreField(e.n)), depth = cf[et] < 0 ? 99 : cf[et] / G;
+    const d = hyp(e.pos[0] - reserve.pos[0], e.pos[1] - reserve.pos[1]); if (d > CFG.RES_RANGE) continue;
     const weak = e.org < 0.6 || e.supply !== 'ok' || e.consol;
     const overext = depth >= CFG.OVEREXT && (weak || rp > frontPower(e, 'def') * CFG.CA_RATIO);
     const breach = depth >= CFG.MAIN_BELT && rp > frontPower(e, 'def') * 0.8;
@@ -192,9 +192,9 @@ function planDefense(nid) {
   if (best) {
     // מכים בבסיס הבליטה: המשבצת ליד הצבא שהכי קרובה לשטח המקורי שלו — מנתקים אותו
     const [ex, ey] = best.e.pos.map(Math.round); let tgt = null, tb = Infinity;
-    for (let y = ey - 4; y <= ey + 4; y++) for (let x = ex - 4; x <= ex + 4; x++) {
+    const R4 = 4 * G; for (let y = ey - R4; y <= ey + R4; y++) for (let x = ex - R4; x <= ex + R4; x++) {
       if (x < 0 || y < 0 || x >= W || y >= H) continue; const j = idx(x, y); if (!validTarget(nid, j) || S.owner[j] !== best.e.n) continue;
-      const s = (best.cf[j] < 0 ? 99 : best.cf[j]) * 2 + Math.hypot(x - reserve.pos[0], y - reserve.pos[1]) * 0.3;
+      const s = (best.cf[j] < 0 ? 99 : best.cf[j] / G) * 2 + hyp(x - reserve.pos[0], y - reserve.pos[1]) * 0.3;
       if (s < tb) { tb = s; tgt = j; }
     }
     if (tgt != null) {

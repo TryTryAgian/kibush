@@ -39,7 +39,9 @@ function aiThink(n) {
         if (!canAfford(n, upgradeCost(S.buildings[cities[0]]))) { saving = true; break; }
         upgradeCity(nid, cities[0]); built = true; break;
       }
-      let cand = own.filter(i => canBuild(nid, type, i, true).ok);
+      // דגימה: עד 400 משבצות אקראיות מהשטח (במקום לבדוק את כולן)
+      const pool = own.length > 400 ? Array.from({ length: 400 }, () => own[Math.random() * own.length | 0]) : own;
+      let cand = pool.filter(i => canBuild(nid, type, i, true).ok);
       if (type === 'fortress' && wars.length) { const b = cand.filter(i => nb4(i).some(k => S.owner[k] >= 0 && atWar(nid, S.owner[k]))); if (b.length) cand = b; }
       if (!cand.length) continue;
       if (!canAfford(n, buildCost(nid, type))) { saving = true; break; }
@@ -62,7 +64,8 @@ function aiThink(n) {
   if (wars.length) {
     const cands = wars.filter(m => { for (let j = 0; j < S.owner.length; j++) if (S.owner[j] === m.id && reachable(nid, j, ports)) return true; return false; });
     // יעד המלחמה: אויב חלש וקרוב — עם גבול משותף ארוך. לא מחליפים יעד בלי סיבה טובה (כדי שהגנרלים לא יחצו את המפה הלוך ושוב)
-    const contact = m => { let c = 0; for (let j = 0; j < S.owner.length; j++) if (S.owner[j] === m.id && nb4(j).some(k => S.owner[k] === nid)) c++; return c; };
+    const cmap = {}; for (let j = 0; j < S.owner.length; j++) { const o = S.owner[j]; if (o >= 0 && o !== nid && nb4(j).some(k => S.owner[k] === nid)) cmap[o] = (cmap[o] || 0) + 1; }
+    const contact = m => cmap[m.id] || 0;
     const score = m => allianceBloc(m.id) / (1 + contact(m) * 0.15);
     const cur = ops.find(o => o.target >= 0 && cands.some(m => m.id === o.target));
     if (cands.length) {
@@ -92,7 +95,7 @@ function aiThink(n) {
   for (const f of fleets) {
     if (f.mission === 'escort' && seaNeed) continue;
     if (wars.length && f.mission !== 'blockade') {
-      let best = null, bd = 30; eachBuilding((b, j) => { if (b.type === 'port' && done(b) && atWar(nid, b.n)) { const d = Math.hypot(f.pos[0] - j % W, f.pos[1] - ((j / W) | 0)); if (d < bd) { bd = d; best = j; } } });
+      let best = null, bd = 30; eachBuilding((b, j) => { if (b.type === 'port' && done(b) && atWar(nid, b.n)) { const d = hyp(f.pos[0] - j % W, f.pos[1] - ((j / W) | 0)); if (d < bd) { bd = d; best = j; } } });
       if (best != null) setBlockade(f, best);
     } else if (!wars.length && f.mission === 'blockade') { f.navTarget = null; f.mission = 'home'; }
   }
