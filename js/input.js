@@ -50,7 +50,7 @@ function onTap(i) {
   let f = null, fd = 0.9 * G; for (const x of S.fronts) { if (x.n !== 0) continue; const d = Math.hypot(x.pos[0] - tx, x.pos[1] - ty); if (d < fd) { fd = d; f = x; } }
   if (!f && !S.buildings[i]) i = snapTile(i, k => !!S.buildings[k], 0.45);   // הקשה על ציור של מבנה — בוחרים את המבנה
   if (f && f.solo && !f.flying) { const d = frontDivs(f)[0]; ui.selFront = f.id; ui.sel = null; ui.tab = null; if (d) ui.pick = { kind: 'order', div: d.id }; }
-  else if (f) { ui.selFront = f.id; ui.tab = 'fronts'; ui.sel = null; }
+  else if (f) { ui.selFront = f.id; ui.tab = 'fronts'; ui.sel = null; if (f.kind === 'land' && !S.axHint) { S.axHint = true; toast('💡 גרור מהגנרל הנבחר אל שטח האויב כדי לצייר לו ציר התקפה'); } }
   else { ui.sel = ui.sel === i ? null : i; ui.tab = null; }
   render();
 }
@@ -72,12 +72,22 @@ function centerOn(i) { view.cam.zoom = clamp(innerWidth / (36 * 16), 0.5, 4); ce
 const ptrs = new Map(); let gesture = null;
 cv.addEventListener('pointerdown', e => {
   cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (ptrs.size === 1) gesture = { type: 'pan', sx: e.clientX, sy: e.clientY, moved: false };
-  else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; gesture = { type: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), z0: view.cam.zoom }; }
+  if (ptrs.size === 1) {
+    gesture = { type: 'pan', sx: e.clientX, sy: e.clientY, moved: false };
+    // גרירה שמתחילה על הגנרל הנבחר = ציור ציר התקפה
+    const f = S && ui.selFront != null && !ui.pick ? S.fronts.find(x => x.id === ui.selFront && x.n === 0 && x.kind === 'land' && !x.flying) : null;
+    if (f) { const cam = view.cam, wx = cam.x + e.clientX / cam.zoom, wy = cam.y + e.clientY / cam.zoom, gx = (f.pos[0] + 0.5) * CFG.T, gy = (f.pos[1] + 0.5) * CFG.T;
+      if (Math.hypot(wx - gx, wy - gy) * cam.zoom < 34) { gesture = { type: 'axis', f, sx: e.clientX, sy: e.clientY, moved: false }; AXDRAG = { f, wx, wy }; } }
+  }
+  else if (ptrs.size === 2) { AXDRAG = null; const [a, b] = [...ptrs.values()]; gesture = { type: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), z0: view.cam.zoom }; }
 });
 cv.addEventListener('pointermove', e => {
   const p = ptrs.get(e.pointerId); if (!p || !gesture) return;
   const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+  if (gesture.type === 'axis') {
+    if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) > 10) gesture.moved = true;
+    const cam = view.cam; AXDRAG = { f: gesture.f, wx: cam.x + e.clientX / cam.zoom, wy: cam.y + e.clientY / cam.zoom, live: gesture.moved }; return;
+  }
   if (gesture.type === 'pan') {
     if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) > 8) gesture.moved = true;
     if (gesture.moved) { view.cam.x -= dx / view.cam.zoom; view.cam.y -= dy / view.cam.zoom; clampCam(); }
@@ -86,6 +96,13 @@ cv.addEventListener('pointermove', e => {
 const endPtr = e => {
   if (!ptrs.has(e.pointerId)) return;
   ptrs.delete(e.pointerId);
+  if (gesture?.type === 'axis') {
+    AXDRAG = null; const i = screenToTile(e.clientX, e.clientY);
+    if (e.type === 'pointerup' && i != null) {
+      if (!gesture.moved) onTap(i);
+      else { const f = gesture.f, r = setAxis(f, i); if (!r.ok) toast(r.reason, 'bad'); else { toast(`➹ ${f.gen.name} תוקף בציר שציירת`, 'good'); render(); } }
+    }
+  }
   if (gesture?.type === 'pan' && !gesture.moved && e.type === 'pointerup' && S) { const i = screenToTile(e.clientX, e.clientY); if (i != null) onTap(i); }
   if (ptrs.size === 0) gesture = null; else if (gesture?.type === 'pinch') gesture = { type: 'pan', sx: 0, sy: 0, moved: true };
 };

@@ -275,6 +275,7 @@ function draw() {
   });
   // גנרלים וציים: סמלי יחידה (קרב: הבזקים, קווי ירי ופיצוצים)
   ctx.textAlign = 'center';
+  drawContact(inVis, now, fdt);   // עשן ואש מתחת ליחידות
   for (const f of S.fronts) {
     const col = S.nations[f.n].color, mine = f.n === 0, cnt = unitCount(f.units), sel = mine && f.id === ui.selFront;
     if (mine && f.path && (sel || cam.zoom > 1)) {
@@ -291,7 +292,7 @@ function draw() {
         const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K));
         ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); ctx.globalAlpha = 1;
         if (cnt && S.owner[j] >= 0) {
-          if (Math.random() < fdt * (f.engaged ? 1.6 : 0.5) * (cam.zoom >= CFG.UNIT_ZOOM ? 1 : 4) / (G * G)) spawnBoom(x * T + Math.random() * T, y * T + Math.random() * T, false);
+          if (Math.random() < fdt * (f.engaged ? 0.8 : 0.3) * (cam.zoom >= CFG.UNIT_ZOOM ? 1 : 2) / (G * G)) spawnBoom(x * T + Math.random() * T, y * T + Math.random() * T, false);
         }
       });
     }
@@ -305,16 +306,20 @@ function draw() {
       drawCounter(-7, -9, 14, 8, col, type, cnt, { sel, hot: f.engaged, strip });
       if (f.kind === 'land') { const o = f.org ?? 1; ctx.fillStyle = 'rgba(12,16,24,.85)'; ctx.fillRect(-7, -0.6, 14, 1.2); ctx.fillStyle = o > 0.6 ? '#5ad07a' : o > 0.3 ? '#e8b820' : '#e04848'; ctx.fillRect(-7, -0.6, 14 * o, 1.2); }
       drawLabel_(0, -16, f.gen.name, null, col); ctx.restore();
+      drawStatusMarks(f, X + 8 + 7 * k, Y - 2 - 9 * k, k);
     } else {
       if (sel) { ctx.strokeStyle = 'rgba(95,224,255,.35)'; ctx.lineWidth = 2; ctx.strokeRect(X + 0.5, Y + 3, 15, 10); }
       drawCounter(X + 1, Y + 4, 14, 8, col, type, cnt || null, { sel, dim: !cnt, hot: f.engaged, strip });
       if (f.kind === 'land' && cnt) { const o = f.org ?? 1; ctx.fillStyle = 'rgba(12,16,24,.85)'; ctx.fillRect(X + 1, Y + 12.6, 14, 1.4); ctx.fillStyle = o > 0.6 ? '#5ad07a' : o > 0.3 ? '#e8b820' : '#e04848'; ctx.fillRect(X + 1, Y + 12.6, 14 * o, 1.4); }
       if (sel) drawLabel(X + 8, Y - 3.5, f.gen.name, null, col);
+      drawStatusMarks(f, X + 15, Y + 4, 1);
     }
   }
+  runDelayed(fdt);
   if (cam.zoom >= CFG.UNIT_ZOOM) drawShots(fdt); else { SHOTS.length = 0; }
   drawFx(fdt);
   drawEncirclements(now, inVis);
+  drawBattles(inVis, now); drawAxes(now); drawFloats(fdt);
   if ((now / 1000 | 0) % 5 === 0) pruneVis();
   if (ui.sel != null) { const [x, y] = XY(ui.sel); ctx.strokeStyle = (now / 300 | 0) % 2 ? '#ffffff' : '#5fe0ff'; ctx.lineWidth = Math.max(0.8, 1.5 / cam.zoom); ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   // לילה: גוון כחול על כל המסך, ואורות חמים בערים

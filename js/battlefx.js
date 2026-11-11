@@ -5,7 +5,7 @@
 // בקרב: כל מחלקה יורה במחלקת אויב קרובה (הבזק לוע, נותב, פגיעה), ארטילריה יורה פגזים בקשת,
 // ומחלקה שאבדה משאירה הריסה בוערת. כיסים וצבתות מסומנים במפה.
 /* ---------- BATTLE FX ---------- */
-const VIS = new Map(), SHOTS = [], WRECKS = [];
+const VIS = new Map(), SHOTS = [], WRECKS = [], DELAY = [];
 const PLT = { inf: 4, cmdo: 3, ltank: 2, htank: 2, art: 2, aa: 2 };      // יחידות לכל מחלקה
 const PLT_ORDER = ['htank', 'ltank', 'cmdo', 'inf', 'aa', 'art'], REAR = { art: 1, aa: 1 };
 const FIRE = { inf: 1.4, cmdo: 1.6, ltank: 0.8, htank: 0.6, art: 0.35, aa: 0.5 };   // יריות לשנייה בקרב
@@ -58,7 +58,19 @@ function updateUnits(f, cx, cy, dt, now) {
   // ירי
   if (!f.engaged || dt <= 0) return;
   let foes = null;
+  // ארטילריה: מטחים מסונכרנים כל ~3.5 שניות — כל הסוללות יורות יחד לאותו אזור
+  v.volT = (v.volT ?? Math.random() * 3) - dt;
+  const arts = v.units.filter(u => u.t === 'art');
+  if (v.volT <= 0 && arts.length) {
+    v.volT = 3.2 + Math.random() * 0.8;
+    foes = enemyPlatoonsNear(f, cx, cy, 40);
+    let ax, ay;
+    if (foes.length) { const e = foes[(Math.random() * foes.length) | 0]; ax = e.x; ay = e.y; }
+    else if (f.zone?.length) { const [zx, zy] = XY(f.zone[(Math.random() * f.zone.length) | 0]); ax = (zx + 0.5) * CFG.T; ay = (zy + 0.5) * CFG.T; }
+    if (ax != null) arts.forEach((u, n) => { for (let r = 0; r < 2; r++) DELAY.push({ t: n * 0.12 + r * 0.35, fn: () => { u.flash = performance.now(); if (SHOTS.length < 220) SHOTS.push({ x1: u.x, y1: u.y, x2: ax + (Math.random() - 0.5) * 7, y2: ay + (Math.random() - 0.5) * 7, t: 0, life: 1.1, kind: 'shell' }); } }); });
+  }
   for (const u of v.units) {
+    if (u.t === 'art') continue;
     u.cd -= dt * (FIRE[u.t] || 1) * (0.6 + Math.random() * 0.8); if (u.cd > 0) continue; u.cd = 1;
     foes = foes || enemyPlatoonsNear(f, cx, cy, 40);
     let tx, ty;
@@ -127,7 +139,7 @@ function drawEncirclements(now, inVis) {
       const col = mine ? 'rgba(255,170,60,.85)' : 'rgba(255,70,70,.85)', [ox, oy] = XY(o.tile), tx = ox * T + T / 2, ty = oy * T + T / 2;
       for (const id of o.gens) {
         if (seen.has(id + ':' + o.army)) continue; seen.add(id + ':' + o.army);
-        const g = S.fronts.find(z => z.id === id); if (!g) continue;
+        const g = S.fronts.find(z => z.id === id); if (!g || hyp(g.pos[0] - ox, g.pos[1] - oy) > 18) continue;
         const sx = g.pos[0] * T + T / 2, sy = g.pos[1] * T + T / 2, mx = (sx + tx) / 2, my = (sy + ty) / 2, ex = e.pos[0] * T + T / 2, ey = e.pos[1] * T + T / 2;
         // קשת שמתעגלת מסביב לצבא האויב
         const bx = mx + (mx - ex) * 0.6, by = my + (my - ey) * 0.6;
@@ -139,7 +151,8 @@ function drawEncirclements(now, inVis) {
     }
   }
   for (const f of S.fronts) {
-    if (f.kind !== 'land' || f.supply === 'ok' || !unitCount(f.units) || !inPocket(f)) continue;
+    if (f.kind !== 'land' || f.supply === 'ok' || !unitCount(f.units) || !inPocket(f)) { f._pk = false; continue; }
+    if (!f._pk) { f._pk = true; floatText(f.pos[0] + 0.5, f.pos[1] - 1, f.n === 0 ? '⭕ כותרנו!' : '⭕ הכיס נסגר!', f.n === 0 ? '#ff6060' : '#ffb040', true); }
     const x = f.pos[0] * T + T / 2, y = f.pos[1] * T + T / 2; if (!inVis(x, y, 60)) continue;
     const r = 22 + Math.sin(now / 300) * 2, col = f.n === 0 ? '255,80,80' : '255,170,60';
     ctx.save(); ctx.strokeStyle = `rgba(${col},.8)`; ctx.lineWidth = Math.max(0.6, 1.8 / z); ctx.setLineDash([4, 3]); ctx.lineDashOffset = now / 60;
@@ -151,3 +164,107 @@ function drawEncirclements(now, inVis) {
 }
 // ניקוי: גנרלים שנעלמו
 function pruneVis() { for (const id of VIS.keys()) if (!S.fronts.some(f => f.id === id)) VIS.delete(id); }
+/* ---------- קריאוּת הקרב: סמלי קרב, צירים, טקסט מרחף, סימוני מצב ---------- */
+let AXDRAG = null;                 // ציר בציור (גרירה מהגנרל)
+const FLOATS = [];
+function floatText(x, y, text, col, big) { if (FLOATS.length < 30) FLOATS.push({ x: x * CFG.T, y: y * CFG.T, text, col: col || '#fff', big: !!big, t: 0 }); }
+function drawFloats(dt) {
+  const k = view.lk;
+  for (let i = FLOATS.length - 1; i >= 0; i--) {
+    const f = FLOATS[i]; f.t += dt; const life = f.big ? 2.6 : 1.8; if (f.t > life) { FLOATS.splice(i, 1); continue; }
+    const a = Math.min(1, (life - f.t) / 0.6), pop = Math.min(1, f.t / 0.15), y = f.y - f.t * 6 * k;
+    ctx.save(); ctx.globalAlpha = a; ctx.translate(f.x, y); const s = k * (f.big ? 1.5 : 1.05) * (0.7 + 0.3 * pop); ctx.scale(s, s);
+    ctx.font = 'bold 6px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(10,12,18,.9)'; ctx.strokeText(f.text, 0, 0); ctx.fillStyle = f.col; ctx.fillText(f.text, 0, 0);
+    ctx.restore();
+  }
+}
+// חץ עקום עם ראש (מקווקו ונע)
+function arrow(sx, sy, tx, ty, col, w, now, bend) {
+  const z = Math.max(0.3, view.cam.zoom), mx = (sx + tx) / 2, my = (sy + ty) / 2, len = Math.hypot(tx - sx, ty - sy) || 1;
+  const cx = mx + (-(ty - sy) / len) * len * (bend ?? 0.15), cy = my + ((tx - sx) / len) * len * (bend ?? 0.15);
+  ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = w / z; ctx.setLineDash([7 / z, 4 / z]); ctx.lineDashOffset = -now / 40 / z;
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(cx, cy, tx, ty); ctx.stroke(); ctx.setLineDash([]);
+  const a = Math.atan2(ty - cy, tx - cx), ah = (w * 4) / z; ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(tx + Math.cos(a) * ah * 0.3, ty + Math.sin(a) * ah * 0.3);
+  ctx.lineTo(tx - Math.cos(a - 0.5) * ah, ty - Math.sin(a - 0.5) * ah); ctx.lineTo(tx - Math.cos(a + 0.5) * ah, ty - Math.sin(a + 0.5) * ah); ctx.fill(); ctx.restore();
+}
+function drawAxes(now) {
+  const T = CFG.T;
+  for (const op of S.ops) { if (op.n !== 0) continue;
+    for (const o of op.subs || []) { if (o.by == null || o.done) continue; const f = S.fronts.find(x => x.id === o.by); if (!f || f.op !== op.id) continue;
+      const [tx, ty] = XY(o.tile); arrow((f.pos[0] + 0.5) * T, (f.pos[1] + 0.5) * T, (tx + 0.5) * T, (ty + 0.5) * T, ui.selFront === f.id ? 'rgba(95,224,255,.95)' : 'rgba(95,224,255,.55)', 2.6, now); } }
+  if (AXDRAG?.live) { const f = AXDRAG.f, i = tileOf(AXDRAG.wx / T - 0.5, AXDRAG.wy / T - 0.5), ok = i != null && !isWater(i) && S.owner[i] >= 0 && S.owner[i] !== 0 && atWar(0, S.owner[i]);
+    arrow((f.pos[0] + 0.5) * T, (f.pos[1] + 0.5) * T, AXDRAG.wx, AXDRAG.wy, ok ? 'rgba(95,224,255,1)' : 'rgba(255,90,90,.9)', 3.2, now, 0.1); }
+}
+// סמל קרב: חרבות בצבע מגמה (מנקודת המבט שלך) וטבעת התקדמות הכיבוש
+function battleTrend(f) {
+  if ((f._brT || 0) > S.time) return f._br; f._brT = S.time + 0.5;
+  return f._br = f.target != null ? localRatio(f, f.target, 6) : 1;
+}
+function drawBattles(inVis, now) {
+  const T = CFG.T, k = view.lk, drawn = [];
+  for (const f of S.fronts) {
+    if (f.kind !== 'land' || !f.engaged || f.target == null || f.retreating || !unitCount(f.units)) continue;
+    const [tx, ty] = XY(f.target), x = (tx + 0.5) * T, y = (ty + 0.5) * T; if (!inVis(x, y, 20)) continue;
+    const ks = clamp(2.1 / view.cam.zoom, 0.45, 3.2); if (drawn.some(([a, b]) => Math.abs(a - x) < 10 * ks && Math.abs(b - y) < 10 * ks)) continue; drawn.push([x, y]);
+    const def = S.owner[f.target], mine = f.n === 0, vsMe = def === 0 || (def >= 0 && allied(0, def) && atWar(0, f.n));
+    const r = battleTrend(f), win = mine ? r : vsMe ? 1 / Math.max(0.01, r) : null;
+    const col = win == null ? '#c8c8c8' : win > 1.15 ? '#5ad07a' : win < 0.85 ? '#ff5050' : '#ffd84a';
+    const p = clamp((f.prog[f.target] || 0) / (tileDefense(f.target) * CFG.TILE_DEF_K), 0, 1);
+    ctx.save(); ctx.translate(x, y); const s = clamp(2.1 / view.cam.zoom, 0.45, 3.2) * (win == null ? 0.75 : 1); ctx.scale(s, s);
+    const pulse = 1 + Math.sin(now / 160) * 0.06; ctx.scale(pulse, pulse);
+    ctx.fillStyle = 'rgba(12,16,24,.85)'; ctx.beginPath(); ctx.arc(0, 0, 4.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.arc(0, 0, 4.6, 0, 7); ctx.stroke();
+    ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(0, 0, 4.6, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineWidth = 0.9; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(-2.2, -2.2); ctx.lineTo(2.2, 2.2); ctx.moveTo(2.2, -2.2); ctx.lineTo(-2.2, 2.2); ctx.stroke();
+    ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(-2.4, 0.9); ctx.lineTo(-0.9, 2.4); ctx.moveTo(2.4, 0.9); ctx.lineTo(0.9, 2.4); ctx.stroke();
+    ctx.restore();
+  }
+}
+// סימני מצב על סמל הגנרל: ! אדום = מנותק מאספקה, ! כתום = אספקה חלשה, ↩ = נסוג/חלש
+function drawStatusMarks(f, x, y, k) {
+  const marks = [];
+  if (f.kind === 'land' && f.supply === 'cut') marks.push(['!', '#ff4060']);
+  else if (f.kind === 'land' && (f.supLvl ?? 1) < 0.6) marks.push(['!', '#ffa030']);
+  if (f.retreating) marks.push(['↩', '#b0b8c8']);
+  marks.forEach(([t, c], n) => {
+    ctx.save(); ctx.translate(x - n * 4.2 * k, y); ctx.scale(k, k);
+    ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, 2.1, 0, 7); ctx.fill(); ctx.strokeStyle = 'rgba(10,12,18,.9)'; ctx.lineWidth = 0.5; ctx.stroke();
+    ctx.fillStyle = '#10141c'; ctx.font = 'bold 3.4px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 0, 0.2); ctx.restore();
+  });
+}
+
+// אירועים מתוזמנים (מטחים)
+function runDelayed(dt) { for (let i = DELAY.length - 1; i >= 0; i--) { const d = DELAY[i]; d.t -= dt; if (d.t <= 0) { DELAY.splice(i, 1); d.fn(); } } if (DELAY.length > 300) DELAY.length = 300; }
+// זום רחוק: מטח ארטילריה כקבוצת פיצוצים על אזור הקרב, באותו קצב
+function farVolleys(f, dt) {
+  if (!f.units.art || !f.zone?.length) return;
+  f._vol = (f._vol ?? Math.random() * 3) - dt; if (f._vol > 0) return; f._vol = 3.4 + Math.random() * 0.8;
+  const [zx, zy] = XY(f.zone[(Math.random() * f.zone.length) | 0]), n = Math.min(5, 2 + Math.ceil(f.units.art / 4));
+  for (let k = 0; k < n; k++) DELAY.push({ t: k * 0.14, fn: () => spawnBoom((zx + 0.5) * CFG.T + (Math.random() - 0.5) * 10, (zy + 0.5) * CFG.T + (Math.random() - 0.5) * 10, k % 2 === 0) });
+}
+// קו מגע: עשן ואש לאורך משבצות החזית שבהן נלחמים עכשיו
+const hash = j => { let h = j * 2654435761 >>> 0; h ^= h >>> 13; return (h % 1000) / 1000; };
+function drawContact(inVis, now, dt) {
+  const T = CFG.T, far = view.cam.zoom < CFG.UNIT_ZOOM;
+  for (const f of S.fronts) {
+    if (f.kind !== 'land' || !f.engaged || !f.zone?.length || f.retreating || !unitCount(f.units)) continue;
+    const [px, py] = f.pos; if (!inVis((px + 0.5) * T, (py + 0.5) * T, 80)) continue;
+    if (far) farVolleys(f, dt);
+    let n = 0;
+    for (const j of f.zone) {
+      if (n++ > 24) break;
+      const [x, y] = XY(j), cx = (x + 0.5) * T, cy = (y + 0.5) * T, h = hash(j);
+      // זוהר אש עמום על המשבצת
+      const fl = 0.16 + 0.1 * Math.sin(now / 130 + h * 40);
+      ctx.fillStyle = `rgba(255,120,40,${fl})`; ctx.fillRect(x * T, y * T, T, T);
+      // עשן שעולה ונסחף
+      for (let p = 0; p < 2; p++) {
+        const ph = ((now / 2600 + h + p * 0.5) % 1), r = T * (0.35 + ph * 0.9);
+        ctx.fillStyle = `rgba(62,58,52,${0.5 * (1 - ph)})`;
+        ctx.beginPath(); ctx.arc(cx + (h - 0.5) * T * 0.6 + ph * T * 0.8, cy - ph * T * 1.6, r, 0, 7); ctx.fill();
+      }
+      if (h > 0.7 && (now / 90 + h * 50) % 20 < 1.2) { ctx.fillStyle = 'rgba(255,220,140,.9)'; ctx.beginPath(); ctx.arc(cx + (h - 0.8) * T * 2, cy + (hash(j + 1) - 0.5) * T, 0.9, 0, 7); ctx.fill(); }
+    }
+  }
+}

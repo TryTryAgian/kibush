@@ -565,6 +565,7 @@ function captureTile(nid, j) {
     S.capDay[k] = S.time;
     S.owner[k] = nid; markTile(k); const b = S.buildings[k];
     if (b) {
+      if (typeof floatText === 'function' && prev >= 0) { const [bx, by] = XY(k); floatText(bx + 0.5, by + 0.5, (b.capital ? '★ בירה נכבשה!' : 'נכבש!'), S.nations[nid].color, b.capital); }
       if (b.n === 0 && nid !== 0 && (S.lossToast || 0) < S.time) { S.lossToast = S.time + 5; toast(`⚠ ${nm(nid)} כובשת מבנים שלך!`, 'bad'); }
       // אוגדה שהייתה במחנה — אובדת; אוגדה שבשטח נשארת בלי בסיס (בלי השלמות). המחנה עובר לכובש עם אוגדה חדשה וריקה
       const old = divOfB(b);
@@ -645,6 +646,7 @@ function updateFront(f, dt) {
   if (!f.retreating && cnt && f.org < CFG.RETREAT_ORG) {
     f.retreating = true; f.target = null; f.zone = []; f.prog = {}; f.path = null; f.defend = retreatTile(f);
     if (nid === 0) toast(`↩ ${f.gen.name} נסוג להתארגנות (מורל ${Math.round(f.org * 100)}%)`, 'bad');
+    if (typeof floatText === 'function') floatText(f.pos[0] + 0.5, f.pos[1] + 0.5, '↩ נסוג', '#ffb070');
   }
   if (f.retreating && f.org >= CFG.RESUME_ORG) { f.retreating = false; f.retarget = true; if (nid === 0) toast(`💪 ${f.gen.name} התארגן וחוזר לפעולה`, 'good'); }
   let goal, near;
@@ -719,6 +721,22 @@ function createOp(nid, target) {
   if (target >= 0) { chooseME(op, sectorScan(nid)); planOp(op); }
   return op;
 }
+// ציר התקפה שהשחקן מצייר בגרירה מהגנרל: הגנרל מצטרף למבצע מול בעל השטח ותוקף ישר ליעד
+function setAxis(f, i) {
+  if (isWater(i)) return { ok: false, reason: 'בחר יעד ביבשה' };
+  const o = S.owner[i];
+  if (o === f.n) return { ok: false, reason: 'זה כבר השטח שלך — גרור אל שטח האויב' };
+  if (o < 0) return { ok: false, reason: 'לשטח ניטרלי משתמשים במבצע התפשטות' };
+  if (!atWar(f.n, o)) return { ok: false, reason: `אתם לא במלחמה עם ${nm(o)}` };
+  let op = S.ops.find(x => x.id === f.op);
+  if (!op || op.target !== o) { op = S.ops.find(x => x.n === f.n && x.target === o) || createOp(f.n, o); assignToOp(f, op); }
+  if (!op.ax) planOp(op); if (!op.ax) return { ok: false, reason: 'אין דרך לתקוף לשם' };
+  for (const q of S.ops) q.subs = (q.subs || []).filter(x => x.by !== f.id);
+  op.subs.unshift({ tile: i, type: 'custom', custom: true, by: f.id, done: false, ...opXY(op, i) });
+  op.objectives = [op.main, ...op.subs].filter(Boolean);
+  op.state = 'exec'; f.retarget = true; f.consol = null; f.planHold = false;
+  return { ok: true, op };
+}
 function cancelOp(op) { for (const id of op.gens) { const f = S.fronts.find(x => x.id === id); if (f) { f.role = 'defend'; f.op = null; f.target = null; f.plan = null; f.zone = []; f.opRole = null; f.consol = null; f.expGo = false; f.planHold = false; f.cellKey = null; } } S.ops = S.ops.filter(o => o !== op); }
 const OBJ_VAL = o => o.type === 'capital' ? 12 : o.type === 'encircle' ? 10 : KEY_VAL[o.type] || 0;
 const OBJ_NAMES = { capital: 'הבירה', city: 'עיר', factory: 'מפעל', port: 'נמל', airport: 'שדה תעופה', camp: 'מחנה', university: 'אוניברסיטה', custom: 'יעד שסימנת', encircle: 'כיתור' };
@@ -737,7 +755,7 @@ function keyTargets(op, F) { const out = []; eachBuilding((b, j) => { if (b.n ==
 function planOp(op, from) {
   if (op.target < 0) { op.state = 'exec'; op.ax = null; op.main = null; return; }
   const nid = op.n, own = []; for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid) own.push(i);
-  const custom = op.objectives.find(o => o.custom && !objDone(op, o));
+  const custom = op.objectives.find(o => o.custom && o.by == null && !objDone(op, o));
   let fld = travelField(own, false, nid); op.naval = false;
   let cands = keyTargets(op, fld);
   if (!cands.length && !custom && ownPorts(nid).length) { fld = travelField(own, true, nid); cands = keyTargets(op, fld); op.naval = cands.length > 0; }
@@ -771,7 +789,7 @@ function refreshSubs(op) {
   if (!op.ax || !op.main) return;
   const gens = opGenerals(op), half = 7 + 3 * Math.min(4, Math.max(1, gens.length));
   const front = gens.length ? Math.max(0, ...gens.map(f => opXY(op, tileOf(...f.pos)).a)) : 0, horizon = front + CFG.SUB_DEPTH;
-  const keep = op.subs.filter(o => o.type === 'encircle' && !objDone(op, o));
+  const keep = op.subs.filter(o => (o.type === 'encircle' || o.by != null) && !objDone(op, o));
   const subs = [];
   eachBuilding((b, j) => {
     if (b.n !== op.target || !done(b) || !KEY_VAL[b.type] || j === op.main.tile || !isFinite(op.landF?.[j] ?? 0)) return;
@@ -890,7 +908,10 @@ function pickLaneTarget(op, f, gens, open, next) {
   // כיתור שהמטה הטיל עליי — קודם לכל
   const enc = pool.filter(p => p.o.type === 'encircle' && p.o.gens?.includes(f.id));
   if (enc.length) { const [fx, fy] = f.pos; return { tile: enc.sort((x, y) => dist(x.o.tile, tileOf(fx, fy)) - dist(y.o.tile, tileOf(fx, fy)))[0].o.tile, why: 'כיתור' }; }
-  let mine = pool.filter(p => p.o.type !== 'encircle' && (laneOf(p.o) === f || p.o.custom || (p.o.main && role === 'ME')));
+  // ציר שהשחקן צייר לגנרל הזה — גובר על הכול
+  const axO = pool.find(p => p.o.by === f.id);
+  if (axO) return { tile: axO.o.tile, why: 'ציר שציירת' };
+  let mine = pool.filter(p => p.o.type !== 'encircle' && (p.o.by == null || p.o.by === f.id) && (laneOf(p.o) === f || p.o.custom || (p.o.main && role === 'ME')));
   if (role === 'PIN') mine = mine.filter(p => p.o.custom || p.o.type === 'encircle' || localRatio(f, p.o.tile, 8) >= CFG.PIN_RATIO);
   if (mine.length) {
     const s = p => Math.max(p.o.a - me.a, -3) + Math.abs(p.o.l - L) * 0.6 + p.la * 6 - OBJ_VAL(p.o) * 0.4 - (p.o.custom ? 8 : 0) - (p.o.main && role === 'ME' ? 3 : 0);
