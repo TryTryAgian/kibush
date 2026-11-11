@@ -37,6 +37,10 @@ const CFG = {
   INTEGRATE_DAYS: 150,         // אחרי כמה ימים שטח כבוש הופך לליבה
   REVOLT_CHANCE: 0.01,         // סיכוי יומי למרד בעיר שנכבשה לאחרונה, בלי גנרל קרוב
   SNOW_REF: 2.2, SNOW_EXP: 0.35, SNOW_MIN: 0.5,   // תשואה פוחתת מעבר לפי 2.2 מהשטח ההתחלתי
+  THREAT_WARN: 40, THREAT_COAL: 60, THREAT_ALLY_LEAVE: 75,   // מד איום: אזהרה / קואליציה / בעלי ברית עוזבים
+  THREAT_DECAY: 0.6, THREAT_DECAY_WAR: 0.2, THREAT_WAR: 4,     // דעיכה ליום (שלום/מלחמה), הכרזת מלחמה
+  THREAT_TILE: 0.012, THREAT_KEY: 2.5, THREAT_CAP: 12,        // כיבוש משבצת / מבנה חשוב / בירה
+  QUICK_WIN: 0.6, QUICK_GRACE: 15, QUICK_PGRACE: 35,           // משחק מהיר: יעד ניצחון ותקופות חסד
   COALITION_SHARE: 0.45,       // מעל זה — האחרים חוששים ומתאחדים
   // --- דיפלומטיה ---
   TRUCE_DAYS: 40, TRADE_DAYS: 150, ALLY_DAYS: 200,
@@ -270,3 +274,8 @@ const FIXED_MAPS = {
 
 // מהירויות במשבצות ליום — מוכפלות בצפיפות הרשת
 for (const k in UNITS) UNITS[k].spd *= G;
+
+// משחק מהיר: יעד נמוך יותר ותקופות חסד קצרות
+const winR = () => (typeof S !== 'undefined' && S?.settings?.quick) ? CFG.QUICK_WIN : CFG.WIN_RATIO;
+const graceDays = () => S?.settings?.quick ? CFG.QUICK_GRACE : CFG.GRACE_DAYS;
+const playerGrace = () => S?.settings?.quick ? CFG.QUICK_PGRACE : CFG.PLAYER_GRACE;

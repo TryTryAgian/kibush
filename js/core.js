@@ -147,7 +147,7 @@ function newGame(settings) {
   view.railDirty = true;
   buildTerrainCanvas(); view.ownerDirty = true; spriteCache.clear(); SHEET.tinted.clear(); iconURLs = null;
   centerOn(caps[0]); save(); render();
-  toast(`כבוש ${CFG.WIN_RATIO * 100}% מהיבשה. בנה מחנה צבאי ופתח מבצע`, 'good');
+  toast(`כבוש ${Math.round(winR() * 100)}% מהיבשה. בנה מחנה צבאי ופתח מבצע`, 'good');
 }
 
 /* ---------- 6. PATHFINDING ---------- */

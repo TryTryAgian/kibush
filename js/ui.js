@@ -30,7 +30,7 @@ function topBar() {
       h('div', { class: 'chip px' }, '🗺', live(el => el.textContent = Math.round(counts()[0] / S.landTotal * 100) + '%'))),
     live(el => {
       const c = counts();
-      el.replaceChildren(...S.nations.map(n => h('i', { style: { width: (c[n.id] / S.landTotal * 100) + '%', background: n.color } })), h('div', { class: 'goal', style: { left: CFG.WIN_RATIO * 100 + '%' } }));
+      el.replaceChildren(...S.nations.map(n => h('i', { style: { width: (c[n.id] / S.landTotal * 100) + '%', background: n.color } })), h('div', { class: 'goal', style: { left: winR() * 100 + '%' } }));
     }, 'div', { class: 'share' }));
 }
 const TABS = [['build', '🏗', 'בנייה'], ['army', '🪖', 'צבא'], ['fronts', '🎖', 'מבצעים'], ['research', '🔬', 'מחקר'], ['diplo', '🤝', 'דיפלומטיה']];
@@ -238,7 +238,10 @@ function openOpHelp() {
     h('li', {}, 'שליטה ישירה: 🎯 בכרטיס אוגדה (לשונית צבא או הקשה על מחנה) — ואז הקש על יעד במפה. האוגדה יוצאת לבד, תוקפת או מחזיקה בנקודה. הקש עליה במפה לפקודה חדשה.'),
     h('li', {}, '📦 אספקה ולוגיסטיקה: התגבור נוסע ברשת הכבישים והמסילות בין המבנים שלך עד נקודת האיסוף הקרובה לגנרל, ומשם אליו. אספקת הגנרל תלויה במרחק שלו מהרשת: רחוק ממנה — כיבוש איטי, מורל שמתאושש לאט ועצירה מוקדמת. כביש שעובר בשטח שהאויב כבש נחתך. שיירה ליד צבא אויב נופלת למארב (אלא אם צבא שלך מלווה אותה), וכנף אוויר של האויב תוקפת שיירות ליד שדה התעופה שלה.'),
     h('li', {}, 'מורל: יורד בקרב ומתאושש עם אספקה. מתחת ל-15% הגנרל נסוג להתארגן וחוזר מעל 70%.'),
-    h('li', {}, 'אומה שאיבדה את הבירה ורוב המבנים החשובים — נכנעת, וכל השטח שלה מסופח לאויביה.'),
+    h('li', {}, 'כניעה: אומה שאיבדה את הבירה וחצי מהמבנים החשובים (או שני שלישים מהשטח) — נכנעת, וכל השטח שלה מסופח לאויביה.'),
+    h('li', {}, 'כיס: שטח מנותק שמוקף אויבים ואין בו גנרל או מחנה עם אוגדה — נופל בבת אחת. כיס שמוחזק בכוח נאכל לאט מהשוליים.'),
+    h('li', {}, `מד איום: כל כיבוש מעלה אותו, ובשלום הוא יורד. מעל ${CFG.THREAT_COAL} השכנים מתאחדים נגדך בקואליציה, ומעל ${CFG.THREAT_ALLY_LEAVE} גם בעלי הברית עוזבים. חל על כולם — גם עליך.`),
+    h('li', {}, 'מוניטין: הפרת הסכם, ביטול ברית ומתקפת פתע פוגעים בו; הסכמים שנשמרים בונים אמון. במוניטין נמוך אף אחד לא יחתום איתך.'),
     h('li', {}, 'גנרלי הגנה: בשלום יושבים במחנות. במלחמה המטה בונה אזורי הגנה — גזרות גבול וחדירות אויב לשטח — ומשבץ כל גנרל לאזור עם הכי הרבה איום × ערך מבנים ביחס לזמן ההליכה, כך שגנרל לא חוצה את המפה כשיש איום ליד. בכל גזרה: 👁 מסך בגזרה שקטה, 🧱 הגנה בעומק (קו עיקרי מאחורי הגבול) מול איום, ⏳ השהיה — נסיגה צעד צעד — מול כוח מכריע. גנרל שעומד להיות מכותר נסוג לקו הבא.'),
     h('li', {}, '🏰 חיל מצב: אוגדה שנשארת במחנה (לא אצל גנרל) הופכת את המחנה לביצור קטן ונלחמת בכל צבא אויב שמתקרב למבנים סביבו.'),
     h('li', {}, '🛡 עתודה ניידת (משני מגינים ומעלה): הגנרל עם השריון מחכה מאחורי הגזרה המאוימת ומכה כשהאויב פורץ, או בבסיס של ראש חץ שהתארך ונשחק. כשהתוקף נעצר — המטה עובר למתקפת נגד באותה גזרה.'),
@@ -269,6 +272,11 @@ const daysLeft = until => Math.max(0, Math.ceil(until - S.time));
 function diploTab() {
   const others = S.nations.filter(n => n.id !== 0), g = player().res.gold, lead = leaderThreat();
   return [watch(() => S.offers.length + ':' + others.map(n => n.alive ? [rel(0, n.id).state, allied(0, n.id), napActive(0, n.id), hasTrade(0, n.id), truceActive(0, n.id), leaderThreat()].join('') : 'x').join('|')), h('h3', {}, 'דיפלומטיה', h('span', { class: 'dim' }, `כוחך: ${fl(militaryPower(0))} · עם בעלי ברית: ${fl(allianceBloc(0))}`)),
+    h('div', { class: 'card' }, h('div', { class: 'uline' }, h('b', {}, '🌡 מד האיום שלך'), h('span', { live: el => { const v = Math.round(thr(0)); el.textContent = v + (v >= CFG.THREAT_COAL ? ' · קואליציה!' : v >= CFG.THREAT_WARN ? ' · חשד' : ''); el.style.color = v >= CFG.THREAT_COAL ? '#ff5050' : v >= CFG.THREAT_WARN ? '#ffb040' : '#9fd' } })),
+      h('div', { class: 'tbar' }, h('i', { live: el => { const v = thr(0); el.style.width = v + '%'; el.style.background = v >= CFG.THREAT_COAL ? '#ff5050' : v >= CFG.THREAT_WARN ? '#ffb040' : '#5ad07a'; } }), h('b', { style: { left: CFG.THREAT_WARN + '%' } }), h('b', { style: { left: CFG.THREAT_COAL + '%' } })),
+      h('div', { class: 'dim' }, `כל כיבוש מעלה את המד; בשלום הוא יורד. מעל ${CFG.THREAT_COAL} השכנים מתאחדים נגדך, מעל ${CFG.THREAT_ALLY_LEAVE} גם בעלי הברית עוזבים.`),
+      h('div', { class: 'uline' }, h('b', {}, '🤝 מוניטין'), h('span', { live: el => { const r = repName(0); el.textContent = `${r[1]} (${Math.round(repOf(0))})`; el.style.color = r[2]; } })),
+      h('div', { class: 'dim' }, 'הפרת הסכם, ביטול ברית ומתקפת פתע על שכן ידידותי פוגעים במוניטין. הסכמים שנשמרים בונים אמון. במוניטין נמוך המחשב מסרב לחתום איתך.')),
     lead >= 0 ? h('div', { class: 'card sel' }, h('div', {}, `⚠ ${lead === 0 ? 'אתה מעצמה מאיימת' : nm(lead) + ' היא מעצמה מאיימת'} (${Math.round(shareOf(lead) * 100)}% מהיבשה) — ${lead === 0 ? 'האחרים חוששים ממך ונוטים להתאחד נגדך' : 'האחרים נוטים להתאחד נגדה'}`)) : null,
     ...S.offers.map(o => h('div', { class: 'card sel' }, h('div', {}, o.kind === 'coalition' ? `📜 ${nm(o.from)} קוראת לך להצטרף לקואליציה נגד ${nm(o.target)}` : `📜 ${nm(o.from)} מציעה ${DEALS[o.kind]}${o.gold ? ` ומשלמת ${o.gold}💰` : ''}`),
       h('div', { class: 'row' }, h('button', { class: 'btn sm pri', onclick: () => answerOffer(o, true) }, o.kind === 'coalition' ? '⚔ הצטרף' : 'קבל'), h('button', { class: 'btn sm', onclick: () => answerOffer(o, false) }, 'דחה')))),
@@ -290,6 +298,8 @@ function diploTab() {
           truceActive(0, n.id) ? h('span', { class: 'pill' }, `🏳 שביתת נשק · ${daysLeft(r.truce)} י׳`) : null),
         h('div', { class: 'kv' }, h('span', {}, 'יחס: ', h('b', {}, String(fl(r.op)))), h('span', {}, 'כוח: ', h('b', {}, String(fl(militaryPower(n.id))))),
           h('span', {}, 'יבשה: ', h('b', {}, Math.round(shareOf(n.id) * 100) + '%')),
+          h('span', {}, 'איום: ', h('b', { style: { color: thr(n.id) >= CFG.THREAT_COAL ? '#ff5050' : thr(n.id) >= CFG.THREAT_WARN ? '#ffb040' : '' } }, String(Math.round(thr(n.id))))),
+          h('span', {}, 'מוניטין: ', h('b', { style: { color: repName(n.id)[2] } }, repName(n.id)[1])),
           r.state === 'war' ? h('span', {}, 'ניקוד מלחמה: ', h('b', { dir: 'ltr' }, `${warGain(r, 0)} : ${warGain(r, n.id)}`)) : null,
           allies.length ? h('span', {}, 'בעלי ברית: ', h('b', {}, allies.join(', '))) : null),
         r.state === 'war'
@@ -349,7 +359,7 @@ function openNewGame() {
 function openHelp() {
   modal(h('h2', {}, '❓ איך משחקים'),
     h('ul', {},
-      h('li', {}, `המטרה: לשלוט ב-${CFG.WIN_RATIO * 100}% מהיבשה. בזמן אמת — ⏸ עוצר, ×2/×4 מאיצים.`),
+      h('li', {}, `המטרה: לשלוט ב-${Math.round(winR() * 100)}% מהיבשה. בזמן אמת — ⏸ עוצר, ×2/×4 מאיצים.`),
       h('li', {}, 'כלכלה: ערים — זהב, חומרים וכוח אדם. מפעלים — חומרים. אוניברסיטאות — ידע. נמלים — מסחר עם אומות שיש איתן הסכם.'),
       h('li', {}, `צבא: כל מחנה צבאי = אוגדה אחת (חי״ר, קומנדו, שריון קל/כבד, ארטילריה, הגנה אווירית — לפי סוג המחנה). שדה תעופה = כנף אווירית, נמל = שייטת. המחנה מאמן את האוגדה שלו עד תקן מלא; אחוז הגיוס (${CFG.MOB_MIN * 100}%–${CFG.MOB_MAX * 100}%) מאיץ את האימון אבל מחליש את כלכלת הערים. יחידות כבדות דורשות מפעל.`),
       h('li', {}, 'מחקר: עץ בענפים — כל מחקר פותח את הבאים. סוגי המחנות נפתחים דרך המחקר.'),
@@ -365,6 +375,7 @@ function showEnd() {
   const win = S.over === 'win', c = counts();
   modal(h('h2', {}, win ? '🏆 ניצחון!' : '💀 הפסד'),
     h('p', {}, win ? `כבשת ${Math.round(c[0] / S.landTotal * 100)}% מהמפה ביום ${fl(S.time)}.` : 'האומה שלך לא שרדה הפעם.'),
+    win && S.settings.quick ? h('p', { style: { fontSize: '28px', textAlign: 'center' } }, '⭐'.repeat(S.time <= 180 ? 3 : S.time <= 260 ? 2 : 1) + '☆'.repeat(S.time <= 180 ? 0 : S.time <= 260 ? 1 : 2), h('div', { class: 'dim', style: { fontSize: '13px' } }, '3 כוכבים: עד יום 180 · 2: עד יום 260')) : null,
     h('button', { class: 'btn pri', onclick: () => { closeModal(); showHome('new'); } }, 'משחק חדש'),
     h('button', { class: 'btn', onclick: () => { closeModal(); showHome(); } }, '🏠 תפריט ראשי'),
     h('button', { class: 'btn', onclick: closeModal }, 'הצג מפה'));
@@ -374,7 +385,7 @@ function showEnd() {
 // ===================== מסך הבית =====================
 // ברקע: משחק הדגמה שבו כל האומות הן מחשב, והמצלמה משייטת לאט מעל המפה
 const DIFFS = { easy: ['קל', 'המחשב מרוויח פחות'], normal: ['רגיל', ''], hard: ['קשה', 'המחשב מרוויח יותר'] };
-let NG = { map: '', size: 'medium', ai: 3, diff: 'normal', seed: '' };
+let NG = { map: '', size: 'medium', ai: 3, diff: 'normal', seed: '', quick: false };
 const hasSave = () => { try { const r = localStorage.getItem(CFG.SAVE_KEY); return !!r && JSON.parse(r).v === 8; } catch (e) { return false; } };
 function prefToggle() {
   return h('button', { class: 'btn' + (PREFS.night ? ' on' : ''), onclick: e => { PREFS.night = !PREFS.night; savePrefs(); e.currentTarget.classList.toggle('on', PREFS.night); e.currentTarget.textContent = (PREFS.night ? '🌙 מחזור יום/לילה: פעיל' : '☀ מחזור יום/לילה: כבוי'); } }, PREFS.night ? '🌙 מחזור יום/לילה: פעיל' : '☀ מחזור יום/לילה: כבוי');
@@ -395,26 +406,28 @@ function showHome(page) {
   render();
 }
 function startGame(settings) {
-  ui.home = null; newGame(settings); S.speed = 1; render();
+  if (settings.quick) { if (!settings.map) settings.size = 'small'; settings.ai = Math.min(settings.ai, 3); }
+  ui.home = null; newGame(settings); S.speed = settings.quick ? 2 : 1; render();
 }
 function homeScreen() {
   const page = ui.home, box = (...c) => h('div', { class: 'home-box px' }, ...c);
   const title = h('div', { class: 'home-title' }, h('div', { class: 'logo' }, 'כיבוש פיקסלים'), h('div', { class: 'sub' }, 'אסטרטגיה בזמן אמת · כבוש 80% מהמפה'));
   if (page === 'new') {
     const maxFor = (map, size) => map ? Math.min(5, parseAscii(FIXED_MAPS[map].rows).starts.length - 1) : { small: 5, medium: 6, large: 7 }[size];
-    const maxAI = maxFor(NG.map, NG.size);
+    const maxAI = NG.quick ? Math.min(3, maxFor(NG.map, 'small')) : maxFor(NG.map, NG.size);
     const set = (k, v) => { NG[k] = v; NG.ai = Math.min(NG.ai, maxFor(NG.map, NG.size)); render(); };
     const seg = (k, opts) => h('div', { class: 'seg' }, opts.map(([v, label]) => h('button', { class: 'btn' + (NG[k] === v ? ' on' : ''), onclick: () => set(k, v) }, label)));
     return h('div', { class: 'home' }, title, box(
       h('h2', {}, 'משחק חדש'),
+      h('div', { class: 'field' }, 'אורך משחק', h('div', { class: 'seg' }, [[false, '🏰 רגיל'], [true, '⚡ מהיר · 20–30 דק׳']].map(([v, l]) => h('button', { class: 'btn' + (NG.quick === v ? ' on' : ''), onclick: () => { NG.quick = v; if (v) NG.ai = Math.min(NG.ai, 3); render(); } }, l))), NG.quick ? h('span', { class: 'dim' }, `מפה קטנה, עד 3 יריבים, ניצחון ב-${CFG.QUICK_WIN * 100}% · דירוג בכוכבים לפי מהירות`) : null),
       h('div', { class: 'field' }, 'מפה', seg('map', [['', '🎲 אקראית'], ...Object.entries(FIXED_MAPS).map(([k, m]) => [k, '🗺 ' + m.name])])),
-      NG.map ? null : h('div', { class: 'field' }, 'גודל מפה', seg('size', Object.entries(SIZES).map(([k, v]) => [k, `${v[2]} · ${v[0]}×${v[1]}`]))),
+      NG.map || NG.quick ? null : h('div', { class: 'field' }, 'גודל מפה', seg('size', Object.entries(SIZES).map(([k, v]) => [k, `${v[2]} · ${v[0]}×${v[1]}`]))),
       h('div', { class: 'field' }, 'מספר יריבים', seg('ai', Array.from({ length: maxAI }, (_, i) => [i + 1, String(i + 1)]))),
       h('div', { class: 'field' }, 'רמת קושי', seg('diff', Object.entries(DIFFS).map(([k, v]) => [k, v[0]])), DIFFS[NG.diff][1] ? h('span', { class: 'dim' }, DIFFS[NG.diff][1]) : null),
       NG.map ? null : h('div', { class: 'field' }, 'זרע מפה (ריק = אקראי — אותו מספר = אותה מפה)', h('input', { inputmode: 'numeric', value: NG.seed, oninput: e => NG.seed = e.target.value })),
       h('div', { class: 'row' },
         h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה'),
-        h('button', { class: 'btn pri grow', onclick: () => startGame({ map: NG.map, size: NG.size, ai: NG.ai, diff: NG.diff, seed: parseInt(NG.seed) || 0 }) }, '⚔ התחל משחק'))));
+        h('button', { class: 'btn pri grow', onclick: () => startGame({ map: NG.map, size: NG.size, ai: NG.ai, diff: NG.diff, seed: parseInt(NG.seed) || 0, quick: NG.quick }) }, '⚔ התחל משחק'))));
   }
   if (page === 'settings') return h('div', { class: 'home' }, title, box(h('h2', {}, 'הגדרות'), prefToggle(), h('div', { class: 'dim' }, 'בלילה המפה מקבלת גוון כחול והערים נדלקות. אפשר לשנות גם מתוך התפריט במשחק.'), h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה')));
   return h('div', { class: 'home' }, title, box(

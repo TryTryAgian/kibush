@@ -135,7 +135,7 @@ function aiThink(n) {
   }
   // מלחמה: שיקול של החזק — כוח מול ההתנגדות הצפויה, כולל מי שעלול להצטרף לקואליציה.
   // הפרת הסכם אי-תקיפה מגדילה מאוד את הסיכוי לקואליציה, ולכן דורשת יתרון גדול יותר.
-  if (wars.length >= P.maxWars || S.time < CFG.GRACE_DAYS) return;
+  if (wars.length >= P.maxWars || S.time < graceDays()) return;
   const stalemate = S.time - (S.lastWarDay || 0) > CFG.STALEMATE_DAYS;
   // שלום כללי ארוך: הלחץ למלחמה גדל בהדרגה (עד +0.6) — כדי שהמשחק לא ייתקע בשלום בין שלוש אומות
   const calm = Math.max(0, S.time - (S.lastWarDay || 0) - CFG.STALEMATE_DAYS);
@@ -145,7 +145,7 @@ function aiThink(n) {
     if (m.id === nid || !m.alive || warBlock(nid, m.id)) continue;
     if (!nbs.has(m.id) && !(ports.length && ownPorts(m.id).length)) continue;
     const betrayal = napActive(nid, m.id), opp = expectedOpposition(nid, m.id, betrayal);
-    let score = myBloc / Math.max(1, opp) - rel(nid, m.id).op / 200 + (m.id === lead ? 0.4 : 0) + (S.nations.some(x => atWar(m.id, x.id)) ? 0.15 : 0) + pressure - (nbs.has(m.id) ? 0 : 0.2);
+    let score = myBloc / Math.max(1, opp) - rel(nid, m.id).op / 200 + (m.id === lead ? 0.4 : 0) + thr(m.id) / 100 * 0.6 + (S.nations.some(x => atWar(m.id, x.id)) ? 0.15 : 0) + pressure - (nbs.has(m.id) ? 0 : 0.2);
     score /= P.warTh * (betrayal ? 1.3 : 1) / P.risk;
     if (score > bs) { bs = score; best = { m, betrayal, opp }; }
   }

@@ -63,6 +63,7 @@ function daily() {
     if (r.state === 'peace' && S.nations.some(m => m.alive && atWar(m.id, a) && atWar(m.id, b))) r.op += 0.3;
     r.op = clamp(r.op, -100, 100);
   }
+  threatDaily();
   pocketEffects(); occupationEffects();
   for (const n of S.nations) if (n.alive) checkCapitulation(n);
   const c2 = counts();
@@ -78,8 +79,8 @@ function daily() {
 }
 function checkEnd(c) {
   if (S.over) return; const L = S.landTotal;
-  if (c[0] / L >= CFG.WIN_RATIO) S.over = 'win';
-  else if (!player().alive || S.nations.some(n => n.isAI && c[n.id] / L >= CFG.WIN_RATIO)) S.over = 'lose';
+  if (c[0] / L >= winR()) S.over = 'win';
+  else if (!player().alive || S.nations.some(n => n.isAI && c[n.id] / L >= winR())) S.over = 'lose';
   if (S.over) { save(); showEnd(); }
 }
 

@@ -560,6 +560,7 @@ function captureTile(nid, j) {
   const tgt = S.owner[j];
   const take = k => {
     const prev = S.owner[k];
+    if (prev >= 0 && prev !== nid) { const bk = S.buildings[k]; addThreat(nid, bk?.capital ? CFG.THREAT_CAP : bk && KEY_TYPES.includes(bk.type) ? CFG.THREAT_KEY : CFG.THREAT_TILE * 16 / (G * G)); }
     if (prev >= 0) { S.lastOwner[k] = prev; const r = rel(nid, prev); r.g = r.g || {}; r.g[nid] = (r.g[nid] || 0) + 1; }
     if (prev < 0 && S.core[k] < 0) S.core[k] = nid;     // שטח ניטרלי — הופך לליבה מיד
     S.capDay[k] = S.time;
@@ -1163,14 +1164,43 @@ function occupationEffects() {
 // כיסים: יחידות מנותקות נשחקות; שטח אויב מבודד ללא צבא קורס לכובש שמסביב
 function pocketEffects() {
   for (const f of S.fronts) if (f.kind === 'land' && f.supply === 'cut' && inPocket(f)) for (const t of UKEYS) if (f.units[t] > 0 && Math.random() < 0.5) f.units[t] -= Math.max(1, Math.round(f.units[t] * 0.03));
+  const comp = new Int32Array(W * H);
   for (const n of S.nations) {
     if (!n.alive || !S.nations.some(m => m.alive && atWar(n.id, m.id))) continue;
-    const m = mainComp(n.id), armies = S.fronts.filter(f => f.n === n.id && f.kind === 'land' && unitCount(f.units)), flips = [];
+    const m = mainComp(n.id), armies = S.fronts.filter(f => f.n === n.id && f.kind === 'land' && unitCount(f.units) && !f.flying);
+    comp.fill(0); const comps = [];
+    // רכיבי שטח מנותקים (כיסים) של האומה
     for (let i = 0; i < S.owner.length; i++) {
-      if (S.owner[i] !== n.id || m[i]) continue;
-      const [x, y] = XY(i); if (armies.some(f => hyp(f.pos[0] - x, f.pos[1] - y) <= 3)) continue;
-      const adj = nb4(i).map(k => S.owner[k]).filter(o => o >= 0 && atWar(n.id, o)); if (!adj.length) continue;
-      if (Math.random() < (S.buildings[i] ? 0.06 : 0.3)) flips.push([i, adj[0]]);
+      if (S.owner[i] !== n.id || m[i] || comp[i]) continue;
+      const id = comps.length + 1, tiles = [i], adj = {}; let sealed = true; comp[i] = id;
+      for (let h = 0; h < tiles.length; h++) for (const v of nb4(tiles[h])) {
+        const o = S.owner[v];
+        if (o === n.id) { if (!comp[v] && !m[v]) { comp[v] = id; tiles.push(v); } continue; }
+        if (isWater(v) || o < 0 || !atWar(n.id, o)) sealed = false; else adj[o] = (adj[o] || 0) + 1;
+      }
+      comps.push({ id, tiles, adj, sealed, held: false });
+    }
+    if (!comps.length) continue;
+    // מי מחזיק בכיס: גנרל עם צבא בתוכו או צמוד אליו, או מחנה עם אוגדה
+    const R = 3 * G;
+    for (const f of armies) { const [x0, y0] = f.pos.map(Math.round); for (let y = y0 - R; y <= y0 + R; y += 2) for (let x = x0 - R; x <= x0 + R; x += 2) { if (x < 0 || y < 0 || x >= W || y >= H) continue; const c = comp[idx(x, y)]; if (c) comps[c - 1].held = true; } }
+    for (const d of S.divs) if (d.n === n.id && d.loc === 'camp' && unitCount(d.units) && comp[d.home]) comps[comp[d.home] - 1].held = true;
+    const flips = [];
+    for (const c of comps) {
+      if (c.sealed && !c.held) {
+        // כיס בלי צבא שמחזיק אותו — נופל במכה אחת לאויב שמקיף אותו יותר
+        const to = +Object.entries(c.adj).sort((a, b) => b[1] - a[1])[0]?.[0]; if (!(to >= 0)) continue;
+        for (const i of c.tiles) captureTile(to, i);
+        if ((n.id === 0 || to === 0) && c.tiles.length >= 3 * G * G) { let sx = 0, sy = 0; for (const i of c.tiles) { const [x, y] = XY(i); sx += x; sy += y; } if (typeof floatText === 'function') floatText(sx / c.tiles.length + 0.5, sy / c.tiles.length + 0.5, n.id === 0 ? '⭕ כיס נפל!' : '⭕ הכיס נכנע!', n.id === 0 ? '#ff6060' : '#5ad07a', true);
+          if (c.tiles.length > 20 * G) toast(n.id === 0 ? `⭕ כיס של ${c.tiles.length} משבצות נפל לידי ${nm(to)} — לא היה בו צבא` : `⭕ כיס של ${nm(n.id)} נכנע לך`, n.id === 0 ? 'bad' : 'good'); }
+        continue;
+      }
+      // כיס מוחזק (או פתוח לים/לשטח ניטרלי): נאכל לאט מהשוליים, רחוק מהצבא שמחזיק בו
+      for (const i of c.tiles) {
+        const [x, y] = XY(i); if (armies.some(f => hyp(f.pos[0] - x, f.pos[1] - y) <= 3)) continue;
+        const adj = nb4(i).map(k => S.owner[k]).filter(o => o >= 0 && atWar(n.id, o)); if (!adj.length) continue;
+        if (Math.random() < (S.buildings[i] ? 0.06 : 0.3)) flips.push([i, adj[0]]);
+      }
     }
     for (const [i, o] of flips) captureTile(o, i);
   }
@@ -1180,9 +1210,14 @@ function pocketEffects() {
 function keyCount(nid) { let c = 0; eachBuilding(b => { if (b.n === nid && done(b) && KEY_TYPES.includes(b.type)) c++; }); return c; }
 function checkCapitulation(n) {
   const enemies = S.nations.filter(m => m.alive && atWar(n.id, m.id)); if (!enemies.length) return;
-  const k = keyCount(n.id); n.peakKey = Math.max(n.peakKey || 0, k);
+  const k = keyCount(n.id), tiles = counts()[n.id]; n.peakKey = Math.max(n.peakKey || 0, k); n.peakTiles = Math.max(n.peakTiles || 0, tiles);
   const hasCap = Object.values(S.buildings).some(b => b.n === n.id && b.capital);
-  if (!(hasCap ? k === 0 : k <= Math.floor(n.peakKey * 0.4))) return;
+  const keyLeft = k / Math.max(1, n.peakKey), landLeft = tiles / Math.max(1, n.peakTiles);
+  // כניעה: בלי בירה — כשנשארו מעט מבנים חשובים או מעט שטח; עם בירה — רק בקריסה כמעט מלאה
+  const give = hasCap ? keyLeft <= 0.15 && landLeft <= 0.2 : keyLeft <= 0.5 || landLeft <= 0.35;
+  // אזהרה לשחקן: הבירה נפלה ואתה קרוב לכניעה
+  if (!give && n.id === 0 && !hasCap && (keyLeft <= 0.7 || landLeft <= 0.5) && (n.capWarn || 0) < S.time) { n.capWarn = S.time + 20; toast(`🏳 הבירה נפלה והאומה על סף כניעה — נשארו ${Math.round(keyLeft * 100)}% מהמבנים החשובים ו-${Math.round(landLeft * 100)}% מהשטח`, 'bad'); }
+  if (!give) return;
   const ids = enemies.map(m => m.id), q = [], seen = new Int8Array(W * H).fill(-1);
   for (let i = 0; i < S.owner.length; i++) if (ids.includes(S.owner[i])) { seen[i] = S.owner[i]; q.push(i); }
   for (let h = 0; h < q.length; h++) { const u = q[h]; for (const v of nb4(u)) if (seen[v] < 0 && S.owner[v] === n.id) { seen[v] = seen[u]; q.push(v); } }
@@ -1191,6 +1226,8 @@ function checkCapitulation(n) {
   S.fronts.filter(f => f.n === n.id).forEach(f => S.fronts.splice(S.fronts.indexOf(f), 1));
   S.convoys = S.convoys.filter(c => c.n !== n.id); S.ops = S.ops.filter(o => o.n !== n.id); S.divs = S.divs.filter(d => d.n !== n.id);
   n.alive = false; view.ownerDirty = true; OWNV++;
+  addThreat(strongest, CFG.THREAT_CAP);
+  if (typeof floatText === 'function') { const cp = Object.keys(S.buildings).find(j => S.lastOwner[j] === n.id && S.buildings[j].type === 'city'); if (cp != null) { const [x, y] = XY(+cp); floatText(x + 0.5, y + 0.5, `🏳 ${n.name} נכנעה`, n.color, true); } }
   toast(n.id === 0 ? '🏳 האומה שלך נכנעה' : `🏳 ${n.name} נכנעה! השטח שלה סופח`, n.id === 0 ? 'bad' : 'good');
   render();
 }

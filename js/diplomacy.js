@@ -20,8 +20,46 @@ function warBlock(a, b) {
   if (r.state === 'war') return 'כבר במלחמה';
   if (allied(a, b)) return 'בעלי ברית — בטל את הברית קודם';
   if (truceActive(a, b)) return `שביתת נשק עד יום ${fl(r.truce)}`;
-  if (a !== 0 && b === 0 && S.time < CFG.PLAYER_GRACE) return 'תקופת חסד';
+  if (a !== 0 && b === 0 && S.time < playerGrace()) return 'תקופת חסד';
   return null;   // הסכם אי-תקיפה לא חוסם — אפשר להפר אותו, במחיר
+}
+// --- מד איום: כל כיבוש מעלה את חשד השכנים; דועך לאט, מהר יותר בשלום. מעל סף — הם מתאחדים נגדך ---
+const thr = nid => S.nations[nid].threat || 0;
+function addThreat(nid, amt) {
+  const n = S.nations[nid]; if (!n || S.demo && false) return; const old = n.threat || 0; n.threat = clamp(old + amt, 0, 100);
+  if (nid === 0) for (const [lv, msg] of [[CFG.THREAT_WARN, '⚠ השכנים מתחילים לחשוש מההתפשטות שלך'], [CFG.THREAT_COAL, '🚨 מד האיום עבר את הסף — השכנים עלולים להתאחד נגדך בקואליציה']]) if (old < lv && n.threat >= lv) toast(msg, 'bad');
+}
+// --- מוניטין: הפרת הסכמים ומתקפות פתע נזכרות; עמידה בהסכמים בונה אמון ---
+const repOf = nid => S.nations[nid].rep || 0;
+function addRep(nid, amt, why) { const n = S.nations[nid]; n.rep = clamp((n.rep || 0) + amt, -100, 100); if (nid === 0 && amt <= -8 && why) toast(`📉 מוניטין ${amt}: ${why}`, 'bad'); }
+const REP_NAMES = [[30, 'אמין', '#5ad07a'], [-10, 'ניטרלי', '#c8c8c8'], [-40, 'מפוקפק', '#ffb040'], [-101, 'בוגד', '#ff5050']];
+const repName = nid => REP_NAMES.find(([v]) => repOf(nid) >= v);
+// יומי: דעיכה, אמון מהסכמים שנשמרים, חשד גובר כלפי מי שמאיים, ובדיקת קואליציה
+function threatDaily() {
+  for (const n of S.nations) {
+    if (!n.alive) continue;
+    const atw = S.nations.some(m => m.alive && atWar(n.id, m.id));
+    n.threat = Math.max(0, (n.threat || 0) - (atw ? CFG.THREAT_DECAY_WAR : CFG.THREAT_DECAY));
+    let kept = 0; for (const m of S.nations) if (m.id !== n.id && m.alive && (napActive(n.id, m.id) || allied(n.id, m.id) || hasTrade(n.id, m.id))) kept++;
+    n.rep = clamp((n.rep || 0) + kept * 0.04 + ((n.rep || 0) < 0 ? 0.08 : 0), -100, 60);
+    if (n.threat > 20) for (const m of S.nations) if (m.id !== n.id && m.alive) { const q = rel(n.id, m.id); q.op = Math.max(-100, q.op - (n.threat - 20) / 80 * 0.4); }
+  }
+  if (S.day % 4) return;
+  for (const x of S.nations) {
+    if (!x.alive || thr(x.id) < CFG.THREAT_COAL || finalWar()) continue;
+    const k = (thr(x.id) - CFG.THREAT_COAL) / (100 - CFG.THREAT_COAL);
+    for (const c of S.nations) {
+      if (!c.isAI || !c.alive || c.id === x.id || atWar(c.id, x.id)) continue;
+      // בעלי ברית של מעצמה מאיימת מאוד עוזבים את הברית
+      if (allied(c.id, x.id)) { if (thr(x.id) >= CFG.THREAT_ALLY_LEAVE && Math.random() < 0.15 + k * 0.3) breakAlliance(c.id, x.id); continue; }
+      if (warBlock(c.id, x.id) || S.time < graceDays()) continue;
+      const p = (0.08 + k * 0.35) * PERS[c.pers].join * (militaryPower(c.id) > militaryPower(x.id) ? 0.6 : 1);
+      if (Math.random() < p) {
+        declareWar(c.id, x.id, { joining: true, coalition: true });
+        toast(x.id === 0 ? `🤝⚔ ${c.name} מצטרפת לקואליציה נגדך (מד איום ${Math.round(thr(0))})` : `🤝 ${c.name} מצטרפת לקואליציה נגד ${x.name}`, x.id === 0 ? 'bad' : '');
+      }
+    }
+  }
 }
 // --- קואליציה: מה הסיכוי שאומה c תצטרף למלחמה נגד a (התוקף) ---
 function joinChance(c, a, b, betrayal) {
@@ -33,6 +71,7 @@ function joinChance(c, a, b, betrayal) {
   p += clamp(-rel(c, a).op / 200, 0, 0.3);           // עוינות קיימת
   p += clamp(rel(c, b).op / 300, 0, 0.15);           // אהדה לקורבן
   if (leaderThreat() === a) p += 0.2;
+  p += thr(a) / 100 * 0.5 + Math.max(0, -repOf(a)) / 250;   // מד איום ומוניטין של התוקף
   if (militaryPower(c) > militaryPower(a)) p *= 0.5; // מי שחזק מהתוקף פחות מרגיש מאוים
   if (napActive(c, a)) p *= 0.4;
   if (S.nations[c].isAI) p *= PERS[S.nations[c].pers].join;
@@ -46,10 +85,15 @@ function expectedOpposition(a, b, betrayal) {
 }
 function declareWar(a, b, opt = {}) {
   const r = rel(a, b); if (r.state === 'war') return;
-  const betrayal = napActive(a, b) || S.time - r.brokeAlly < 30;
+  const betrayal = napActive(a, b) || S.time - r.brokeAlly < 30, wasFriendly = r.op > 20 || hasTrade(a, b);
   Object.assign(r, { state: 'war', trade: 0, ally: 0, nap: 0, truce: 0, op: Math.min(r.op, -50), since: S.time, g: {} });
   S.offers = S.offers.filter(o => !((o.from === a && o.to === b) || (o.from === b && o.to === a)));
   if (betrayal) for (const m of S.nations) if (m.id !== a) { const q = rel(a, m.id); q.op = Math.max(-100, q.op - 20); }
+  if (!opt.joining) {
+    addThreat(a, CFG.THREAT_WAR + (betrayal ? 8 : 0));
+    if (betrayal) addRep(a, -30, `הפרת הסכם עם ${nm(b)}`);
+    else if (wasFriendly) addRep(a, -8, `מתקפת פתע על ${nm(b)}`);
+  }
   for (const m of S.nations) if (m.id !== a && m.id !== b) { const q = rel(a, m.id); q.op = Math.max(-100, q.op - 3); }
   if (a === 0) toast(`⚔ הכרזת מלחמה על ${nm(b)}${betrayal ? ' (הפרת הסכם!)' : ''}`, 'bad');
   else if (b === 0) toast(opt.joining ? `⚔ ${nm(a)} נכנסת למלחמה נגדך` : `⚔ ${nm(a)} הכריזה עליך מלחמה${betrayal ? ' והפרה את ההסכם!' : '!'}`, 'bad');
@@ -115,6 +159,9 @@ function aiAccepts(kind, ai, other, gold) {
     return { ok: false, why: `דורשים כ-${Math.ceil((demand - tired) / 10) * 10} זהב`, demand: Math.ceil(demand - tired) };
   }
   if (leaderThreat() === other && kind !== 'alliance') return { ok: false, why: 'לא חותמים עם מעצמה שמאיימת על כולם' };
+  if (thr(other) >= CFG.THREAT_COAL) return { ok: false, why: `מד האיום שלכם גבוה מדי (${Math.round(thr(other))})` };
+  const rp = repOf(other), need = { trade: -50, nap: -25, alliance: -10 }[kind];
+  if (need != null && rp < need) return { ok: false, why: `לא סומכים עליכם — מוניטין: ${repName(other)[1]}` };
   if (kind === 'trade') return r.op > -25 ? { ok: true } : { ok: false, why: 'יחסים גרועים' };
   if (kind === 'nap') return (r.op > 5 || th > my * 1.25 || (S.nations[ai].pers === 'turtle' && r.op > -20)) ? { ok: true } : { ok: false, why: 'אין אמון' };
   if (kind === 'alliance') {
@@ -146,7 +193,7 @@ function answerOffer(o, yes) {
   else rel(o.from, o.to).op -= 5;
   render();
 }
-function breakAlliance(a, b) { const r = rel(a, b); r.ally = 0; r.op -= 30; r.brokeAlly = S.time; if (a === 0 || b === 0) toast(a === 0 ? `ביטלת את הברית עם ${nm(b)}` : `💔 ${nm(a)} ביטלה את הברית איתך`, 'bad'); }
+function breakAlliance(a, b) { const r = rel(a, b); r.ally = 0; r.op -= 30; r.brokeAlly = S.time; addRep(a, thr(b) >= CFG.THREAT_ALLY_LEAVE ? -4 : -20, `ביטול ברית עם ${nm(b)}`); if (a === 0 || b === 0) toast(a === 0 ? `ביטלת את הברית עם ${nm(b)}` : `💔 ${nm(a)} ביטלה את הברית איתך`, 'bad'); }
 // יומי: הסכמים שפגו
 function expireDeals() {
   for (const k in S.diplo) {
