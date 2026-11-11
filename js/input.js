@@ -56,7 +56,7 @@ function zoomAt(sx, sy, nz) {
   const wx = cam.x + sx / cam.zoom, wy = cam.y + sy / cam.zoom; cam.zoom = nz; cam.x = wx - sx / nz; cam.y = wy - sy / nz; clampCam();
 }
 function centerOnXY(x, y) { const cam = view.cam; cam.x = (x + 0.5) * CFG.T - innerWidth / 2 / cam.zoom; cam.y = (y + 0.5) * CFG.T - innerHeight / 2 / cam.zoom; clampCam(); }
-function centerOn(i) { view.cam.zoom = clamp(innerWidth / (18 * G * CFG.T), 0.5, 4); centerOnXY(...XY(i)); }
+function centerOn(i) { view.cam.zoom = clamp(innerWidth / (36 * 16), 0.5, 4); centerOnXY(...XY(i)); }
 
 const ptrs = new Map(); let gesture = null;
 cv.addEventListener('pointerdown', e => {

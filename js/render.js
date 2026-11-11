@@ -75,7 +75,7 @@ function drawTroops(f, X, Y, now) {
     const wx = cx + lx * cs - ly * sn, wy = cy + lx * sn + ly * cs;
     tdSprite(t, f.n, wx, wy, hd + (t === 'inf' || t === 'cmdo' ? Math.sin(i * 3.1) * 0.25 : 0), TD_SIZE[t], moving);
     if (f.engaged && f.zone?.length && Math.random() < 0.025) {   // ירי מהיחידה אל משבצת האויב
-      const [zx, zy] = XY(f.zone[i % f.zone.length]); ctx.strokeStyle = 'rgba(255,220,130,.95)'; ctx.lineWidth = 0.35; ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo(zx * CFG.T + 3 + Math.random() * 10, zy * CFG.T + 3 + Math.random() * 10); ctx.stroke();
+      const [zx, zy] = XY(f.zone[i % f.zone.length]); ctx.strokeStyle = 'rgba(255,220,130,.95)'; ctx.lineWidth = 0.35; ctx.beginPath(); ctx.moveTo(wx, wy); ctx.lineTo((zx + Math.random()) * CFG.T, (zy + Math.random()) * CFG.T); ctx.stroke();
     }
   });
 }
@@ -86,7 +86,7 @@ function drawConvoyClose(c) {
   for (let k = 0; k < n; k++) {
     const t0 = Math.max(0, c.t - k * 0.32), [x, y] = pathPos(c.path, t0), [x2, y2] = pathPos(c.path, Math.min(c.path.total, t0 + 0.1)), here = tileOf(x, y);
     const t = isWater(here) ? 'ship' : c.mode === 'air' ? 'plane' : (arm && (k === 0 || k === n - 1)) ? arm : 'truck';
-    tdSprite(t, c.n, x * T + 8, y * T + 8, Math.atan2(y2 - y, x2 - x), TD_SIZE[t], true);
+    tdSprite(t, c.n, x * T + T / 2, y * T + T / 2, Math.atan2(y2 - y, x2 - x), TD_SIZE[t], true);
   }
 }
 // --- אפקטים: פיצוצים בדיתור, עשן, קווי ירי ---
@@ -124,7 +124,7 @@ function hatchFor(col, c) {
 function drawOwnerTile(c, i, P) {
   const [x, y] = XY(i), X = x * P, Y = y * P, o = S.owner[i];
   c.clearRect(X, Y, P, P); if (o < 0) return;
-  const col = S.nations[o].color, b = Math.max(1, P / 16);
+  const col = S.nations[o].color, b = Math.max(1, P / 8);
   c.globalAlpha = 0.06; c.fillStyle = col; c.fillRect(X, Y, P, P);
   const L = x === 0 || S.owner[i - 1] !== o, Rr = x === W - 1 || S.owner[i + 1] !== o, U = y === 0 || S.owner[i - W] !== o, D = y === H - 1 || S.owner[i + W] !== o;
   if (L || Rr || U || D) {
@@ -224,12 +224,12 @@ function draw() {
   if (TRADE.last != null && TRADE.s === S) updateTrade(S.time - TRADE.last); else TRADE.ships = [];
   TRADE.last = S.time; TRADE.s = S;
   drawTradeShips(vis);
-  if (ui.pick?.kind === 'build' && ui.hint) { ctx.fillStyle = 'rgba(95,224,255,.28)'; for (const i of ui.hint) { const [x, y] = XY(i); ctx.fillRect(x * T + 1, y * T + 1, T - 2, T - 2); } }
+  if (ui.pick?.kind === 'build' && ui.hint) { ctx.fillStyle = 'rgba(95,224,255,.28)'; for (const i of ui.hint) { const [x, y] = XY(i); ctx.fillRect(x * T, y * T, T, T); } }
   ctx.textAlign = 'center';
   // ערים: גושי בתים; שאר המבנים: משטח בטון ועליו הספרייט
   eachBuilding((b, i) => {
     const [x, y] = XY(i); if (!inVis(x * T, y * T, 40)) return;
-    if (b.type === 'city') { if (done(b)) { drawTown(i, b); if (b.upg != null) { ctx.fillStyle = '#0c1018'; ctx.fillRect(x * T + 1, y * T + 13, 14, 2.5); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(x * T + 1.5, y * T + 13.5, 13 * b.upg, 1.5); } } else { ctx.globalAlpha = 0.5; drawTown(i, { ...b, lvl: 1 }); ctx.globalAlpha = 1; ctx.fillStyle = '#0c1018'; ctx.fillRect(x * T + 1, y * T + 13, 14, 2.5); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(x * T + 1.5, y * T + 13.5, 13 * b.prog, 1.5); } return; }
+    if (b.type === 'city') { if (done(b)) { drawTown(i, b); if (b.upg != null) { ctx.fillStyle = '#0c1018'; ctx.fillRect(x * T + T / 2 - 7, y * T + T / 2 + 5, 14, 2.5); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(x * T + T / 2 - 6.5, y * T + T / 2 + 5.5, 13 * b.upg, 1.5); } } else { ctx.globalAlpha = 0.5; drawTown(i, { ...b, lvl: 1 }); ctx.globalAlpha = 1; ctx.fillStyle = '#0c1018'; ctx.fillRect(x * T + T / 2 - 7, y * T + T / 2 + 5, 14, 2.5); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(x * T + T / 2 - 6.5, y * T + T / 2 + 5.5, 13 * b.prog, 1.5); } return; }
     drawBuilding(b, i, now);
   });
   // יעדי המבצעים שלך
@@ -246,7 +246,7 @@ function draw() {
       ctx.beginPath(); ctx.moveTo(ax0, ay0); ctx.lineTo(ax1, ay1); ctx.moveTo(ax1, ay1); ctx.lineTo(ax1 - hx - hy * 0.6, ay1 - hy + hx * 0.6); ctx.moveTo(ax1, ay1); ctx.lineTo(ax1 - hx + hy * 0.6, ay1 - hy - hx * 0.6); ctx.stroke();
       ctx.restore();
     }
-    for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + 8, cy = y * T + 8; ctx.strokeStyle = o.custom ? '#ffd84a' : '#ff4f6a'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx + 7, cy); ctx.lineTo(cx, cy + 7); ctx.lineTo(cx - 7, cy); ctx.closePath(); ctx.stroke(); ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(cx - 1, cy - 9.5, 2, 2); }
+    for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2; ctx.strokeStyle = o.custom ? '#ffd84a' : '#ff4f6a'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx + 7, cy); ctx.lineTo(cx, cy + 7); ctx.lineTo(cx - 7, cy); ctx.closePath(); ctx.stroke(); ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(cx - 1, cy - 9.5, 2, 2); }
   }
   // שיירות: סמל קטן בצבע האומה לאורך המסלול
   for (const c of S.convoys) {
@@ -256,7 +256,7 @@ function draw() {
     const arm = u.htank ? 'htank' : u.ltank ? 'ltank' : u.art ? 'art' : null;
     const lead = u.ship ? 'ship' : u.plane || air ? 'plane' : isWater(here) ? 'ship' : arm || 'truck';
     if (cam.zoom >= CFG.UNIT_ZOOM) drawConvoyClose(c);
-    else drawCounter(x * T + 4, y * T + 5, 9, 6, S.nations[c.n].color, lead, cam.zoom >= 1.6 && c.cnt > 1 ? c.cnt : null, { dim: false });
+    else drawCounter(x * T + T / 2 - 4.5, y * T + T / 2 - 3, 9, 6, S.nations[c.n].color, lead, cam.zoom >= 1.6 && c.cnt > 1 ? c.cnt : null, { dim: false });
   }
   // רכבות
   if (z >= 0.5) for (const r of S.rails) { const [x, y] = pathPos(r.path, r.t); if (inVis(x * T, y * T, 40)) drawTrain(r); }
@@ -264,7 +264,7 @@ function draw() {
   if (cam.zoom >= 0.45) eachBuilding((b, i) => {
     if (b.type !== 'city' || !done(b)) return;
     const [x, y] = XY(i); if (!b.capital && cam.zoom < 0.9) return; if (!inVis(x * T, y * T, 60)) return;
-    drawLabel(x * T + 8, y * T + 8 + townRad(b) * 0.85, cityName(i, b), b.capital ? 'בירה' : (cam.zoom >= 2 ? 'רמה ' + (b.lvl || 1) : null), S.nations[b.n].color);
+    drawLabel(x * T + T / 2, y * T + T / 2 + townRad(b) * 0.85, cityName(i, b), b.capital ? 'בירה' : (cam.zoom >= 2 ? 'רמה ' + (b.lvl || 1) : null), S.nations[b.n].color);
   });
   // גנרלים וציים: סמלי יחידה (קרב: הבזקים, קווי ירי ופיצוצים)
   ctx.textAlign = 'center';
@@ -272,21 +272,20 @@ function draw() {
     const col = S.nations[f.n].color, mine = f.n === 0, cnt = unitCount(f.units), sel = mine && f.id === ui.selFront;
     if (mine && f.path && (sel || cam.zoom > 1)) {
       ctx.strokeStyle = sel ? 'rgba(95,224,255,.9)' : 'rgba(95,224,255,.45)'; ctx.lineWidth = 0.8; ctx.setLineDash([2, 1.5]); ctx.beginPath();
-      ctx.moveTo(f.pos[0] * T + 8, f.pos[1] * T + 8);
-      const c = f.path.cum; for (let k = 0; k < f.path.tiles.length; k++) if (c[k] > f.pathT) { const [x, y] = XY(f.path.tiles[k]); ctx.lineTo(x * T + 8, y * T + 8); }
+      ctx.moveTo(f.pos[0] * T + T / 2, f.pos[1] * T + T / 2);
+      const c = f.path.cum; for (let k = 0; k < f.path.tiles.length; k++) if (c[k] > f.pathT) { const [x, y] = XY(f.path.tiles[k]); ctx.lineTo(x * T + T / 2, y * T + T / 2); }
       ctx.stroke(); ctx.setLineDash([]);
     }
-    if (sel && f.target != null) { const [tx, ty] = XY(f.target), cx = tx * T + 8, cy = ty * T + 8; ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.moveTo(cx - 7, cy); ctx.lineTo(cx - 3, cy); ctx.moveTo(cx + 3, cy); ctx.lineTo(cx + 7, cy); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx, cy - 3); ctx.moveTo(cx, cy + 3); ctx.lineTo(cx, cy + 7); ctx.stroke(); }
-    const [px, py] = f.pos, X = px * T, Y = py * T;
+    if (sel && f.target != null) { const [tx, ty] = XY(f.target), cx = tx * T + T / 2, cy = ty * T + T / 2; ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.moveTo(cx - 7, cy); ctx.lineTo(cx - 3, cy); ctx.moveTo(cx + 3, cy); ctx.lineTo(cx + 7, cy); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx, cy - 3); ctx.moveTo(cx, cy + 3); ctx.lineTo(cx, cy + 7); ctx.stroke(); }
+    const [px, py] = f.pos, X = px * T + T / 2 - 8, Y = py * T + T / 2 - 8;   // מסגרת 16×16 סביב מרכז המשבצת
     if (!inVis(X, Y, 60)) continue;
     if (f.kind === 'land') {
       f.zone.forEach(j => {
         const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K));
-        ctx.globalAlpha = 0.12 + 0.3 * p; ctx.fillStyle = col; ctx.fillRect(x * T + 1, y * T + 1, T - 2, T - 2); ctx.globalAlpha = 1;
-        ctx.fillStyle = 'rgba(12,16,24,.8)'; ctx.fillRect(x * T + 3, y * T + 12.5, 10, 1.6); ctx.fillStyle = col; ctx.fillRect(x * T + 3, y * T + 12.5, 10 * p, 1.6);
+        ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); ctx.globalAlpha = 1;
         if (cnt && S.owner[j] >= 0) {
-          if (Math.random() < fdt * (f.engaged ? 1.6 : 0.5)) spawnBoom(x * T + 2 + Math.random() * 12, y * T + 2 + Math.random() * 10, false);
-          if (f.engaged && Math.random() < fdt * 6) { ctx.strokeStyle = 'rgba(255,214,120,.9)'; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(X + 8, Y + 8); ctx.lineTo(x * T + 3 + Math.random() * 10, y * T + 3 + Math.random() * 10); ctx.stroke(); }
+          if (Math.random() < fdt * (f.engaged ? 1.6 : 0.5) * 4 / (G * G)) spawnBoom(x * T + Math.random() * T, y * T + Math.random() * T, false);
+          if (f.engaged && Math.random() < fdt * 6) { ctx.strokeStyle = 'rgba(255,214,120,.9)'; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(X + 8, Y + 8); ctx.lineTo(x * T + Math.random() * T, y * T + Math.random() * T); ctx.stroke(); }
         }
       });
     }
@@ -316,8 +315,8 @@ function draw() {
     ctx.setTransform(z, 0, 0, z, -cam.x * z, -cam.y * z); ctx.globalCompositeOperation = 'lighter';
     eachBuilding((b, i) => {
       if (b.type !== 'city' || !done(b)) return; const [x, y] = XY(i), r = townRad(b) * 1.5; if (!inVis(x * T, y * T, r)) return;
-      const g = ctx.createRadialGradient(x * T + 8, y * T + 8, 0, x * T + 8, y * T + 8, r); g.addColorStop(0, `rgba(255,190,100,${0.4 * nl})`); g.addColorStop(1, 'rgba(255,190,100,0)');
-      ctx.fillStyle = g; ctx.fillRect(x * T + 8 - r, y * T + 8 - r, r * 2, r * 2);
+      const g = ctx.createRadialGradient(x * T + T / 2, y * T + T / 2, 0, x * T + T / 2, y * T + T / 2, r); g.addColorStop(0, `rgba(255,190,100,${0.4 * nl})`); g.addColorStop(1, 'rgba(255,190,100,0)');
+      ctx.fillStyle = g; ctx.fillRect(x * T + T / 2 - r, y * T + T / 2 - r, r * 2, r * 2);
     });
     ctx.globalCompositeOperation = 'source-over';
   }

@@ -156,9 +156,20 @@ function expireDeals() {
     }
   }
 }
+// שכנים של כל האומות במעבר אחד על המפה
+function allNeighbors() {
+  const sets = S.nations.map(() => new Set()), O = S.owner, N = O.length;
+  for (let i = 0; i < N; i++) { const a = O[i]; if (a < 0) continue; const x = i % W; let b;
+    if (x < W - 1 && (b = O[i + 1]) >= 0 && b !== a) { sets[a].add(b); sets[b].add(a); }
+    if (i < N - W && (b = O[i + W]) >= 0 && b !== a) { sets[a].add(b); sets[b].add(a); } }
+  return sets;
+}
 function neighborsOf(nid) {
   const s = new Set();
-  for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid) for (const j of nb4(i)) { const o = S.owner[j]; if (o >= 0 && o !== nid) s.add(o); }
+  const O = S.owner, N = O.length;
+  for (let i = 0; i < N; i++) { if (O[i] !== nid) continue; const x = i % W; let o;
+    if (x > 0 && (o = O[i - 1]) >= 0 && o !== nid) s.add(o); if (x < W - 1 && (o = O[i + 1]) >= 0 && o !== nid) s.add(o);
+    if (i >= W && (o = O[i - W]) >= 0 && o !== nid) s.add(o); if (i < N - W && (o = O[i + W]) >= 0 && o !== nid) s.add(o); }
   return s;
 }
 

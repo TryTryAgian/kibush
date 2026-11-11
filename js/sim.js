@@ -21,8 +21,9 @@ function step(dt) {
   for (const f of S.fronts.slice()) { syncFront(f); if ((f.solo || f.airborne) && !f.flying && !frontDivs(f).length && !S.convoys.some(c => c.front === f.id)) S.fronts.splice(S.fronts.indexOf(f), 1); }
   for (const n of S.nations) {
     if (!n.alive) continue;
-    n.defT = (n.defT || 0) - dt; if (n.defT <= 0) { n.defT = 1; planDefense(n.id); }
-    n.hqT = (n.hqT || 0) - dt; if (n.hqT <= 0) { n.hqT = CFG.HQ_TICK; hqPlan(n.id); }
+    // מפוזר בין האומות כדי שלא כולן יחשבו באותו צעד
+    n.defT = (n.defT ?? n.id * 0.13) - dt; if (n.defT <= 0) { n.defT = 1; planDefense(n.id); }
+    n.hqT = (n.hqT ?? 0.5 + n.id * 0.7) - dt; if (n.hqT <= 0) { n.hqT = CFG.HQ_TICK; hqPlan(n.id); }
     n.railT = (n.railT || 0) - dt; if (n.railT <= 0) { n.railT = 5; planRails(n.id); }
     if (n.isAI) { n.aiT += dt; if (n.aiT >= CFG.AI_THINK) { n.aiT = 0; aiThink(n); } }
   }
@@ -47,7 +48,7 @@ function daily() {
       }
     }
   }
-  const nbsOf = S.nations.map(n => n.alive ? neighborsOf(n.id) : new Set());
+  const nbsOf = allNeighbors();
   if (finalWar()) for (const k in S.diplo) { const r = S.diplo[k]; if (r.ally > S.time || r.nap > S.time) { const [a, b] = k.split('-').map(Number); if (!S.nations[a].alive || !S.nations[b].alive) continue; r.ally = 0; r.nap = 0; if (a === 0 || b === 0) toast('⚔ נשארו שתי אומות — הבריתות וההסכמים בטלים. המלחמה האחרונה מתקרבת', 'bad'); } }
   expireDeals();
   if (S.nations.some(a => a.alive && S.nations.some(b => b.alive && atWar(a.id, b.id)))) S.lastWarDay = S.time;

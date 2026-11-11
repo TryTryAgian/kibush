@@ -24,7 +24,8 @@ function canBuild(nid, type, i, ignoreCost, dt) {
   if (B.coastal && !isCoastal(i)) return no(`${B.name} חייב להיות צמוד לים`);
   // מבנה מאותו סוג קרוב מדי: בודקים רק את החלון סביב המשבצת (ולא את כל המבנים במפה)
   let close = false; const [ix, iy] = XY(i), sp = Math.ceil(B.spacing * G) - 1;
-  for (let y = Math.max(0, iy - sp); y <= Math.min(H - 1, iy + sp) && !close; y++) for (let x = Math.max(0, ix - sp); x <= Math.min(W - 1, ix + sp); x++) { const b = S.buildings[idx(x, y)]; if (b && b.type === type) { close = true; break; } }
+  if ((2 * sp + 1) ** 2 > 400) eachBuilding((b, j) => { if (!close && b.type === type && cheb(i, j) < B.spacing) close = true; });
+  else for (let y = Math.max(0, iy - sp); y <= Math.min(H - 1, iy + sp) && !close; y++) for (let x = Math.max(0, ix - sp); x <= Math.min(W - 1, ix + sp); x++) { const b = S.buildings[idx(x, y)]; if (b && b.type === type) { close = true; break; } }
   if (close) return no(`קרוב מדי ל${B.name} אחר`);
   if (type === 'camp' && dt && !kindReady(n, dt)) return no(`דורש מחקר: ${TECH[DIV_TYPES[dt].req].name}`);
   if (!ignoreCost && !canAfford(n, buildCost(nid, type, dt))) return no(`חסרים משאבים (${fmtCost(buildCost(nid, type, dt))})`);

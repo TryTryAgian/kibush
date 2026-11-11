@@ -11,7 +11,8 @@ const MAPPAL = {
   hills: '#7c7452', mount: '#857c66', mountL: '#9c937a', mountD: '#625a4a', snow: '#b8bcbc', contour: '#4a4434',
 };
 // רמות פירוט: סקירה (8 פיקסלים למשבצת, קנבס אחד) ופירוט (32 פיקסלים למשבצת, בחלקים של 8×8 משבצות שנוצרים לפי הצורך)
-const TP = { D: 32, O: 8, CH: 8, MAX: 160, ZD: 2.2 };
+// פיקסלים למשבצת: פירוט = 2 לכל יחידת עולם, סקירה = 0.5; חלק = 128 יחידות עולם
+const TP = { D: CFG.T * 2, O: CFG.T / 2, CH: 128 / CFG.T, MAX: 160, ZD: 2.2 };
 const TERR = { chunks: new Map(), pal: null };
 // הכנה חד-פעמית לכל מפה: מרחק מהחוף, עיוות קווי חוף (חלק — אינטרפולציה בין פינות משבצות), גובה לקווי גובה, שדות
 function prepTerrain() {
@@ -19,17 +20,21 @@ function prepTerrain() {
   const jx = new Float32Array(CW * CHh), jy = new Float32Array(CW * CHh), el = new Float32Array(CW * CHh);
   for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) {
     const k = y * CW + x, u = x / G, v = y / G;
-    jx[k] = (nz(u * 1.5, v * 1.5, 3) - 0.5) * 1.6 + (nz(u * 5, v * 5, 2) - 0.5) * 0.6; jy[k] = (nz(u * 1.5 + 40, v * 1.5 - 20, 3) - 0.5) * 1.6 + (nz(u * 5 + 70, v * 5 + 11, 2) - 0.5) * 0.6; el[k] = nz(u * 0.35 + 90, v * 0.35 + 9, 4);
+    jx[k] = ((nz(u * 1.5, v * 1.5, 3) - 0.5) * 0.8 + (nz(u * 5, v * 5, 2) - 0.5) * 0.3) * G; jy[k] = ((nz(u * 1.5 + 40, v * 1.5 - 20, 3) - 0.5) * 0.8 + (nz(u * 5 + 70, v * 5 + 11, 2) - 0.5) * 0.3) * G; el[k] = nz(u * 0.35 + 90, v * 0.35 + 9, 4);
   }
   const coastD = new Float32Array(W * H).fill(99), q = [];
   for (let i = 0; i < W * H; i++) if (!isWater(i)) { coastD[i] = 0; q.push(i); }
   for (let h = 0; h < q.length; h++) { const u = q[h]; for (const v of nb4(u)) if (coastD[v] > coastD[u] + 1) { coastD[v] = coastD[u] + 1; q.push(v); } }
   // עומק בפינות המשבצות — מעבר חלק בין רצועות העומק
   const cd = new Float32Array(CW * CHh);
-  for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { let s = 0, n = 0; for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H) { s += Math.min(8, coastD[Y * W + X]); n++; } } cd[y * CW + x] = s / n / G; }
+  for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { let s = 0, n = 0; for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H) { s += Math.min(4 * G, coastD[Y * W + X]); n++; } } cd[y * CW + x] = s / n / G; }
   // משבצות ליד קו מים (רק שם בודקים פס חוף)
-  const nearC = new Uint8Array(W * H);
-  for (let i = 0; i < W * H; i++) { const [x, y] = XY(i), w = isWater(i); for (let dy = -1; dy <= 1 && !nearC[i]; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H && isWater(idx(X, Y)) !== w) { nearC[i] = 1; break; } } }
+  // (בטווח העיוות של קו החוף — מרחק מהמים ליבשה ולהפך)
+  const landD = new Float32Array(W * H).fill(99), q2 = [];
+  for (let i = 0; i < W * H; i++) if (isWater(i)) { landD[i] = 0; q2.push(i); }
+  for (let h = 0; h < q2.length; h++) { const u = q2[h]; for (const v of nb4(u)) if (landD[v] > landD[u] + 1) { landD[v] = landD[u] + 1; q2.push(v); } }
+  const nearC = new Uint8Array(W * H), RC = Math.ceil(0.6 * G) + 1;
+  for (let i = 0; i < W * H; i++) nearC[i] = (isWater(i) ? coastD[i] : landD[i]) <= RC ? 1 : 0;
   const caps = []; eachBuilding((b, j) => { if (b.capital) caps.push(XY(j)); });
   const farm = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) { const [x, y] = XY(i); let near = 99; for (const [a, b] of caps) near = Math.min(near, Math.hypot(a - x, b - y) / G); farm[i] = nz(x / G * 0.18 + 300, y / G * 0.18 - 70, 3) > 0.52 - (near < 9 ? 0.25 : 0) ? 1 : 0; }
@@ -72,7 +77,7 @@ function paintTerrain(tx0, ty0, tw, th, P) {
     if (!TER[t].water && t !== SAND) {   // קווי גובה ומדרגות גובה
       const u = (gx + 0.5) / P, v = (gy + 0.5) / P, e = bil(el, u * 1, v * 1) * (t === MOUNT || t === SNOW ? 14 : t === HILLS ? 10 : 5), f0 = Math.floor(e), fr = e - f0;
       if (t === MOUNT || t === SNOW || t === HILLS) col = col.map(v2 => v2 * (0.9 + 0.06 * (f0 % 3)));
-      if (fr < 0.06 * (32 / P) * 0.5 + 0.03 && !(t === GRASS && farm[ti])) col = col.map(v2 => v2 * 0.82);
+      if (fr < 0.045 && !(t === GRASS && farm[ti])) col = col.map(v2 => v2 * 0.82);
     }
     put(gx, gy, col);
   }
@@ -86,7 +91,7 @@ function paintTerrain(tx0, ty0, tw, th, P) {
   }
   if (!detail) return img;
   // יערות: גושים עגולים כהים עם צל; עצים בודדים במישור; רכסים בהרים
-  const k = P / 32;
+  const k = P / CFG.T / 2, area = (CFG.T / 16) ** 2;   // גודל ביחידות עולם קבוע; כמות לפי שטח המשבצת
   const blob = (cx, cy, rr) => {
     for (let y = -rr; y <= rr; y++) for (let x = -rr; x <= rr; x++) if (x * x + y * y <= rr * rr + 1) put(cx + x + 2, cy + y + 2, C.treeS, 0.55);
     for (let y = -rr; y <= rr; y++) for (let x = -rr; x <= rr; x++) { const q2 = x * x + y * y; if (q2 > rr * rr + 1) continue; put(cx + x, cy + y, x + y < -rr * 0.6 ? C.treeL : C.tree); }
@@ -94,9 +99,9 @@ function paintTerrain(tx0, ty0, tw, th, P) {
   for (let ty = ty0 - 1; ty <= ty0 + th; ty++) for (let tx = tx0 - 1; tx <= tx0 + tw; tx++) {
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
     const i = idx(tx, ty), t = S.terrain[i], X0 = tx * P, Y0 = ty * P;
-    if (t === FOREST) { const n = 4 + (hash01(tx, ty, seed + 31) * 4 | 0); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 9 + k2, ty, seed + 3) * P | 0), Y0 + (hash01(tx, ty * 9 + k2, seed + 4) * P | 0), Math.max(1, Math.round((2 + (hash01(k2, tx + ty, seed) * 3 | 0)) * k))); }
-    else if (t === GRASS && !farm[i] && hash01(tx, ty, seed + 33) < 0.15) { const n = 1 + (hash01(tx, ty, seed + 34) * 2 | 0); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 5 + k2, ty, seed + 35) * P | 0), Y0 + (hash01(tx, ty * 5 + k2, seed + 36) * P | 0), Math.max(1, Math.round((2 + (k2 & 1)) * k))); }
-    else if ((t === MOUNT || t === SNOW) && hash01(tx, ty, seed + 40) < 0.35) {
+    if (t === FOREST) { const n = Math.floor((4 + hash01(tx, ty, seed + 31) * 4) * area + hash01(ty, tx, seed + 32)); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 9 + k2, ty, seed + 3) * P | 0), Y0 + (hash01(tx, ty * 9 + k2, seed + 4) * P | 0), Math.max(1, Math.round((2 + (hash01(k2, tx + ty, seed) * 3 | 0)) * k))); }
+    else if (t === GRASS && !farm[i] && hash01(tx, ty, seed + 33) < 0.15 * area) { const n = 1 + (hash01(tx, ty, seed + 34) * 2 | 0); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 5 + k2, ty, seed + 35) * P | 0), Y0 + (hash01(tx, ty * 5 + k2, seed + 36) * P | 0), Math.max(1, Math.round((2 + (k2 & 1)) * k))); }
+    else if ((t === MOUNT || t === SNOW) && hash01(tx, ty, seed + 40) < 0.35 * area) {
       const cx = X0 + P / 2, cy = Y0 + P / 2, a = hash01(tx, ty, seed + 41) * Math.PI, L = Math.round(8 * k);
       for (let s = -L; s <= L; s++) { const x = Math.round(cx + Math.cos(a) * s), y = Math.round(cy + Math.sin(a) * s); put(x, y, C.mountL); put(x + 1, y + 1, C.mountD); put(x + 2, y + 2, C.mountD, 0.5); }
     }
@@ -108,7 +113,7 @@ function buildTerrainCanvas() {
   prepTerrain();
   terrainCv.width = W * TP.O; terrainCv.height = H * TP.O;
   terrainCv.getContext('2d').putImageData(paintTerrain(0, 0, W, H, TP.O), 0, 0);
-  ownerCv.width = W * 16; ownerCv.height = H * 16;
+  ownerCv.width = W * CFG.T; ownerCv.height = H * CFG.T;   // פיקסל ליחידת עולם
   railCv.width = W * TP.O; railCv.height = H * TP.O;
   hatchPat.clear(); BCACHE.clear(); TOWNC.clear(); TRADE.ships = []; TRADE.routes.clear();
   view.railDirty = true; view.ownerDirty = true;
@@ -395,7 +400,7 @@ function drawTown(i, b) { const T = CFG.T, [x, y] = XY(i), c = townArt(i, b), s 
 
 // ===================== רכבות =====================
 function drawTrain(r) {
-  const T = CFG.T, sp = 0.13, cars = 4, dir = r.dir || 1, col = S.nations[r.n].color;
+  const T = CFG.T, sp = 3.9 / T * RAIL_COST, cars = 4, dir = r.dir || 1, col = S.nations[r.n].color;
   const at = k => { const t = clamp(r.t - dir * k * sp, 0, r.path.total), [x, y] = pathPos(r.path, t); return [x * T + T / 2, y * T + T / 2]; };
   for (let k = cars; k >= 0; k--) {
     const [x, y] = at(k), [x2, y2] = at(k - 0.4), a = Math.atan2(y2 - y, x2 - x), loco = k === 0;

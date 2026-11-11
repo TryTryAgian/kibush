@@ -11,9 +11,10 @@ const powNear = (pred, x, y, r, kind) => armiesNear(pred, x, y, r).reduce((a, g)
 const persOf = nid => PERS[S.nations[nid].pers] || PERS.aggr;
 // מרחק BFS ביבשה בלבד ממקורות
 function landDist(src) {
-  const d = new Int16Array(W * H).fill(-1), q = [];
-  for (const i of src) { d[i] = 0; q.push(i); }
-  for (let h = 0; h < q.length; h++) { const u = q[h]; for (const v of nb4(u)) if (d[v] < 0 && !isWater(v)) { d[v] = d[u] + 1; q.push(v); } }
+  const N = W * H, d = new Int16Array(N).fill(-1), q = new Int32Array(N), ter = S.terrain; let t = 0;
+  for (const i of src) { d[i] = 0; q[t++] = i; }
+  const go = (u, v) => { if (d[v] < 0 && !TER[ter[v]].water) { d[v] = d[u] + 1; q[t++] = v; } };
+  for (let h = 0; h < t; h++) { const u = q[h], x = u % W; if (x > 0) go(u, u - 1); if (x < W - 1) go(u, u + 1); if (u >= W) go(u, u - W); if (u < N - W) go(u, u + W); }
   return d;
 }
 function enemyField(nid, en) { const src = []; for (let i = 0; i < S.owner.length; i++) if (S.owner[i] >= 0 && en.includes(S.owner[i])) src.push(i); return landDist(src); }
@@ -45,8 +46,8 @@ function sectorScan(nid) {
     let fort = 0; const au = auras[s.e] || (auras[s.e] = fortressAuras(s.e));
     for (const t of s.tiles) for (const k of nb4(t)) if (S.owner[k] === s.e) fort = Math.max(fort, tileDefense(k, au));
     const stalled = armiesNear(isE, cx, cy, R).filter(g => g.retreating || g.consol || g.org < 0.4).length;
-    out.push({ e: s.e, tile: c, n: s.tiles.length, threat: powNear(isE, cx, cy, R, 'atk'), enemyDef: powNear(isE, cx, cy, R, 'def'),
-      ourAtk: powNear(isMe, cx, cy, R, 'atk'), ourDef: powNear(isMe, cx, cy, R, 'def'), value, gain, fort, stalled });
+    out.push({ e: s.e, tile: c, n: s.tiles.length, threat: powNear(isE, cx, cy, R, 'atk'), enemyDef: powNear(isE, cx, cy, R, 'def') + garrisonPow(s.e, cx, cy, R),
+      ourAtk: powNear(isMe, cx, cy, R, 'atk'), ourDef: powNear(isMe, cx, cy, R, 'def') + garrisonPow(nid, cx, cy, R), value, gain, fort, stalled });
   }
   return out;
 }
@@ -120,6 +121,67 @@ function checkCulmination(f) {
 }
 
 // ===================== הגנה =====================
+// --- אזורי הגנה: גזרות הגבול + חדירות של צבאות אויב לתוך השטח שלנו. לכל אזור: איום, ערך המבנים סביבו, וכמה הגנה חסרה ---
+function defenseZones(nid, en, sectors, defs) {
+  const keys = []; eachBuilding((b, j) => { if (b.n === nid && done(b) && keyVal(b)) keys.push([j, keyVal(b)]); });
+  const valueNear = (t, r) => { let v = 0; for (const [j, k] of keys) if (dist(j, t) <= r) v += k; return v; };
+  const holders = new Set(defs), others = g => g.n === nid && !holders.has(g);
+  const zones = sectors.map(s => { const [x, y] = XY(s.tile); return { ...s, kind: 'border', other: powNear(others, x, y, CFG.THREAT_R, 'def') + garrisonPow(nid, x, y, CFG.THREAT_R) }; });
+  for (const e of S.fronts) {
+    if (e.kind !== 'land' || !en.includes(e.n) || !unitCount(e.units) || e.flying) continue;
+    const et = tileOf(...e.pos); if (S.owner[et] !== nid && S.core[et] !== nid) continue;
+    const near = zones.find(z => z.kind === 'incursion' && dist(z.tile, et) <= 4);
+    if (near) { near.threat += frontPower(e, 'atk'); continue; }
+    const [x, y] = e.pos, value = valueNear(et, 6);
+    // המבנה החשוב הקרוב ביותר לצבא — עליו מגינים
+    let guard = null, gd = Infinity; for (const [j, k] of keys) { const d = dist(j, et) - k * 0.3; if (d < gd && dist(j, et) <= 8) { gd = d; guard = j; } }
+    zones.push({ kind: 'incursion', e: e.n, army: e, tile: et, guard, threat: frontPower(e, 'atk'), value, posture: 'depth', other: powNear(others, x, y, 6, 'def') + garrisonPow(nid, x, y, 6) });
+  }
+  for (const z of zones) {
+    z.weight = (1 + z.value / 6) * (z.kind === 'incursion' ? 1.6 : 1);
+    z.need = Math.max(0, z.threat * 1.3 - z.other);
+    z.p = z.threat < CFG.SCREEN_THREAT && z.kind === 'border' ? z.weight * 0.6 : z.weight * (z.need + 2);
+  }
+  return zones;
+}
+// שיבוץ: כל פעם הזוג (מגן, אזור) עם הכי הרבה תועלת לכל יום הליכה. אזור שכבר מכוסה מקבל עדיפות נמוכה —
+// כך גנרל לא חוצה את המפה כשיש איום ליד הבית, ואיום גדול מושך כמה גנרלים. מעדיפים להישאר באזור הנוכחי.
+function assignHolders(nid, holders, zones) {
+  const plan = new Map(); if (!zones.length) return plan;
+  const left = holders.slice(), hp = f => Math.max(10, frontPower(f, 'def') + unitCount(inTransit(f)) * 2);
+  while (left.length) {
+    let best = null, bs = -1;
+    for (const f of left) {
+      const ft = tileOf(...f.pos), spd = Math.max(0.5, frontSpeed(f) / G);
+      for (const z of zones) {
+        let sc = z.p / (1 + dist(ft, z.tile) / spd / 4);
+        if (f.sector != null && dist(f.sector, z.tile) <= 4) sc *= 1.5;
+        if (sc > bs) { bs = sc; best = [f, z]; }
+      }
+    }
+    const [f, z] = best; plan.set(f, z); left.splice(left.indexOf(f), 1);
+    z.need -= hp(f); z.p = z.need > 0 ? z.weight * (z.need + 2) : z.weight * 0.3;
+  }
+  return plan;
+}
+function nearEnemyTile(nid, pos, from) {
+  const [ex, ey] = pos.map(Math.round), R = 2 * G; let best = null, bd = Infinity;
+  for (let y = ey - R; y <= ey + R; y++) for (let x = ex - R; x <= ex + R; x++) { if (x < 0 || y < 0 || x >= W || y >= H) continue; const j = idx(x, y); if (!validTarget(nid, j)) continue; const d = hyp(x - from[0], y - from[1]); if (d < bd) { bd = d; best = j; } }
+  return best;
+}
+// --- חיל מצב: אוגדה שיושבת במחנה (לא אצל גנרל) מגינה על הסביבה — המחנה פועל כמו ביצור ---
+function garrisons(nid, x, y, r, hostileTo) {
+  const out = [];
+  for (const d of S.divs) {
+    if (d.loc !== 'camp' || d.front != null || d.type === 'air' || d.type === 'navy' || !divTotal(d)) continue;
+    if (hostileTo != null ? !atWar(hostileTo, d.n) : d.n !== nid) continue;
+    const [bx, by] = XY(d.home); if (hyp(bx - x, by - y) > r) continue;
+    if (!d.gf) d.gf = { n: d.n, kind: 'land', units: d.units, loss: zeroUnits(), gen: { trait: 'logistic' }, pos: [bx, by], supply: 'ok', org: 0.6, garrison: true };   // בלי בונוס גנרל; כוח ~70%
+    d.gf.units = d.units; d.gf.pos = [bx, by]; d.gf.n = d.n; out.push(d.gf);
+  }
+  return out;
+}
+const garrisonPow = (nid, x, y, r) => garrisons(nid, x, y, r).reduce((a, g) => a + frontPower(g, 'def') * 1.5, 0);
 // קו הגנה בעומק: משבצת שלנו במרחק depth מהאויב, הכי קרובה לגזרה
 function beltTile(nid, at, depth, ef) {
   const m = mainComp(nid), [cx, cy] = XY(at), R = Math.round((depth + 6) * G); let best = null, bs = Infinity;
@@ -149,10 +211,17 @@ function planDefense(nid) {
   let reserve = null;
   if (defs.length >= 2) reserve = defs.find(f => f.defRole === 'reserve') || defs.slice().sort((a, b) => armorPow(b) - armorPow(a))[0];
   const holders = defs.filter(f => f !== reserve);
-  const ranked = sectors.slice().sort((a, b) => b.risk - a.risk), chosen = [];
+  const ranked = sectors.slice().sort((a, b) => b.risk - a.risk);
+  const zones = defenseZones(nid, en, sectors, defs), plan = assignHolders(nid, holders, zones);
   for (const f of holders) {
-    const s = ranked.find(x => chosen.every(c => dist(c.tile, x.tile) >= 6)) || ranked[0];
-    chosen.push(s); f.atCamp = false; f.defRole = s.posture; f.sector = s.tile;
+    const s = plan.get(f) || ranked[0];
+    f.atCamp = false; f.defRole = s.posture; f.sector = s.tile; f.zoneKind = s.kind;
+    // חדירה לשטח שלנו: מגינים על המבנה החשוב הקרוב לצבא האויב (או תוקפים אותו כשאנחנו חזקים מספיק)
+    if (s.kind === 'incursion') {
+      const e = s.army, strong = e && frontPower(f, 'atk') > frontPower(e, 'def') * CFG.CA_RATIO;
+      if (strong) { const t = nearEnemyTile(nid, e.pos, f.pos); if (t != null) { f.target = t; f.defend = null; continue; } }
+      f.target = null; f.zone = []; f.defend = s.guard ?? s.tile; continue;
+    }
     const [fx, fy] = f.pos, local = powNear(g => en.includes(g.n), fx, fy, 6, 'atk');
     // השהיה: מחזיקים עד שהיחס נשבר, ואז נסוגים צעד אחד — לא יותר עמוק מהמבנה החשוב הקרוב
     if (s.posture === 'delay') { if (f.engaged && frontPower(f, 'def') < local * CFG.DELAY_BREAK) f.delayD = Math.min(14, (f.delayD || 0) + CFG.DELAY_STEP); }
@@ -166,7 +235,7 @@ function planDefense(nid) {
     else f.wasOut = false;
     // מכת נגד מיידית: משבצת שאבדה ליד העמדה, כשאנחנו חזקים שם
     let lost = null, ld = Infinity;
-    if (s.posture !== 'delay') for (let j = 0; j < S.owner.length; j++) if (S.lastOwner[j] === nid && en.includes(S.owner[j])) { const d = dist(j, spot); if (d <= 4 && d < ld) { ld = d; lost = j; } }
+    if (s.posture !== 'delay') { const [sx, sy] = XY(spot), R = 4 * G; for (let y = Math.max(0, sy - R); y <= Math.min(H - 1, sy + R); y++) for (let x = Math.max(0, sx - R); x <= Math.min(W - 1, sx + R); x++) { const j = y * W + x; if (S.lastOwner[j] === nid && en.includes(S.owner[j])) { const d = dist(j, spot); if (d <= 4 && d < ld) { ld = d; lost = j; } } } }
     const localDef = lost != null ? enemyPowerNear(nid, lost, 5) : 0;
     if (lost != null && frontPower(f, 'atk') > localDef * CFG.CA_RATIO + 2) { f.target = lost; f.defend = null; }
     else { f.target = null; f.zone = []; f.defend = spot; }

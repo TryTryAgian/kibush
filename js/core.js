@@ -121,7 +121,7 @@ function loadTerrain(settings, seed) {
 function newGame(settings) {
   const seed = settings.seed || (Math.random() * 1e9 | 0);
   const m = loadTerrain(settings, seed);
-  S = { v: 9, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
+  S = { v: 10, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
         terrain: m.terrain, owner: new Int8Array(W * H).fill(-1), buildings: {}, nations: [], diplo: {},
         fronts: [], convoys: [], offers: [], ops: [], rails: [], divs: [], nextId: 1, lastOwner: new Int8Array(W * H).fill(-1), railMap: new Uint8Array(W * H), core: new Int8Array(W * H).fill(-1), capDay: new Float32Array(W * H), lastWarDay: 0 };
   S.landTotal = S.terrain.reduce((a, t) => a + (TER[t].water ? 0 : 1), 0);
@@ -171,14 +171,14 @@ function findPath(nid, from, to, opt = {}) {
   if (from === to) return { tiles: [from], cum: [0], total: 0 };
   const N = W * H, g = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
   const tx = to % W, ty = (to / W) | 0;
-  const hf = i => { const dx = Math.abs(i % W - tx), dy = Math.abs(((i / W) | 0) - ty); return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) * RAIL_COST; };
+  const hf = i => { const dx = Math.abs(i % W - tx), dy = Math.abs(((i / W) | 0) - ty); return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) * (opt.hw || 1.3); };   // A* ממושקל: מהיר בהרבה על רשת צפופה (מסלול כמעט אופטימלי)
   const heap = new Heap();
   g[from] = 0; heap.push(hf(from), from);
   let found = false, iter = 0;
   while (heap.size) {
     const u = heap.pop()[1]; if (closed[u]) continue; closed[u] = 1;
     if (u === to) { found = true; break; }
-    if (++iter > 30000 * G * G) break;
+    if (++iter > (opt.cap || 30000 * G * G)) break;
     const ux = u % W, uy = (u / W) | 0, uw = isWater(u);
     for (const [dx, dy, m] of DIRS8) {
       const vx = ux + dx, vy = uy + dy; if (vx < 0 || vy < 0 || vx >= W || vy >= H) continue;

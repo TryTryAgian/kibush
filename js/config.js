@@ -10,9 +10,10 @@
 /* ---------- 1. CONFIG ---------- */
 // צפיפות הרשת: כל "יחידת משחק" (המשבצת המקורית) מחולקת ל-G×G משבצות. כל הטווחים, המרחקים והמהירויות
 // בקוד ובהגדרות נמדדים ביחידות משחק — dist()/cheb()/hyp() מחזירים יחידות משחק, ומהירויות מוכפלות ב-G.
-const G = 2;
+const G = 4;
 const CFG = {
-  T: 16, TR: 2, WIN_RATIO: 0.8, SAVE_KEY: 'pixelConquest.save.v9',
+  // T = יחידות עולם למשבצת (קטן כשהרשת צפופה — העולם נשאר באותו גודל)
+  T: 8, TR: 2, WIN_RATIO: 0.8, SAVE_KEY: 'pixelConquest.save.v10',
   ZOOM_MIN: 0.12, ZOOM_MAX: 6,
   DAY_SEC: 3,                  // שניות אמיתיות ליום משחק במהירות ×1
   TICK: 0.1,                   // צעד סימולציה (ימים)
@@ -60,6 +61,7 @@ const CFG = {
   MAIN_BELT: 3, RESERVE_BACK: 6, RES_RANGE: 16, // קו עיקרי בעומק; מיקום ועוצמת תגובה של העתודה
   CA_RATIO: 1.4, OVEREXT: 6,                    // מכת נגד; עומק חדירה שנחשב "ראש חץ שהתארך"
   DELAY_BREAK: 0.7, DELAY_STEP: 4, ENCIRCLE_SHARE: 0.35, COUNTER_RATIO: 1.5,
+  CAMP_AURA: 1, GARRISON_R: 2.5,                  // מחנה עם אוגדה בבית: רדיוס ביצור; טווח שבו חיל המצב נלחם בפולש
   // --- ערים ---
   CITY_MAX_LVL: 4, CITY_POP: 1000,     // אוכלוסייה לכל רמת עיר
   UPGRADE_GOLD: 150, UPGRADE_MAT: 100, UPGRADE_DAYS: 15,  // עלות שדרוג = × הרמה הנוכחית

@@ -41,7 +41,7 @@ function aiThink(n) {
       }
       // דגימה: עד 400 משבצות אקראיות מהשטח (במקום לבדוק את כולן)
       const pool = own.length > 400 ? Array.from({ length: 400 }, () => own[Math.random() * own.length | 0]) : own;
-      let cand = pool.filter(i => canBuild(nid, type, i, true).ok);
+      let cand = []; for (const i of pool) { if (canBuild(nid, type, i, true).ok) cand.push(i); if (cand.length >= 16) break; }
       if (type === 'fortress' && wars.length) { const b = cand.filter(i => nb4(i).some(k => S.owner[k] >= 0 && atWar(nid, S.owner[k]))); if (b.length) cand = b; }
       if (!cand.length) continue;
       if (!canAfford(n, buildCost(nid, type))) { saving = true; break; }
@@ -62,7 +62,7 @@ function aiThink(n) {
   ops = S.ops.filter(o => o.n === nid);
   let desired = null;
   if (wars.length) {
-    const cands = wars.filter(m => { for (let j = 0; j < S.owner.length; j++) if (S.owner[j] === m.id && reachable(nid, j, ports)) return true; return false; });
+    const nb0 = neighborsOf(nid), cands = wars.filter(m => { if (nb0.has(m.id)) return true; return navalReach(nid, m.id, ports); });
     // יעד המלחמה: אויב חלש וקרוב — עם גבול משותף ארוך. לא מחליפים יעד בלי סיבה טובה (כדי שהגנרלים לא יחצו את המפה הלוך ושוב)
     const cmap = {}; for (let j = 0; j < S.owner.length; j++) { const o = S.owner[j]; if (o >= 0 && o !== nid && nb4(j).some(k => S.owner[k] === nid)) cmap[o] = (cmap[o] || 0) + 1; }
     const contact = m => cmap[m.id] || 0;

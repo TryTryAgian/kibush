@@ -94,7 +94,7 @@ function divWhere(d) {
   if (d.loc === 'moving') return '🚚 בדרך';
   const f = d.front != null && S.fronts.find(x => x.id === d.front);
   if (f) return f.solo ? `🎯 ${f.status}` : f.kind === 'navy' ? `⚓ ${f.gen.name}` : `🎖 ${f.gen.name}`;
-  return '⛺ במחנה';
+  return S.nations.some(m => m.alive && atWar(d.n, m.id)) ? '🛡 חיל מצב — מגן על סביבת המחנה' : '⛺ במחנה';
 }
 function divCard(d) {
   const b = S.buildings[d.home], mine = b && b.n === d.n && b.div === d.id, p = player();
@@ -127,7 +127,7 @@ function genCard(f) {
   const p = player(), sel = f.id === ui.selFront, kinds = f.kind === 'navy' ? ['ship'] : LAND_UNITS.filter(t => unlocked(p, UNITS[t])), tr = TRAITS[f.gen.trait];
   return h('div', { class: 'card' + (sel ? ' sel' : ''), onclick: () => { if (!sel) { ui.selFront = f.id; render(); } } },
     h('div', { class: 'uline' }, h('span', { class: 'nm' }, h('b', {}, '🎖 ' + f.gen.name), ' ', h('span', { class: 'dim' }, tr.name)), live(el => el.textContent = f.status + (f.op != null && f.planWhy && !f.planHold ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע למאמץ העיקרי', 'דחיפה': '➡ דוחף קדימה', 'ניצול': '⚡ ניצול לעומק' }[f.planWhy] || ''}` : ''), 'b')),
-    f.kind === 'land' && !f.solo ? live(el => { el.textContent = f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (DEF_NAMES[f.defRole] || '') : ''; }, 'div', { class: 'role' }) : null,
+    f.kind === 'land' && !f.solo ? live(el => { el.textContent = f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (f.defRole !== 'reserve' && f.zoneKind === 'incursion' ? '🚨 הודף חדירה לשטח' : DEF_NAMES[f.defRole] || '') : ''; }, 'div', { class: 'role' }) : null,
     h('div', { class: 'kv' },
       live(el => { const ds = frontDivs(f), here = ds.filter(d => d.loc === 'front').length; el.textContent = ds.length ? `${here} אוגדות${ds.length > here ? ` (+${ds.length - here} בדרך)` : ''} · ${unitCount(f.units)} יחידות` : 'אין אוגדות'; }),
       f.kind === 'land' ? live(el => { const o = f.org ?? 1; el.textContent = `מורל ${Math.round(o * 100)}%`; el.style.color = o > 0.6 ? '#7ad07a' : o > 0.3 ? '#e8b820' : '#ff7060'; }) : null,
@@ -211,7 +211,8 @@ function openOpHelp() {
     h('li', {}, 'שליטה ישירה: 🎯 בכרטיס אוגדה (לשונית צבא או הקשה על מחנה) — ואז הקש על יעד במפה. האוגדה יוצאת לבד, תוקפת או מחזיקה בנקודה. הקש עליה במפה לפקודה חדשה.'),
     h('li', {}, 'מורל: יורד בקרב ומתאושש עם אספקה. מתחת ל-15% הגנרל נסוג להתארגן וחוזר מעל 70%.'),
     h('li', {}, 'אומה שאיבדה את הבירה ורוב המבנים החשובים — נכנעת, וכל השטח שלה מסופח לאויביה.'),
-    h('li', {}, 'גנרלי הגנה: בשלום יושבים במחנות. במלחמה המטה מדרג כל גזרה לפי איום × ערך: 👁 מסך בגזרה שקטה, 🧱 הגנה בעומק (קו עיקרי מאחורי הגבול) מול איום, ⏳ השהיה — נסיגה צעד צעד — מול כוח מכריע. גנרל שעומד להיות מכותר נסוג לקו הבא.'),
+    h('li', {}, 'גנרלי הגנה: בשלום יושבים במחנות. במלחמה המטה בונה אזורי הגנה — גזרות גבול וחדירות אויב לשטח — ומשבץ כל גנרל לאזור עם הכי הרבה איום × ערך מבנים ביחס לזמן ההליכה, כך שגנרל לא חוצה את המפה כשיש איום ליד. בכל גזרה: 👁 מסך בגזרה שקטה, 🧱 הגנה בעומק (קו עיקרי מאחורי הגבול) מול איום, ⏳ השהיה — נסיגה צעד צעד — מול כוח מכריע. גנרל שעומד להיות מכותר נסוג לקו הבא.'),
+    h('li', {}, '🏰 חיל מצב: אוגדה שנשארת במחנה (לא אצל גנרל) הופכת את המחנה לביצור קטן ונלחמת בכל צבא אויב שמתקרב למבנים סביבו.'),
     h('li', {}, '🛡 עתודה ניידת (משני מגינים ומעלה): הגנרל עם השריון מחכה מאחורי הגזרה המאוימת ומכה כשהאויב פורץ, או בבסיס של ראש חץ שהתארך ונשחק. כשהתוקף נעצר — המטה עובר למתקפת נגד באותה גזרה.'),
     h('li', {}, 'כיס: גנרל שמנותק מהשטח המרכזי לא מקבל תגבורת ביבשה. נמל בכיס = אספקה בים; שדה תעופה בכיס = רכבת אווירית. גנרל מנותק נלחם חלש יותר.'),
     h('li', {}, 'חסימה וליווי: צי אויב ליד נתיב הים מטביע שיירות ופוגע בנחיתות — אלא אם צי שלך מלווה באזור וחזק ממנו. הגנה אווירית של האויב מיירטת רכבות אוויריות וצנחנים.'),
