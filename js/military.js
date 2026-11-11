@@ -94,8 +94,128 @@ function supplyRoute(nid, src, dest, t) {
   const r = supplyRoute_(nid, src, dest, t), until = S.time + (r && !r.blocked ? 5 : 2);
   _routes.set(key, { r, s: S, until }); if (inMain && (!r || r.blocked)) _routes.set(dkey, { r, s: S, until }); return r;
 }
+// ===================== לוגיסטיקה: רשת כבישים ומסילות =====================
+// הצמתים: המבנים של האומה (בשטח המרכזי). הקשתות: הכבישים בין המבנים ומסילות הרכבת.
+// שיירה נוסעת ברשת עד "נקודת האיסוף" — המבנה שממנו הדרך הכוללת לגנרל הכי קצרה — ומשם רודפת אחרי הגנרל.
+const ROAD_COST = 0.6, OFF_COST = 1.25;   // עלות למשבצת: בכביש / בשטח פתוח (במסילה: RAIL_COST)
+const _rg = { key: null, day: -1, roads: [], s: null }, _lg = {};
+function roadEdges() {
+  const k = roadKey();
+  if (_rg.s !== S || (_rg.key !== k && _rg.day !== S.day)) { _rg.roads = roadNet(); _rg.key = k; _rg.day = S.day; _rg.s = S; }
+  return _rg.roads;
+}
+function logiGraph(nid) {
+  const c = _lg[nid]; if (c && c.s === S && c.t > S.time - 1 && c.v === _rg.key && c.t <= S.time) return c;
+  roadEdges();
+  const m = mainComp(nid), nodes = new Map();
+  const okN = j => { const b = S.buildings[j]; return b && b.n === nid && done(b) && m[j]; };
+  const add = (a, b, cost, kind, ref) => { if (!nodes.has(a)) nodes.set(a, []); if (!nodes.has(b)) nodes.set(b, []); nodes.get(a).push([b, cost, kind, ref]); nodes.get(b).push([a, cost, kind, ref]); };
+  eachBuilding((b, j) => { if (okN(j) && !nodes.has(j)) nodes.set(j, []); });
+  for (const [a, b] of _rg.roads) if (okN(a) && okN(b) && roadClear(nid, a, b)) add(a, b, dist(a, b) * G * ROAD_COST, 'road');
+  for (const r of S.rails) if (r.n === nid && okN(r.a) && okN(r.b) && r.path.tiles.every(t => S.owner[t] === nid)) add(r.a, r.b, r.path.total, 'rail', r);
+  return _lg[nid] = { nodes, t: S.time, s: S, v: _rg.key };
+}
+// כביש שעובר בשטח שהאויב כבש — חתוך (לא עוברים בו)
+function roadClear(nid, a, b) {
+  const [ax, ay] = XY(a), [bx, by] = XY(b), n = Math.ceil(Math.hypot(bx - ax, by - ay));
+  for (let k = 1; k < n; k++) { const o = S.owner[tileOf(ax + (bx - ax) * k / n, ay + (by - ay) * k / n)]; if (o !== nid && !(o >= 0 && allied(nid, o))) return false; }
+  return true;
+}
+// ===================== מצב אספקה =====================
+// מרכזי ייצור (בירה, ערים, מפעלים, נמלים) → דייקסטרה ברשת → "עלות רשת" לכל מבנה.
+// אספקה של נקודה = מרחק בשטח פתוח מהמבנה הקרוב + חלק קטן מעלות הרשת שלו (כביש ומסילה זולים).
+const _sn = {};
+function supplyNet(nid) {
+  const c = _sn[nid]; if (c && c.s === S && c.t > S.time - 1 && c.t <= S.time) return c;
+  const N = logiGraph(nid).nodes, d = new Map(), heap = new Heap();
+  for (const j of N.keys()) { const b = S.buildings[j]; if (b.capital || b.type === 'city' || b.type === 'factory' || b.type === 'port') { d.set(j, 0); heap.push(0, j); } }
+  while (heap.size) { const [cc, u] = heap.pop(); if (cc > d.get(u)) continue; for (const [v, w] of N.get(u)) { const nc = cc + w; if (nc < (d.get(v) ?? Infinity)) { d.set(v, nc); heap.push(nc, v); } } }
+  return _sn[nid] = { d, t: S.time, s: S };
+}
+function supplyAt(nid, tile) {
+  const { d } = supplyNet(nid); let best = Infinity;
+  for (const [j, c] of d) { const off = dist(j, tile); if (off > 14) continue; const v = off + 0.3 * c / G; if (v < best) best = v; }
+  return best === Infinity ? CFG.SUP_MIN : clamp(1 - (best - CFG.SUP_FREE) / CFG.SUP_FALL, CFG.SUP_MIN, 1);
+}
+const roadSeg = (a, b) => { const d = dist(a, b) * G * ROAD_COST; return { tiles: [a, b], cum: [0, d], total: d }; };
+const revPath = p => ({ tiles: p.tiles.slice().reverse(), cum: p.cum.map(c => p.total - c).reverse(), total: p.total });
+// מסלול ברשת: כניסה (המבנה עצמו או מבנה קרוב), דייקסטרה על הרשת, ויציאה בנקודת האיסוף
+function roadRoute(nid, src, dest) {
+  const N = logiGraph(nid).nodes; if (N.size < 2) return null;
+  const off = (a, b) => dist(a, b) * G * OFF_COST, d = new Map(), prev = new Map(), heap = new Heap();
+  for (const j of N.keys()) { const c = j === src ? 0 : dist(j, src) <= 5 ? off(j, src) : Infinity; if (c < Infinity) { d.set(j, c); heap.push(c, j); } }
+  while (heap.size) { const [c, u] = heap.pop(); if (c > d.get(u)) continue; for (const [v, w, kind, ref] of N.get(u)) { const nc = c + w; if (nc < (d.get(v) ?? Infinity)) { d.set(v, nc); prev.set(v, [u, kind, ref]); heap.push(nc, v); } } }
+  let best = null, bc = off(src, dest) * 0.9;   // הרשת צריכה לנצח את הדרך הישירה
+  for (const [j, c] of d) { const t = c + off(j, dest); if (t < bc) { bc = t; best = j; } }
+  if (best == null) return null;
+  const steps = []; let u = best;
+  while (prev.has(u)) { const [p, kind, ref] = prev.get(u); steps.unshift([p, u, kind, ref]); u = p; }
+  if (!steps.length && u === src) return null;
+  const legs = [];
+  if (u !== src) { const p0 = findPath(nid, src, u, { cap: 20000 }); if (!p0) return null; legs.push(p0); }
+  for (const [a, b, kind, ref] of steps) legs.push(kind === 'rail' ? (ref.a === a ? ref.path : revPath(ref.path)) : roadSeg(a, b));
+  const path = legs.length === 1 ? legs[0] : joinPaths(...legs);
+  return { path, mode: 'road', stage: best };
+}
+// אחרי שהשיירה סיימה קטע: אם היעד (הגנרל, או המחנה בחזרה) לא שם — ממשיכה אליו מהמקום הנוכחי
+function convoyTarget(c) {
+  if (c.front != null) { const f = S.fronts.find(z => z.id === c.front); return f && f.kind === 'land' && !f.flying ? f.pos : null; }
+  return c.toB != null ? XY(c.toB) : null;
+}
+function convoyChase(c, here) {
+  const tp = convoyTarget(c); if (!tp) return false;
+  const [hx, hy] = XY(here); if (hyp(tp[0] - hx, tp[1] - hy) <= CFG.ARRIVE) return false;
+  if ((c.hops = (c.hops || 0) + 1) > 10) return false;
+  const p = findPath(c.n, here, tileOf(...tp), { cap: 40000 }); if (!p || p.total <= 0) return false;
+  c.path = p; c.t = 0; c.leg = 'chase'; c.mode = 'land'; c.chk = 0.5; return true;
+}
+// בדרך: אם הגנרל קרוב — מגיעים מיד; אם הוא התקרב לשיירה — קיצור דרך אליו; אם זז רחוק מסוף הקטע — מחשבים מחדש
+function convoyUpdate(c, dt) {
+  if (c.mode === 'sea' || c.mode === 'air') return 'go';
+  c.chk = (c.chk ?? 0.25) - dt; if (c.chk > 0) return 'go';
+  c.chk = 0.25;
+  const [x, y] = pathPos(c.path, c.t), here = tileOf(x, y);
+  if (convoyDanger(c, x, y) === 'dead') return 'dead';
+  const tp = convoyTarget(c); if (!tp) return 'go';
+  // הדרך לפנים נחתכה (שטח אויב) — עוקפים מהמקום הנוכחי
+  for (const k of [0.6, 1.6, 3.2]) { const [ax, ay] = pathPos(c.path, Math.min(c.path.total, c.t + k)), o = S.owner[tileOf(ax, ay)]; if (o >= 0 && atWar(c.n, o)) { c.hops = Math.max(0, (c.hops || 0) - 1); convoyChase(c, here); return 'go'; } }
+  const dHere = hyp(tp[0] - x, tp[1] - y);
+  if (c.front != null && dHere <= CFG.ARRIVE) return 'arrive';
+  const [ex, ey] = XY(c.path.tiles[c.path.tiles.length - 1]), rem = (c.path.total - c.t) + hyp(tp[0] - ex, tp[1] - ey) * G * OFF_COST;
+  if ((c.leg !== 'chase' && dHere * G * OFF_COST < rem * 0.75) || (c.leg === 'chase' && hyp(tp[0] - ex, tp[1] - ey) > 2)) return convoyChase(c, here) ? 'go' : 'go';
+  return 'go';
+}
+// מארב: צבא אויב ליד השיירה; תקיפה אווירית: כנף אוויר של אויב בשדה תעופה קרוב
+function convoyDanger(c, x, y) {
+  const units = c.units, def = UKEYS.reduce((a, t) => a + (units[t] || 0) * UNITS[t].def, 0) + 5;
+  c.ambushed = c.ambushed || [];
+  const hit = (frac, why) => {
+    for (const t of UKEYS) if (units[t]) units[t] -= Math.max(1, Math.round(units[t] * frac));
+    for (const t of UKEYS) units[t] = Math.max(0, units[t] || 0);
+    c.cnt = unitCount(units);
+    if (typeof spawnBoom === 'function') spawnBoom(x * CFG.T + CFG.T / 2, y * CFG.T + CFG.T / 2, true);
+    if (c.n === 0) toast(`🚚 ${why} — שיירה איבדה ${Math.round(frac * 100)}% מהמטען`, 'bad');
+    else if (S.fronts.some(f => f.n === 0 && c.ambushed.includes(f.id))) toast(`💥 ${why} — פגענו בשיירת אויב`, 'good');
+    return c.cnt ? 'hit' : 'dead';
+  };
+  const escort = S.fronts.some(g => g.kind === 'land' && unitCount(g.units) && (g.n === c.n || allied(c.n, g.n)) && hyp(g.pos[0] - x, g.pos[1] - y) <= CFG.AMBUSH_R);
+  if (!escort) for (const g of S.fronts) {
+    if (g.kind !== 'land' || !unitCount(g.units) || g.flying || !atWar(c.n, g.n) || c.ambushed.includes(g.id) || hyp(g.pos[0] - x, g.pos[1] - y) > CFG.AMBUSH_R) continue;
+    c.ambushed.push(g.id); const atk = frontPower(g, 'atk');
+    return hit(clamp(0.2 + 0.4 * atk / (atk + def), 0.2, 0.6), 'מארב');
+  }
+  for (const d of S.divs) {
+    if (d.type !== 'air' || d.loc !== 'camp' || !d.units.plane || !atWar(c.n, d.n)) continue;
+    const [bx, by] = XY(d.home); if (hyp(bx - x, by - y) > CFG.AIR_INTERDICT || Math.random() > 0.04 * Math.min(3, d.units.plane / 3)) continue;
+    if (aaThreat(d.n, x, y, 2) >= 2) continue;   // הגנה אווירית שלנו ליד השיירה מגינה עליה
+    return hit(0.2, 'תקיפה אווירית');
+  }
+  return 'ok';
+}
 function supplyRoute_(nid, src, dest, t) {
   const U = UNITS[t];
+  // בשטח המרכזי: קודם כל ברשת הכבישים והמסילות
+  if (!U.air && !U.naval && mainComp(nid)[src] && !isWater(dest)) { const rr = roadRoute(nid, src, dest); if (rr) return rr; }
   if (U.air) return airBlocked(nid, src, dest) ? { blocked: 'air' } : { path: straightPath(src, dest), mode: 'air' };
   if (U.naval) { const p = findPath(nid, src, dest, { water: true }); return p ? { path: p, mode: 'sea' } : null; }
   let blocked = null;
@@ -344,7 +464,9 @@ function sendReplacements(f) {
     d.wait = 0; via = via || route.mode;
   }
   if (f.kind !== 'land') return;
+  f.supLvl = supplyAt(nid, ft);
   if (!inPocket(f)) { f.supply = 'ok'; return; }
+  f.supLvl = Math.min(f.supLvl, 0.4);
   if (!via) { const camp = baseFor(nid, 'inf', ft); const r = camp != null && supplyRoute(nid, camp, ft, 'inf'); via = r && !r.blocked ? r.mode : null; if (!via) cut = true; }
   f.supply = via === 'sea' ? 'sea' : via === 'air' ? 'air' : 'cut';
 }
@@ -492,7 +614,7 @@ function updateFront(f, dt) {
   // מורל: יורד בקרב (יותר מול אויב חזק), מתאושש עם אספקה; מתחת לסף — נסיגה להתארגנות במחנה
   if (f.org == null) f.org = 1;
   if (f.engaged) f.org = Math.max(0, f.org - CFG.ORG_LOSS * dt * enemyAtk / (frontPower(f, 'def') + enemyAtk + 1) * 2);
-  else f.org = clamp(f.org + CFG.ORG_REGEN * mod(S.nations[nid], 'org') * dt * (f.supply === 'ok' ? 1 : f.supply === 'cut' ? -0.3 : 0.5), 0, 1);
+  else f.org = clamp(f.org + CFG.ORG_REGEN * mod(S.nations[nid], 'org') * dt * (f.supply === 'ok' ? 0.3 + 0.7 * (f.supLvl ?? 1) : f.supply === 'cut' ? -0.3 : 0.5), 0, 1);   // אספקה חלשה = התאוששות איטית
   if (!f.retreating && cnt && f.org < CFG.RETREAT_ORG) {
     f.retreating = true; f.target = null; f.zone = []; f.prog = {}; f.path = null; f.defend = retreatTile(f);
     if (nid === 0) toast(`↩ ${f.gen.name} נסוג להתארגנות (מורל ${Math.round(f.org * 100)}%)`, 'bad');
@@ -526,7 +648,7 @@ function updateFront(f, dt) {
   // קומנדו מכבשים מהר; ארטילריה שוברת שטח מבוצר
   let capW = 0, capP = 0; for (const t of UKEYS) if (f.units[t] && !UNITS[t].air) { const w = f.units[t] * UNITS[t].atk; capP += w; capW += w * (UNITS[t].capture || 1); }
   const capMul = capP ? capW / capP : 1, artShare = (f.units.art * UNITS.art.atk) / (capP || 1);
-  let P = frontPower(f, 'atk') * CFG.PRESSURE_K * capMul * (TRAITS[f.gen.trait].capture || 1) * mod(S.nations[nid], 'capture') * (f.supply === 'cut' ? 0.5 : 1) * dt;
+  let P = frontPower(f, 'atk') * CFG.PRESSURE_K * capMul * (TRAITS[f.gen.trait].capture || 1) * mod(S.nations[nid], 'capture') * (f.supply === 'cut' ? 0.5 : 0.7 + 0.3 * (f.supLvl ?? 1)) * dt;   // רחוק מהרשת = כיבוש איטי
   if (enemyPow) { const my = frontPower(f, 'atk'); P *= my / (my + enemyPow); }
   if (f.zone.some(j => S.owner[j] >= 0)) f.org = Math.max(0, f.org - 0.01 * dt);   // תקיפת שטח מוגן שוחקת מעט
   const w = f.zone.map((_, k) => 1 / (1 + k * 0.5)), ws = w.reduce((a, b) => a + b, 0), auraCache = {};

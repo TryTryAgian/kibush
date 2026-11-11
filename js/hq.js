@@ -66,12 +66,14 @@ function rateSectors(nid, sectors) {
 }
 // --- בחירת המאמץ העיקרי של מבצע: יעדים × יחס כוחות ÷ מרחק מהבירה; בונוס למתקפת נגד על תוקף שנעצר ---
 function meScore(s, cap) {
-  const ratio = (s.ourAtk + 10) / (s.enemyDef + s.fort * 2 + 10);
+  // מעדיפים להתקדם לאורך רשת הכבישים והמסילות — שם האספקה תחזיק
+  const ratio = (s.ourAtk + 10) / (s.enemyDef + s.fort * 2 + 10) * (0.6 + 0.4 * (s.sup ?? 1));
   return (s.gain + 2) * ratio / (1 + (cap != null ? dist(s.tile, cap) : 30) / 30) * (s.counter ? 2 : 1);
 }
 function chooseME(op, sectors, force) {
   if (op.target < 0 || op.objectives.some(o => o.custom && !o.done)) return false;
   const cand = sectors.filter(s => s.e === op.target); if (!cand.length) return false;
+  for (const s of cand) if (s.sup == null) s.sup = supplyAt(op.n, s.tile);
   const cap = capitalOf(op.target), sc = s => meScore(s, cap);
   const best = cand.slice().sort((a, b) => sc(b) - sc(a))[0];
   if (op.meTile == null) { op.meTile = best.tile; op.meWhy = best.counter ? 'מתקפת נגד' : 'פער בקו'; return true; }
@@ -116,7 +118,7 @@ function consolidateTile(f) {
 function checkCulmination(f) {
   if (f.consol || !unitCount(f.units) || f.target == null) return false;
   const lr = localRatio(f, tileOf(...f.pos)), culm = CFG.CULM_RATIO * (persOf(f.n).culm || 1);
-  const far = dist(tileOf(...f.pos), retreatTile(f)) > CFG.CULM_SUPPLY;
+  const far = (f.supLvl ?? 1) < 0.5;   // רחוק מרשת האספקה
   return (f.engaged && lr < culm) || f.org < CFG.CULM_ORG || (far && f.engaged && lr < 1.2) || f.supply === 'cut' && f.engaged && lr < 1.2;
 }
 

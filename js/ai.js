@@ -131,7 +131,9 @@ function aiThink(n) {
   // הפרת הסכם אי-תקיפה מגדילה מאוד את הסיכוי לקואליציה, ולכן דורשת יתרון גדול יותר.
   if (wars.length >= P.maxWars || S.time < CFG.GRACE_DAYS) return;
   const stalemate = S.time - (S.lastWarDay || 0) > CFG.STALEMATE_DAYS;
-  const pressure = (n.idleDays > 30 ? 0.15 : 0) + (stalemate ? 0.15 : 0) + (finalWar() ? 0.5 : 0);   // צבא בטל ושלום כללי מורידים את הרף
+  // שלום כללי ארוך: הלחץ למלחמה גדל בהדרגה (עד +0.6) — כדי שהמשחק לא ייתקע בשלום בין שלוש אומות
+  const calm = Math.max(0, S.time - (S.lastWarDay || 0) - CFG.STALEMATE_DAYS);
+  const pressure = (n.idleDays > 30 ? 0.15 : 0) + (stalemate ? 0.15 + Math.min(0.6, calm / 150) : 0) + (finalWar() ? 0.5 : 0);   // צבא בטל ושלום כללי מורידים את הרף
   let best = null, bs = -Infinity;
   for (const m of S.nations) {
     if (m.id === nid || !m.alive || warBlock(nid, m.id)) continue;
