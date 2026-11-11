@@ -35,16 +35,51 @@ function prepTerrain() {
   for (let h = 0; h < q2.length; h++) { const u = q2[h]; for (const v of nb4(u)) if (landD[v] > landD[u] + 1) { landD[v] = landD[u] + 1; q2.push(v); } }
   const nearC = new Uint8Array(W * H), RC = Math.ceil(0.6 * G) + 1;
   for (let i = 0; i < W * H; i++) nearC[i] = (isWater(i) ? coastD[i] : landD[i]) <= RC ? 1 : 0;
-  const caps = []; eachBuilding((b, j) => { if (b.capital) caps.push(XY(j)); });
-  const farm = new Uint8Array(W * H);
-  for (let i = 0; i < W * H; i++) { const [x, y] = XY(i); let near = 99; for (const [a, b] of caps) near = Math.min(near, Math.hypot(a - x, b - y) / G); farm[i] = nz(x / G * 0.18 + 300, y / G * 0.18 - 70, 3) > 0.52 - (near < 9 ? 0.25 : 0) ? 1 : 0; }
+  // גובה רציף: גובה לפי סוג השטח בפינות המשבצות, מוחלק (טשטוש ריבועי ×3) + רעש — כך קווי הגובה והצללה זורמים בין גבעות, הרים ויערות
+  const TH = t => TER[t].water ? -0.3 : t === SAND ? 0.4 : t === HILLS ? 3 : t === MOUNT ? 6 : t === SNOW ? 8.5 : t === FOREST ? 1.3 : 1;
+  let hg = new Float32Array(CW * CHh);
+  for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { let s = 0, n = 0; for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H) { s += TH(S.terrain[Y * W + X]); n++; } } hg[y * CW + x] = s / n; }
+  const R = Math.max(1, Math.round(G * 0.9)), tmp = new Float32Array(CW * CHh);
+  for (let pass = 0; pass < 3; pass++) {
+    for (let y = 0; y < CHh; y++) { let acc = 0, cnt = 0; for (let x = -R; x < CW + R; x++) { if (x + R < CW) { acc += hg[y * CW + x + R]; cnt++; } if (x - R - 1 >= 0) { acc -= hg[y * CW + x - R - 1]; cnt--; } if (x >= 0 && x < CW) tmp[y * CW + x] = acc / cnt; } }
+    for (let x = 0; x < CW; x++) { let acc = 0, cnt = 0; for (let y = -R; y < CHh + R; y++) { if (y + R < CHh) { acc += tmp[(y + R) * CW + x]; cnt++; } if (y - R - 1 >= 0) { acc -= tmp[(y - R - 1) * CW + x]; cnt--; } if (y >= 0 && y < CHh) hg[y * CW + x] = acc / cnt; } }
+  }
+  for (let k = 0; k < hg.length; k++) hg[k] += (el[k] - 0.5) * 1.4 * Math.min(1, Math.max(0.25, hg[k] / 3));
+  // הצללה מצפון-מערב
+  const sh = new Float32Array(CW * CHh), K = 0.55 / G * 4;
+  for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { const k = y * CW + x, l = hg[y * CW + Math.max(0, x - 1)], r = hg[y * CW + Math.min(CW - 1, x + 1)], u = hg[Math.max(0, y - 1) * CW + x], d = hg[Math.min(CHh - 1, y + 1) * CW + x]; sh[k] = clamp(1 + ((r - l) + (d - u)) * K * 0.25, 0.72, 1.22); }
+  // שדות: רעש בסיסי + תוספת סביב ערים (מחושבת מחדש כשעיר נבנית או גדלה)
+  const farmN = new Float32Array(W * H); for (let i = 0; i < W * H; i++) { const [x, y] = XY(i); farmN[i] = nz(x / G * 0.18 + 300, y / G * 0.18 - 70, 3); }
   const pal = {}; for (const k in MAPPAL) pal[k] = Array.isArray(MAPPAL[k]) ? MAPPAL[k].map(hex2rgb) : hex2rgb(MAPPAL[k]);
-  Object.assign(TERR, { jx, jy, el, cd, CW, coastD, nearC, farm, pal, s: S });
+  Object.assign(TERR, { jx, jy, el, cd, CW, coastD, nearC, farmN, farm: new Uint8Array(W * H), hg, sh, pal, s: S, cityKey: cityKey() });
+  computeFarm();
   TERR.chunks.clear();
+}
+// שדות מעובדים: סביב כל עיר בנויה, ברדיוס שגדל עם הרמה שלה; מעט שדות טבעיים רחוק מערים
+const farmRad = b => (3.5 + (b.lvl || 1) * 1.8 + (b.capital ? 2 : 0)) * G;
+function computeFarm(box) {
+  const { farmN, farm } = TERR, boost = new Float32Array(W * H);
+  eachBuilding((b, j) => { if (b.type !== 'city' || !done(b)) return; const [cx, cy] = XY(j), R = Math.ceil(farmRad(b));
+    for (let y = Math.max(0, cy - R); y <= Math.min(H - 1, cy + R); y++) for (let x = Math.max(0, cx - R); x <= Math.min(W - 1, cx + R); x++) { const d = Math.hypot(x - cx, y - cy) / R; if (d < 1) { const i = y * W + x; boost[i] = Math.max(boost[i], 0.42 * (1 - d * d)); } } });
+  const [x0, y0, x1, y1] = box || [0, 0, W - 1, H - 1];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * W + x; const t = S.terrain[i]; farm[i] = (t === GRASS && farmN[i] + boost[i] > 0.74) || ((t === FOREST || t === SAND) && boost[i] > 0.24 && farmN[i] + boost[i] > 0.7) ? 1 : 0; }   // סביב ערים — גם יער מבוראה ושוליים חוליים הופכים לשדות
+}
+const cityKey = () => { let k = ''; eachBuilding((b, j) => { if (b.type === 'city' && done(b)) k += j + ':' + (b.lvl || 1) + ','; }); return k; };
+// עיר נבנתה או גדלה — מחשבים שדות מחדש סביבה ומציירים מחדש את השטח שם
+function refreshFarmland() {
+  const k = cityKey(); if (k === TERR.cityKey) return;
+  const old = new Set(TERR.cityKey.split(',')), changed = k.split(',').filter(e => e && !old.has(e)); TERR.cityKey = k;
+  for (const e of changed) {
+    const j = +e.split(':')[0], b = S.buildings[j]; if (!b) continue; const [cx, cy] = XY(j), R = Math.ceil(farmRad(b)) + 2;
+    const box = [Math.max(0, cx - R), Math.max(0, cy - R), Math.min(W - 1, cx + R), Math.min(H - 1, cy + R)];
+    computeFarm(box);
+    const n = TP.CH; for (let qy = Math.floor(box[1] / n); qy <= Math.floor(box[3] / n); qy++) for (let qx = Math.floor(box[0] / n); qx <= Math.floor(box[2] / n); qx++) TERR.chunks.delete(qx + ',' + qy);
+    const bw = box[2] - box[0] + 1, bh = box[3] - box[1] + 1; terrainCv.getContext('2d').putImageData(paintTerrain(box[0], box[1], bw, bh, TP.O), box[0] * TP.O, box[1] * TP.O);
+  }
 }
 // צביעת אזור מפה (במשבצות) לתמונה ברזולוציה P פיקסלים למשבצת
 function paintTerrain(tx0, ty0, tw, th, P) {
-  const PW = tw * P, PH = th * P, img = new ImageData(PW, PH), d = img.data, seed = S.seed, C = TERR.pal, { jx, jy, el, cd, CW, nearC, farm } = TERR;
+  const PW = tw * P, PH = th * P, img = new ImageData(PW, PH), d = img.data, seed = S.seed, C = TERR.pal, { jx, jy, el, cd, CW, nearC, farm, hg, sh } = TERR;
   const OX = tx0 * P, OY = ty0 * P, detail = P >= 16, wuPx = CFG.T / P;
   const put = (x, y, rgb, a = 1) => { x -= OX; y -= OY; if (x < 0 || y < 0 || x >= PW || y >= PH) return; const o = (y * PW + x) * 4; if (a >= 1) { d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; } else { d[o] += (rgb[0] - d[o]) * a; d[o + 1] += (rgb[1] - d[o + 1]) * a; d[o + 2] += (rgb[2] - d[o + 2]) * a; } d[o + 3] = 255; };
   // ערך בפינות המשבצות → אינטרפולציה (קווי חוף וקווי גובה חלקים בכל רזולוציה)
@@ -53,7 +88,7 @@ function paintTerrain(tx0, ty0, tw, th, P) {
   const isW = (gx, gy) => TER[S.terrain[terAt(gx, gy)]].water;
   const FS = 12;   // גודל תא שדה (יחידות עולם)
   for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) {
-    const gx = OX + px, gy = OY + py, ti = terAt(gx, gy), t = S.terrain[ti], r = hash01(gx, gy, seed + 7 + P), chk = (gx + gy) & 1;
+    const gx = OX + px, gy = OY + py, ti = terAt(gx, gy), t = farm[ti] ? GRASS : S.terrain[ti], r = hash01(gx, gy, seed + 7 + P), chk = (gx + gy) & 1;
     let col;
     if (TER[t].water) {
       const dd = bil(cd, (gx + 0.5) / P, (gy + 0.5) / P) + (r - 0.5) * 0.5 + (chk ? 0.1 : -0.1);   // עומק חלק עם דיתור
@@ -66,18 +101,22 @@ function paintTerrain(tx0, ty0, tw, th, P) {
         const fx = sx ? Math.floor(wx / (FS * 2)) : cx, fy = sx ? cy : Math.floor(wy / (FS * 2)), x0 = sx ? fx * FS * 2 : fx * FS, y0 = sx ? fy * FS : fy * FS * 2;
         const lx = wx - x0, ly = wy - y0, fr = hash01(fx, fy, seed + 62 + (sx ? 1 : 0));
         col = C.fields[(hash01(fx, fy, seed + 64 + (sx ? 1 : 0)) * MAPPAL.fields.length) | 0];
-        if (detail && ((hash01(fx, fy, seed + 63) < 0.5 ? lx : ly) % 1.5) < wuPx) col = col.map(v => v * 0.9);   // שורות חריש
-        if (lx < wuPx || ly < wuPx) col = C.grass2;
+        if (detail && ((hash01(fx, fy, seed + 63) < 0.5 ? lx : ly) % 1.5) < wuPx) col = col.map(v => v * 0.88);   // שורות חריש
+        col = col.map(v => v * (0.96 + r * 0.08));
+        if (lx < wuPx * 1.5 || ly < wuPx * 1.5) col = hash01(fx, fy, seed + 66) < 0.35 ? C.tree : C.grass2;   // גדר חיה / שביל בין שדות
         if (fr < 0.12) col = r < 0.5 ? C.grass : C.grass2;
       } else col = r < 0.6 ? C.grass : C.grass2;
     } else if (t === FOREST) col = detail ? C.forest : r < 0.45 ? C.tree : r < 0.6 ? C.treeL : C.forest;
     else if (t === HILLS) col = C.hills;
     else if (t === MOUNT) col = C.mount;
     else col = C.snow;
-    if (!TER[t].water && t !== SAND) {   // קווי גובה ומדרגות גובה
-      const u = (gx + 0.5) / P, v = (gy + 0.5) / P, e = bil(el, u * 1, v * 1) * (t === MOUNT || t === SNOW ? 14 : t === HILLS ? 10 : 5), f0 = Math.floor(e), fr = e - f0;
-      if (t === MOUNT || t === SNOW || t === HILLS) col = col.map(v2 => v2 * (0.9 + 0.06 * (f0 % 3)));
-      if (fr < 0.045 && !(t === GRASS && farm[ti])) col = col.map(v2 => v2 * 0.82);
+    if (!TER[t].water) {   // גובה רציף: צבע לפי גובה, הצללה וקווי גובה שלא נקטעים בגבולות סוגי השטח
+      const u = (gx + 0.5) / P, v = (gy + 0.5) / P, e = bil(hg, u, v), lit = bil(sh, u, v), dz = (r - 0.5) * 0.35;
+      if (t === HILLS || t === MOUNT || t === SNOW) col = e + dz < 2.6 ? C.hills : e + dz < 5.6 ? (e + dz < 4.2 ? C.mount : C.mountL) : C.snow;
+      else if (t !== SAND && e > 1.7) { const k = Math.min(0.55, (e - 1.7) / 1.6); col = col.map((v2, q) => v2 + (C.hills[q] - v2) * k); }
+      col = col.map(v2 => v2 * lit);
+      const step = 0.5, f = e / step, fr = f - Math.floor(f), lw = 0.06 * (P >= 16 ? 1 : 2.2);
+      if (e > 0.6 && (fr < lw || fr > 1 - lw)) { const major = Math.round(f) % 4 === 0, a = (t === FOREST || farm[ti] ? 0.1 : 0.2) + (major ? 0.08 : 0); col = col.map((v2, q) => v2 + (C.contour[q] - v2) * a); }
     }
     put(gx, gy, col);
   }
@@ -99,7 +138,7 @@ function paintTerrain(tx0, ty0, tw, th, P) {
   for (let ty = ty0 - 1; ty <= ty0 + th; ty++) for (let tx = tx0 - 1; tx <= tx0 + tw; tx++) {
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
     const i = idx(tx, ty), t = S.terrain[i], X0 = tx * P, Y0 = ty * P;
-    if (t === FOREST) { const n = Math.floor((4 + hash01(tx, ty, seed + 31) * 4) * area + hash01(ty, tx, seed + 32)); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 9 + k2, ty, seed + 3) * P | 0), Y0 + (hash01(tx, ty * 9 + k2, seed + 4) * P | 0), Math.max(1, Math.round((2 + (hash01(k2, tx + ty, seed) * 3 | 0)) * k))); }
+    if (t === FOREST && !farm[i]) { const n = Math.floor((4 + hash01(tx, ty, seed + 31) * 4) * area + hash01(ty, tx, seed + 32)); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 9 + k2, ty, seed + 3) * P | 0), Y0 + (hash01(tx, ty * 9 + k2, seed + 4) * P | 0), Math.max(1, Math.round((2 + (hash01(k2, tx + ty, seed) * 3 | 0)) * k))); }
     else if (t === GRASS && !farm[i] && hash01(tx, ty, seed + 33) < 0.15 * area) { const n = 1 + (hash01(tx, ty, seed + 34) * 2 | 0); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 5 + k2, ty, seed + 35) * P | 0), Y0 + (hash01(tx, ty * 5 + k2, seed + 36) * P | 0), Math.max(1, Math.round((2 + (k2 & 1)) * k))); }
     else if ((t === MOUNT || t === SNOW) && hash01(tx, ty, seed + 40) < 0.35 * area) {
       const cx = X0 + P / 2, cy = Y0 + P / 2, a = hash01(tx, ty, seed + 41) * Math.PI, L = Math.round(8 * k);
@@ -135,6 +174,7 @@ function makeChunk(cx, cy) {
 function drawTerrain(z, vis) {
   const T = CFG.T;
   if (TERR.s !== S) buildTerrainCanvas();
+  if (((TERR.fc = (TERR.fc || 0) + 1) % 30) === 0) refreshFarmland();
   if (z < TP.ZD) { ctx.drawImage(terrainCv, 0, 0, W * T, H * T); return; }
   const n = TP.CH, S_ = n * T, t0 = performance.now();
   const x0 = Math.max(0, Math.floor(vis.x0 / S_)), x1 = Math.min(Math.ceil(W / n) - 1, Math.floor(vis.x1 / S_)), y0 = Math.max(0, Math.floor(vis.y0 / S_)), y1 = Math.min(Math.ceil(H / n) - 1, Math.floor(vis.y1 / S_));
@@ -361,10 +401,11 @@ function drawBuilding(b, i, now) {
   ctx.restore();
   if (built && b.type === 'factory') {   // עשן מהארובות
     for (let k = 0; k < 2; k++) for (let p = 0; p < 4; p++) {
-      const ph = ((now / 1600 + p / 4 + k * 0.37 + hash01(i, k, 3)) % 1), sx = cx + 5.7 + k * 2 + ph * 3, sy = cy - 0.3 - ph * 7, r = 0.8 + ph * 1.8;
+      const ph = ((now / 1600 + p / 4 + k * 0.37 + hash01(i, k, 3)) % 1), sx = cx + 5.15 + k * 2.3 + ph * 3, sy = cy - 4.8 - ph * 7, r = 0.8 + ph * 1.8;
       ctx.fillStyle = `rgba(150,148,140,${0.5 * (1 - ph)})`; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 7); ctx.fill();
     }
   }
+  if (built && typeof drawBadge === 'function') drawBadge(b, cx, cy, s);
   if (!built || b.upg != null) {
     const p = built ? b.upg : b.prog;
     ctx.fillStyle = '#0c1018'; ctx.fillRect(cx - 7, cy + 7.5, 14, 2.2); ctx.fillStyle = '#5fe0ff'; ctx.fillRect(cx - 6.6, cy + 7.9, 13.2 * p, 1.4);
