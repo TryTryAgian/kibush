@@ -1,8 +1,16 @@
 'use strict';
 // קלט: מגע, גרירה, זום
 /* ---------- 14. INPUT ---------- */
+// הצמדת הקשה: ברשת צפופה משבצת קטנה מאוד — מחפשים את המשבצת המתאימה הקרובה בטווח r (יחידות משחק)
+function snapTile(i, pred, r) {
+  if (pred(i)) return i;
+  const [x0, y0] = XY(i), R = Math.ceil(r * G); let best = null, bd = Infinity;
+  for (let y = Math.max(0, y0 - R); y <= Math.min(H - 1, y0 + R); y++) for (let x = Math.max(0, x0 - R); x <= Math.min(W - 1, x0 + R); x++) { const j = idx(x, y), d = Math.hypot(x - x0, y - y0); if (d <= R && d < bd && pred(j)) { bd = d; best = j; } }
+  return best ?? i;
+}
 function onTap(i) {
   if (ui.pick?.kind === 'build') {
+    if (ui.hint) i = snapTile(i, k => ui.hint.has(k), 1.2);
     const t = ui.pick.type, r = build(0, t, i, ui.pick.dt);
     if (!r.ok) toast(r.reason, 'bad'); else toast(`🏗 ${ui.pick.dt ? 'מחנה ' + DIV_TYPES[ui.pick.dt].name : BUILD[t].name} — בבנייה`, 'good');
     refreshHint(); render(); return;
@@ -14,7 +22,7 @@ function onTap(i) {
     ui.pick = null; ui.tab = 'fronts'; render(); return;
   }
   if (ui.pick?.kind === 'escort') {
-    const f = S.fronts.find(x => x.id === ui.pick.front);
+    const f = S.fronts.find(x => x.id === ui.pick.front); i = snapTile(i, k => isOwnPort(0, k), 1.5);
     if (!isOwnPort(0, i)) return toast('בחר נמל שלך', 'bad');
     if (f && setEscort(f, i)) toast(`🛡 ${f.gen.name} יוצא ללוות שיירות`, 'good');
     ui.pick = null; ui.tab = 'fronts'; render(); return;
@@ -31,13 +39,16 @@ function onTap(i) {
     toast(`🎯 ${divName(d)}: ${r.f.target != null ? 'תוקפת' : 'נעה לנקודה'}`, 'good'); ui.pick = null; ui.selFront = r.f.id; render(); return;
   }
   if (ui.pick?.kind === 'blockade') {
+    i = snapTile(i, k => S.buildings[k]?.type === 'port' && S.buildings[k].n !== 0, 1.5);
     const f = S.fronts.find(x => x.id === ui.pick.front), b = S.buildings[i];
     if (!b || b.type !== 'port' || b.n === 0) return toast('בחר נמל של אומה אחרת', 'bad');
     if (f && setBlockade(f, i)) toast(`🚫 ${f.gen.name} יוצא לחסום את ${BUILD.port.name} של ${nm(b.n)}`, 'good');
     ui.pick = null; ui.tab = 'fronts'; render(); return;
   }
   const [tx, ty] = XY(i);
-  const f = S.fronts.find(x => x.n === 0 && Math.abs(x.pos[0] - tx) < 1 && Math.abs(x.pos[1] - ty) < 1);
+  // הגנרל הקרוב בטווח הסמל שלו (לא חייבים לפגוע בדיוק במשבצת)
+  let f = null, fd = 0.9 * G; for (const x of S.fronts) { if (x.n !== 0) continue; const d = Math.hypot(x.pos[0] - tx, x.pos[1] - ty); if (d < fd) { fd = d; f = x; } }
+  if (!f && !S.buildings[i]) i = snapTile(i, k => !!S.buildings[k], 0.45);   // הקשה על ציור של מבנה — בוחרים את המבנה
   if (f && f.solo && !f.flying) { const d = frontDivs(f)[0]; ui.selFront = f.id; ui.sel = null; ui.tab = null; if (d) ui.pick = { kind: 'order', div: d.id }; }
   else if (f) { ui.selFront = f.id; ui.tab = 'fronts'; ui.sel = null; }
   else { ui.sel = ui.sel === i ? null : i; ui.tab = null; }

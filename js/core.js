@@ -22,6 +22,7 @@ function h(tag, props, ...kids) {
     else if (k === 'class') el.className = v;
     else if (k === 'disabled') el.disabled = !!v;
     else if (k === 'value') el.value = v;
+    else if (k === 'live') { if (typeof liveFns !== 'undefined') liveFns.push(() => v(el)); queueMicrotask(() => v(el)); }   // עדכון חי (מצב כפתור, טקסט) כל רבע שנייה
     else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v);
   }
   for (const c of kids.flat()) { if (c == null || c === false) continue; el.append(c.nodeType ? c : document.createTextNode(c)); }

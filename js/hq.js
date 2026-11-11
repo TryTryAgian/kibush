@@ -91,7 +91,7 @@ function hqPlan(nid) {
   const sectors = sectorScan(nid); n.hq.sectors = sectors; n.hq.risk = rateSectors(nid, sectors);
   for (const op of S.ops) {
     if (op.n !== nid) continue;
-    if (chooseME(op, sectors, false) && op.started) {
+    if (chooseME(op, sectors, false) && op.main) {
       planOp(op);
       if (nid === 0) toast(`🧭 המטה: המאמץ העיקרי של מבצע ${opName(op)} עובר — ${op.meWhy}`, 'good');
     }

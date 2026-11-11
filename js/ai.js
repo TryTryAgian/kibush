@@ -54,7 +54,7 @@ function aiThink(n) {
   // שייטות: נמל מאמן ספינות רק לאומה ימית או במלחמה (ועד 3 שייטות)
   let navyOn = 0; eachBuilding(b => { if (b.n === nid && b.type === 'port') { const on = (n.pers === 'naval' || wars.length) && navyOn < 3; b.hold = !on; if (on) navyOn++; } });
   // גנרלים: לפחות מגן אחד, השאר במבצע
-  const gens = landGenerals(nid), wantG = Math.min(maxGenerals(nid), 4, 1 + Math.floor(S.time / 50));
+  const gens = landGenerals(nid), wantG = Math.min(maxGenerals(nid), 6, 1 + Math.floor(S.time / 50));
   if (gens.length < wantG && divsOf(nid).filter(d => d.type !== 'navy').length > gens.length) createFront(nid, 'defend');
   const ports = ownPorts(nid);
   let ops = S.ops.filter(o => o.n === nid);
@@ -81,9 +81,15 @@ function aiThink(n) {
   const hot = (n.hq?.sectors || []).filter(s => s.posture !== 'screen' && s.risk > P.defFirst).length;
   let nDef = !op ? all.length : wars.length ? Math.max(1, Math.round(all.length / 3), all.length >= 4 ? 2 : 1) : (all.length > 2 ? 1 : 0);
   if (op && wars.length && (n.hq?.risk || 0) > P.defFirst) nDef = Math.min(all.length - 1, Math.max(nDef, hot + 1));
-  all.forEach((f, k) => {
+  // לפחות חצי מהגנרלים תוקפים — בלי זה כולם מגינים ואף אחד לא מנצח (חוץ ממצב חירום: אויב חודר לשטח)
+  const breach = S.fronts.some(e => e.kind === 'land' && unitCount(e.units) && atWar(nid, e.n) && S.core[tileOf(...e.pos)] === nid && S.owner[tileOf(...e.pos)] !== nid);
+  if (op && wars.length && !breach) nDef = Math.min(nDef, Math.ceil(all.length / 2));
+  // התוקפים: הגנרלים הקרובים לנקודת המוצא של המבצע (עם העדפה קלה למי שכבר במבצע — שלא יתחלפו הלוך ושוב)
+  const anchor = op?.ax?.origin, isAtk = new Set();
+  if (op) { const sc = f => (anchor != null ? dist(tileOf(...f.pos), anchor) : 0) - (f.op === op.id ? 8 : 0); all.slice().sort((a, b) => sc(a) - sc(b)).slice(0, all.length - nDef).forEach(f => isAtk.add(f)); }
+  all.forEach(f => {
     f.auto = true;
-    if (k < nDef) { if (f.role !== 'defend') { if (op) op.gens = op.gens.filter(id => id !== f.id); f.role = 'defend'; f.op = null; f.target = null; f.opRole = null; f.consol = null; f.planHold = false; } }
+    if (!isAtk.has(f)) { if (f.role !== 'defend') { if (op) op.gens = op.gens.filter(id => id !== f.id); f.role = 'defend'; f.op = null; f.target = null; f.opRole = null; f.consol = null; f.planHold = false; } }
     else if (op && !op.gens.includes(f.id)) { op.gens.push(f.id); f.role = 'attack'; f.op = op.id; }
   });
   // צי: חוסם נמל אויב קרוב
@@ -106,7 +112,7 @@ function aiThink(n) {
   }
   // דיפלומטיה
   const nbs = neighborsOf(nid), myPow = militaryPower(nid), myBloc = allianceBloc(nid), lead = leaderThreat();
-  const idle = !op || op.status === 'הושלם' || (op.target === -1 && !op.objectives.some(o => !o.done));
+  const idle = !op || op.status === 'הושלם' || (op.target === -1 && !op.cells?.length);
   n.idleDays = idle ? (n.idleDays || 0) + CFG.AI_THINK : 0;
   // שלום: מלחמה שהולכת רע, או ארוכה מדי בלי הכרעה
   for (const m of wars) {

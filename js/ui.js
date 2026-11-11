@@ -2,6 +2,8 @@
 // ממשק: לשוניות, כרטיסים, חלונות
 /* ---------- 13. UI ---------- */
 let liveFns = [];
+// מרענן את הלשונית/הפאנל כשמצב הדברים שמוצגים בו משתנה (בלי שצריך ללחוץ שוב)
+function watch(sig) { let last = sig(); return live(el => { const s = sig(); if (s !== last) { last = s; setTimeout(render, 0); } }, 'span', { style: { display: 'none' } }); }
 function live(fn, tag = 'span', props) { const el = h(tag, props); liveFns.push(() => fn(el)); fn(el); return el; }
 function updateLive() { for (const f of liveFns) f(); }
 function bar(fn) { const el = h('div', { class: 'bar' }, h('i')), upd = () => { el.firstChild.style.width = clamp(fn() * 100, 0, 100) + '%'; }; liveFns.push(upd); upd(); return el; }
@@ -48,6 +50,7 @@ function pickHint() {
 function tileInfo() {
   const i = ui.sel, o = S.owner[i], b = S.buildings[i], t = TER[S.terrain[i]], owner = o >= 0 ? S.nations[o] : null;
   return h('div', { class: 'sheet px' },
+    watch(() => { const B = S.buildings[i]; return [S.owner[i], S.core[i], B?.type, B && done(B), B?.lvl, B?.upg != null, B?.div, B?.capital].join(); }),
     h('h3', {}, h('span', {}, owner ? h('span', { class: 'dot', style: { background: owner.color } }) : null, b ? (b.capital ? '★ בירה' : BUILD[b.type].name) : t.name),
       h('button', { class: 'btn sm', onclick: () => { ui.sel = null; render(); } }, '✕')),
     h('div', { class: 'kv' },
@@ -63,14 +66,14 @@ function tileInfo() {
       owner && S.core[i] !== o && !t.water ? h('span', {}, '🏴 ', h('b', {}, `שטח כבוש מ${S.core[i] >= 0 ? nm(S.core[i]) : '?'} · יעילות ${Math.round(tileEff(i, o) * 100)}% · ליבה בעוד ${Math.max(0, Math.ceil(CFG.INTEGRATE_DAYS - (S.time - S.capDay[i])))} י׳`)) : null,
       b && b.type === 'city' && owner && S.core[i] !== o && S.time - S.capDay[i] < CFG.UNREST_DAYS ? h('span', {}, '🔥 ', h('b', {}, 'סכנת מרד בלי גנרל קרוב')) : null),
     b && o === 0 && divOfB(b) ? divCard(divOfB(b)) : null,
-    b && b.type === 'city' && o === 0 && done(b) && (b.lvl || 1) < CFG.CITY_MAX_LVL ? (() => { const e = canUpgrade(0, i); return h('button', { class: 'btn sm pri', disabled: !!e, onclick: () => { const r = upgradeCity(0, i); if (r) toast(r, 'bad'); render(); } }, `🏙 שדרוג לרמה ${(b.lvl || 1) + 1} (${fmtCost(upgradeCost(b))})${e && e !== 'כבר בשדרוג' ? ' · ' + e : e === 'כבר בשדרוג' ? ' · בשדרוג' : ''}`); })() : null);
+    b && b.type === 'city' && o === 0 && done(b) && (b.lvl || 1) < CFG.CITY_MAX_LVL ? h('button', { class: 'btn sm pri', onclick: () => { const r = upgradeCity(0, i); if (r) toast(r, 'bad'); render(); }, live: el => { const e = canUpgrade(0, i); el.disabled = !!e; el.textContent = `🏙 שדרוג לרמה ${(b.lvl || 1) + 1} (${fmtCost(upgradeCost(b))})${e && e !== 'כבר בשדרוג' ? ' · ' + e : e === 'כבר בשדרוג' ? ' · בשדרוג' : ''}`; } }) : null);
 }
 function buildTab() {
   const p = player();
-  return [h('h3', {}, 'בנייה', h('span', { class: 'dim' }, 'מבנים נבנים לאורך זמן')),
+  return [watch(() => Object.keys(p.tech.done).length), h('h3', {}, 'בנייה', h('span', { class: 'dim' }, 'מבנים נבנים לאורך זמן')),
     h('div', { class: 'grid' }, Object.entries(BUILD).filter(([k]) => k !== 'camp').map(([k, B]) => {
       const lock = !unlocked(p, B), cost = buildCost(0, k);
-      return h('button', { class: 'tile' + (lock || !canAfford(p, cost) ? ' na' : ''), onclick: () => {
+      return h('button', { class: 'tile' + (lock || !canAfford(p, cost) ? ' na' : ''), live: el => el.classList.toggle('na', lock || !canAfford(p, buildCost(0, k))), onclick: () => {
         if (lock) return toast(`דורש מחקר: ${TECH[B.req].name}`, 'bad');
         ui.pick = { kind: 'build', type: k }; ui.tab = null; ui.sel = null; refreshHint(); render();
       } }, h('img', { src: iconURL(k), alt: '' }), B.name, h('span', { class: 'cost' }, lock ? '🔒' : fmtCost(cost)));
@@ -79,7 +82,7 @@ function buildTab() {
     h('h3', {}, '⛺ מחנות — מחנה אחד = אוגדה אחת', h('span', { class: 'dim' }, `${countBuilding(0, 'camp')} מחנות`)),
     h('div', { class: 'grid' }, CAMP_KINDS.map(k => {
       const D = DIV_TYPES[k], lock = !kindReady(p, k), cost = buildCost(0, 'camp', k);
-      return h('button', { class: 'tile' + (lock || !canAfford(p, cost) ? ' na' : ''), onclick: () => {
+      return h('button', { class: 'tile' + (lock || !canAfford(p, cost) ? ' na' : ''), live: el => el.classList.toggle('na', lock || !canAfford(p, buildCost(0, 'camp', k))), onclick: () => {
         if (lock) return toast(`דורש מחקר: ${TECH[D.req].name}`, 'bad');
         ui.pick = { kind: 'build', type: 'camp', dt: k }; ui.tab = null; ui.sel = null; refreshHint(); render();
       } }, h('img', { src: iconURL('camp:' + k), alt: '' }), D.name, h('span', { class: 'cost' }, lock ? '🔒 ' + TECH[D.req].name : fmtCost(cost)));
@@ -111,7 +114,7 @@ function divCard(d) {
 }
 function armyTab() {
   const p = player(), ds = divsOf(0).sort((a, b) => Object.keys(DIV_TYPES).indexOf(a.type) - Object.keys(DIV_TYPES).indexOf(b.type) || a.num - b.num);
-  return [h('h3', {}, 'צבא', live(el => el.textContent = `אחזקה ${(unitCount(unitsOf(0)) * CFG.UNIT_UPKEEP).toFixed(1)}💰/יום`, 'span', { class: 'dim' })),
+  return [watch(() => divsOf(0).map(d => d.id + d.loc + (d.front ?? '')).join()), h('h3', {}, 'צבא', live(el => el.textContent = `אחזקה ${(unitCount(unitsOf(0)) * CFG.UNIT_UPKEEP).toFixed(1)}💰/יום`, 'span', { class: 'dim' })),
     h('div', { class: 'card' },
       h('div', { class: 'uline' }, h('b', { class: 'nm' }, '📣 גיוס'), live(el => el.textContent = `${Math.round(p.mob * 100)}% · אימון ×${(0.5 + 1.5 * p.mob).toFixed(2)} · כלכלת ערים ×${econMul(p).toFixed(2)}`, 'span', { class: 'dim' })),
       h('input', { type: 'range', min: CFG.MOB_MIN * 100, max: CFG.MOB_MAX * 100, step: 5, value: Math.round(p.mob * 100), dir: 'ltr', oninput: e => { p.mob = +e.target.value / 100; updateLive(); } }),
@@ -123,19 +126,36 @@ function armyTab() {
     h('div', { class: 'card' }, h('b', {}, '📖 סוגי אוגדות'),
       ...Object.entries(DIV_TYPES).map(([k, D]) => h('div', { class: 'uline' }, h('img', { src: iconURL(D.icon), alt: '' }), h('span', { class: 'nm' }, h('b', {}, D.name), ' ', h('span', { class: 'dim' }, `${Object.entries(D.comp).map(([t, c]) => c + ' ' + UNITS[t].name).join(' + ')} · ${D.role}`)), D.req && !hasTech(p, D.req) ? h('span', { class: 'dim' }, '🔒 ' + TECH[D.req].name) : null)))];
 }
+// סמל תפקיד קצר לגנרל
+function genIcon(f) {
+  if (f.kind === 'navy') return '⚓'; if (f.solo) return f.airborne ? '🪂' : '🎯';
+  if (f.retreating) return '↩'; if (f.consol) return '⛺';
+  if (f.role === 'attack') return f.op != null && S.ops.find(o => o.id === f.op)?.target < 0 ? '🌾' : { ME: '⭐', PIN: '📌', EXP: '⚡' }[f.opRole] || '⚔';
+  if (f.zoneKind === 'incursion' && f.defRole !== 'reserve') return '🚨';
+  return { reserve: '🛡', depth: '🧱', screen: '👁', delay: '⏳' }[f.defRole] || '🛡';
+}
+const shortStatus = f => (f.status || '').split(' — ')[0].split(' · ')[0].slice(0, 24);
+function miniBar(fn, col) { const i = h('i'), el = h('span', { class: 'mbar' }, i), up = () => { const v = clamp(fn(), 0, 1); i.style.width = v * 100 + '%'; i.style.background = col(v); }; liveFns.push(up); up(); return el; }
 function genCard(f) {
-  const p = player(), sel = f.id === ui.selFront, kinds = f.kind === 'navy' ? ['ship'] : LAND_UNITS.filter(t => unlocked(p, UNITS[t])), tr = TRAITS[f.gen.trait];
-  return h('div', { class: 'card' + (sel ? ' sel' : ''), onclick: () => { if (!sel) { ui.selFront = f.id; render(); } } },
-    h('div', { class: 'uline' }, h('span', { class: 'nm' }, h('b', {}, '🎖 ' + f.gen.name), ' ', h('span', { class: 'dim' }, tr.name)), live(el => el.textContent = f.status + (f.op != null && f.planWhy && !f.planHold ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע למאמץ העיקרי', 'דחיפה': '➡ דוחף קדימה', 'ניצול': '⚡ ניצול לעומק' }[f.planWhy] || ''}` : ''), 'b')),
-    f.kind === 'land' && !f.solo ? live(el => { el.textContent = f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (f.defRole !== 'reserve' && f.zoneKind === 'incursion' ? '🚨 הודף חדירה לשטח' : DEF_NAMES[f.defRole] || '') : ''; }, 'div', { class: 'role' }) : null,
-    h('div', { class: 'kv' },
-      live(el => { const ds = frontDivs(f), here = ds.filter(d => d.loc === 'front').length; el.textContent = ds.length ? `${here} אוגדות${ds.length > here ? ` (+${ds.length - here} בדרך)` : ''} · ${unitCount(f.units)} יחידות` : 'אין אוגדות'; }),
-      f.kind === 'land' ? live(el => { const o = f.org ?? 1; el.textContent = `מורל ${Math.round(o * 100)}%`; el.style.color = o > 0.6 ? '#7ad07a' : o > 0.3 ? '#e8b820' : '#ff7060'; }) : null,
-      f.kind === 'land' && f.auto ? live(el => el.textContent = f.needPow ? `צורך: ~${fl(f.needPow)} כוח` : '', 'span', { class: 'dim' }) : null,
-      f.kind === 'land' && !f.solo ? live(el => { const s = f.supLvl ?? 1; el.textContent = `📦 אספקה ${Math.round(s * 100)}%`; el.style.color = s > 0.75 ? '#7ad07a' : s > 0.5 ? '#e8b820' : '#ff7060'; }) : null,
-      f.kind === 'land' ? live(el => { el.textContent = { sea: '🔴 בכיס — אספקה בים', air: '🔴 בכיס — רכבת אווירית', cut: '🔴 בכיס — מנותק!' }[f.supply] || ''; el.style.color = '#ff8a7a'; }) : null,
-      live(el => { const cs = S.convoys.filter(c => c.front === f.id), inT = cs.reduce((a, c) => a + c.cnt, 0); el.textContent = inT ? `🚚 ${cs.length} שיירות · ${inT} יחידות בדרך` : ''; })),
+  const p = player(), sel = f.id === ui.selFront, tr = TRAITS[f.gen.trait];
+  const lvlCol = v => v > 0.6 ? '#5ad07a' : v > 0.3 ? '#e8b820' : '#e04848';
+  return h('div', { class: 'card gcard' + (sel ? ' sel' : ''), onclick: () => { ui.selFront = sel ? null : f.id; render(); } },
+    // שורה אחת: סמל תפקיד, שם, יחידות, מורל ואספקה כפסים קטנים, מצב קצר
+    h('div', { class: 'gline' },
+      live(el => el.textContent = genIcon(f), 'span', { class: 'gic' }),
+      h('b', { class: 'gname' }, f.gen.name.replace(/^(גנרל|אדמירל) /, '')),
+      live(el => { const u = unitCount(f.units), inT = S.convoys.filter(c => c.front === f.id).reduce((a, c) => a + c.cnt, 0); el.textContent = u + (inT ? `+${inT}` : ''); }, 'span', { class: 'gnum' }),
+      f.kind === 'land' ? miniBar(() => f.org ?? 1, lvlCol) : null,
+      f.kind === 'land' && !f.solo ? miniBar(() => f.supLvl ?? 1, lvlCol) : null,
+      live(el => { el.textContent = (f.supply && f.supply !== 'ok' ? '🔴 ' : '') + shortStatus(f); }, 'span', { class: 'gst dim' }),
+      h('button', { class: 'btn xs', onclick: e => { e.stopPropagation(); centerOnXY(...f.pos); } }, '📍')),
     sel ? [
+      f.kind === 'land' && !f.solo ? live(el => { el.textContent = (f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (f.defRole !== 'reserve' && f.zoneKind === 'incursion' ? '🚨 הודף חדירה לשטח' : DEF_NAMES[f.defRole] || '') : '') + ' · ' + f.status + (f.op != null && f.planWhy && !f.planHold ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע למאמץ העיקרי', 'דחיפה': '➡ דוחף קדימה', 'ניצול': '⚡ ניצול לעומק', 'כיתור': '⭕ סוגר כיתור', 'התפשטות': '🌾 מתפשט' }[f.planWhy] || ''}` : ''); }, 'div', { class: 'role' }) : null,
+      h('div', { class: 'kv' },
+        f.kind === 'land' ? live(el => { el.textContent = `מורל ${Math.round((f.org ?? 1) * 100)}% · 📦 אספקה ${Math.round((f.supLvl ?? 1) * 100)}%`; }) : null,
+        f.kind === 'land' ? live(el => { el.textContent = { sea: '🔴 בכיס — אספקה בים', air: '🔴 בכיס — רכבת אווירית', cut: '🔴 בכיס — מנותק!' }[f.supply] || ''; el.style.color = '#ff8a7a'; }) : null,
+        live(el => { const cs = S.convoys.filter(c => c.front === f.id), inT = cs.reduce((a, c) => a + c.cnt, 0); el.textContent = inT ? `🚚 ${cs.length} שיירות · ${inT} יחידות בדרך` : ''; }),
+        f.kind === 'land' && f.auto ? live(el => el.textContent = f.needPow ? `צורך: ~${fl(f.needPow)} כוח` : '', 'span', { class: 'dim' }) : null),
       h('div', { class: 'dim' }, `${tr.name}: ${tr.desc}`),
       f.solo ? h('button', { class: 'btn sm warn', onclick: e => { e.stopPropagation(); const d = frontDivs(f)[0]; if (d) { ui.pick = { kind: 'order', div: d.id }; ui.tab = null; render(); } } }, '🎯 פקודה חדשה') : null,
       f.airborne || f.solo ? null : h('button', { class: 'btn sm' + (f.auto ? ' on' : ''), onclick: e => { e.stopPropagation(); f.auto = !f.auto; if (f.auto) allocateDivisions(0); render(); } }, f.auto ? '🤖 מבקש אוגדות לפי הצורך' : '✋ הקצאת אוגדות ידנית'),
@@ -170,8 +190,9 @@ function frontsTab() {
   const land = landGenerals(0), defs = land.filter(f => f.role !== 'attack'), fleets = S.fronts.filter(f => f.n === 0 && f.kind === 'navy'), ops = S.ops.filter(o => o.n === 0), full = land.length >= maxGenerals(0);
   const newGen = (role, op) => { const f = createFront(0, role); if (!f) return toast('הגעת למספר הגנרלים המרבי', 'bad'); if (op) assignToOp(f, op); allocateDivisions(0); planDefense(0); ui.selFront = f.id; toast(`מונה ${f.gen.name} (${TRAITS[f.gen.trait].name})`, 'good'); render(); };
   return [
+    watch(() => landGenerals(0).length + ':' + maxGenerals(0) + ':' + S.fronts.filter(f => f.n === 0).map(f => f.id + f.role + (f.op ?? '')).join() + ':' + S.ops.filter(o => o.n === 0).map(o => o.id + '/' + (o.main?.tile ?? '') + '/' + o.state + '/' + o.gens.length).join()),
     h('h3', {}, h('span', {}, 'גנרלים ', h('span', { dir: 'ltr' }, `${land.length}/${maxGenerals(0)}`)), h('button', { class: 'btn sm', onclick: openOpHelp }, '❓ איך זה עובד')),
-    h('h3', {}, '🛡 הגנה', h('button', { class: 'btn sm pri', disabled: full, onclick: () => newGen('defend') }, '+ גנרל')),
+    h('h3', {}, '🛡 הגנה', h('button', { class: 'btn sm pri', live: el => el.disabled = landGenerals(0).length >= maxGenerals(0), onclick: () => newGen('defend') }, '+ גנרל')),
     defs.length ? null : h('div', { class: 'dim' }, 'בשלום — במחנות. במלחמה — על הגבול מול האויב, ליד ביצורים ומבנים חשובים.'),
     ...defs.map(genCard),
     ...(() => { const solos = S.fronts.filter(f => f.n === 0 && f.solo); return solos.length ? [h('h3', {}, '🎯 אוגדות עצמאיות', h('span', { class: 'dim' }, 'הקש עליהן במפה כדי לתת פקודה')), ...solos.map(genCard)] : []; })(),
@@ -179,17 +200,22 @@ function frontsTab() {
     ops.length ? null : h('div', { class: 'dim' }, 'בחר אומה או שטח ניטרלי. המטה מתכנן יעדים — בירה, ערים, מפעלים, נמלים ושדות תעופה — והגנרלים מבצעים.'),
     ...ops.map(op => h('div', { class: 'card' },
       h('div', { class: 'uline' }, h('b', { class: 'nm' }, `⚔ מבצע: ${opName(op)}`), live(el => el.textContent = op.status, 'span', { class: 'dim' })),
-      live(el => el.replaceChildren(...op.phases.map((p, k) => h('div', { class: 'uline', style: { opacity: k < op.cur ? 0.5 : 1 } },
-        h('b', { style: { color: k === op.cur ? '#ffd84a' : '' } }, `${k < op.cur ? '✅' : k === op.cur ? (p.state === 'prep' ? '⏳' : '⚔') : '·'} שלב ${k + 1}`),
-        h('span', { class: 'nm row wrap' }, ...p.objs.map(o => h('span', { class: 'pill' + (o.done ? ' ally' : '') }, (o.done ? '✓ ' : '') + (o.custom ? OBJ_IC.custom : OBJ_IC[o.type] || '•'))))))), 'div', { style: { display: 'flex', flexDirection: 'column', gap: '3px' } }),
+      // מטרה עיקרית (נשארת) + מטרות משנה (משתנות עם החזית)
+      live(el => {
+        if (op.target < 0) { el.replaceChildren(h('div', { class: 'dim' }, `🌾 כל גנרל מתפשט באזור משלו של הגבול הניטרלי (${op.cells?.length || 0} אזורים)`)); return; }
+        const subs = op.subs.filter(o => !o.done && !o.skip);
+        el.replaceChildren(
+          op.main ? h('div', { class: 'uline' }, h('b', { style: { color: '#ffd84a' } }, '🎯 מטרה עיקרית'), h('span', { class: 'nm' }, (op.main.custom ? OBJ_IC.custom + ' ' : (OBJ_IC[op.main.type] || '') + ' ') + objName(op.main))) : null,
+          subs.length ? h('div', { class: 'uline' }, h('span', { class: 'dim' }, 'מטרות משנה'), h('span', { class: 'nm row wrap' }, ...subs.slice(0, 8).map(o => h('span', { class: 'pill' + (o.type === 'encircle' ? ' war' : '') }, o.type === 'encircle' ? '⭕ כיתור' : OBJ_IC[o.type] || '•')), subs.length > 8 ? h('span', { class: 'dim' }, `+${subs.length - 8}`) : null)) : null);
+      }, 'div', { style: { display: 'flex', flexDirection: 'column', gap: '3px' } }),
       ...opGenerals(op).map(genCard),
       h('div', { class: 'row wrap' },
-        h('button', { class: 'btn sm pri', disabled: full, onclick: () => newGen('attack', op) }, '+ גנרל חדש'),
+        h('button', { class: 'btn sm pri', live: el => el.disabled = landGenerals(0).length >= maxGenerals(0), onclick: () => newGen('attack', op) }, '+ גנרל חדש'),
         defs.length ? h('button', { class: 'btn sm', onclick: () => { assignToOp(defs[defs.length - 1], op); render(); } }, '↪ גנרל מההגנה') : null,
         h('button', { class: 'btn sm', onclick: () => { ui.pick = { kind: 'objective', op: op.id }; ui.tab = null; render(); } }, '🎯 יעד מהמפה'),
         hasTech(player(), 'airborne') ? h('button', { class: 'btn sm warn', onclick: () => { const r = (player().paraReady || 0) > S.time; if (r) return toast(`הצנחה הבאה ביום ${fl(player().paraReady)}`, 'bad'); ui.pick = { kind: 'para', op: op.id }; ui.tab = null; render(); } }, '🪂 הצנחה') : null,
         h('button', { class: 'btn sm', onclick: () => { cancelOp(op); planDefense(0); render(); } }, '✕ בטל')))),
-    h('h3', {}, '⚓ צי', h('button', { class: 'btn sm pri', disabled: !ownPorts(0).length, onclick: () => { const f = createFront(0, 'navy'); if (f) { allocateDivisions(0); ui.selFront = f.id; render(); } } }, '+ צי')),
+    h('h3', {}, '⚓ צי', h('button', { class: 'btn sm pri', live: el => el.disabled = !ownPorts(0).length, onclick: () => { const f = createFront(0, 'navy'); if (f) { allocateDivisions(0); ui.selFront = f.id; render(); } } }, '+ צי')),
     ownPorts(0).length ? (fleets.length ? null : h('div', { class: 'dim' }, 'צי ליד נמל אויב חוסם אספקה בים. ספינות נבנות בנמל (לשונית צבא).')) : h('div', { class: 'dim' }, 'צריך נמל כדי להקים צי.'),
     ...fleets.map(genCard),
     h('div', { class: 'dim' }, '🛡 ליווי: צי ליד נמל שלך מגן על שיירות ונחיתות שעוברות בדרך אליו. 🚫 חסימה: מטביע שיירות של האויב.')];
@@ -219,7 +245,7 @@ function openOpHelp() {
     h('li', {}, 'כיס: גנרל שמנותק מהשטח המרכזי לא מקבל תגבורת ביבשה. נמל בכיס = אספקה בים; שדה תעופה בכיס = רכבת אווירית. גנרל מנותק נלחם חלש יותר.'),
     h('li', {}, 'חסימה וליווי: צי אויב ליד נתיב הים מטביע שיירות ופוגע בנחיתות — אלא אם צי שלך מלווה באזור וחזק ממנו. הגנה אווירית של האויב מיירטת רכבות אוויריות וצנחנים.'),
     h('li', {}, 'כיתור: כשצבא אויב קרוב, המטה מסמן יעדי ⭕ מאחוריו משני האגפים. צבא מכותר נשחק, ושטח אויב מבודד בלי צבא קורס.'),
-    h('li', {}, 'נחיתה: יעד מעבר לים — הגנרל יוצא מנמל שלך ונוחת בחוף ליד היעד. הצנחה (מחקר כוחות מוצנחים): אוגדת קומנדו משדה תעופה נוחתת עד 12 משבצות מאחורי הקווים.')),
+    h('li', {}, 'נחיתה: יעד מעבר לים — הגנרל יוצא מנמל שלך ונוחת בחוף ליד היעד. הצנחה (מחקר כוחות מוצנחים): אוגדת קומנדו משדה תעופה נוחתת עד 12 יחידות מרחק משדה התעופה, מאחורי הקווים.')),
     h('button', { class: 'btn', onclick: closeModal }, 'הבנתי'));
 }
 const techDepth = k => TECH[k].req.length ? 1 + Math.max(...TECH[k].req.map(techDepth)) : 0;
@@ -233,7 +259,7 @@ function researchTab() {
       T.req.length ? h('div', { class: 'dim' }, '↳ אחרי: ' + T.req.map(r => (p.tech.done[r] ? '✓' : '') + TECH[r].name).join(' + ')) : null,
       cur ? bar(() => p.tech.cur === k ? p.tech.prog / T.cost : 1) : null);
   };
-  return [h('h3', {}, `מחקר ${nDone}/${Object.keys(TECH).length}`, live(el => el.textContent = `🔬 ${fl(p.res.know)} · +${(p.last.know || 0).toFixed(1)}/יום`, 'span', { class: 'dim' })),
+  return [watch(() => Object.keys(p.tech.done).length + ':' + p.tech.cur), h('h3', {}, `מחקר ${nDone}/${Object.keys(TECH).length}`, live(el => el.textContent = `🔬 ${fl(p.res.know)} · +${(p.last.know || 0).toFixed(1)}/יום`, 'span', { class: 'dim' })),
     p.tech.cur ? h('div', { class: 'card sel' }, h('div', { class: 'uline' }, h('b', { class: 'nm' }, '⏳ ' + TECH[p.tech.cur].name), live(el => el.textContent = p.tech.cur ? `${fl(p.tech.prog)}/${TECH[p.tech.cur].cost} · עוד ~${p.last.know > 0 ? Math.ceil((TECH[p.tech.cur].cost - p.tech.prog) / p.last.know) : '∞'} ימים` : '', 'span', { class: 'dim' })), bar(() => p.tech.cur ? p.tech.prog / TECH[p.tech.cur].cost : 1))
       : h('div', { class: 'dim' }, 'בחר מחקר. ידע מגיע מאוניברסיטאות. כל מחקר פותח את הבאים בענף שלו.'),
     ...Object.entries(BRANCHES).flatMap(([bk, bn]) => [h('h3', {}, bn), ...Object.keys(TECH).filter(k => TECH[k].b === bk).sort((x, y) => techDepth(x) - techDepth(y)).map(card)])];
@@ -242,14 +268,14 @@ function doPropose(to, kind, gold = 0) { const r = propose(0, to, kind, gold); i
 const daysLeft = until => Math.max(0, Math.ceil(until - S.time));
 function diploTab() {
   const others = S.nations.filter(n => n.id !== 0), g = player().res.gold, lead = leaderThreat();
-  return [h('h3', {}, 'דיפלומטיה', h('span', { class: 'dim' }, `כוחך: ${fl(militaryPower(0))} · עם בעלי ברית: ${fl(allianceBloc(0))}`)),
+  return [watch(() => S.offers.length + ':' + others.map(n => n.alive ? [rel(0, n.id).state, allied(0, n.id), napActive(0, n.id), hasTrade(0, n.id), truceActive(0, n.id), leaderThreat()].join('') : 'x').join('|')), h('h3', {}, 'דיפלומטיה', h('span', { class: 'dim' }, `כוחך: ${fl(militaryPower(0))} · עם בעלי ברית: ${fl(allianceBloc(0))}`)),
     lead >= 0 ? h('div', { class: 'card sel' }, h('div', {}, `⚠ ${lead === 0 ? 'אתה מעצמה מאיימת' : nm(lead) + ' היא מעצמה מאיימת'} (${Math.round(shareOf(lead) * 100)}% מהיבשה) — ${lead === 0 ? 'האחרים חוששים ממך ונוטים להתאחד נגדך' : 'האחרים נוטים להתאחד נגדה'}`)) : null,
     ...S.offers.map(o => h('div', { class: 'card sel' }, h('div', {}, o.kind === 'coalition' ? `📜 ${nm(o.from)} קוראת לך להצטרף לקואליציה נגד ${nm(o.target)}` : `📜 ${nm(o.from)} מציעה ${DEALS[o.kind]}${o.gold ? ` ומשלמת ${o.gold}💰` : ''}`),
       h('div', { class: 'row' }, h('button', { class: 'btn sm pri', onclick: () => answerOffer(o, true) }, o.kind === 'coalition' ? '⚔ הצטרף' : 'קבל'), h('button', { class: 'btn sm', onclick: () => answerOffer(o, false) }, 'דחה')))),
     ...others.map(n => {
       if (!n.alive) return h('div', { class: 'card' }, h('div', { class: 'dim' }, `☠ ${n.name} — הובסה`));
       const r = rel(0, n.id), cool = r.cool > S.time, wb = warBlock(0, n.id), nap = napActive(0, n.id);
-      const dealBtn = (kind, label) => { const bad = dealInvalid(kind, 0, n.id); return bad === 'כבר קיים' ? null : h('button', { class: 'btn sm', disabled: !!bad || cool, title: bad || '', onclick: () => doPropose(n.id, kind) }, label); };
+      const dealBtn = (kind, label) => { const bad = dealInvalid(kind, 0, n.id); return bad === 'כבר קיים' ? null : h('button', { class: 'btn sm', title: bad || '', live: el => el.disabled = !!dealInvalid(kind, 0, n.id) || rel(0, n.id).cool > S.time, onclick: () => doPropose(n.id, kind) }, label); };
       const allies = S.nations.filter(m => m.alive && m.id !== n.id && allied(n.id, m.id)).map(m => m.name);
       const ask = ui.peaceAsk && ui.peaceAsk.to === n.id ? ui.peaceAsk.demand : null;
       // הערכת קואליציה אם תתקוף: כמה כוח צפוי לעמוד מולך
@@ -268,15 +294,15 @@ function diploTab() {
           allies.length ? h('span', {}, 'בעלי ברית: ', h('b', {}, allies.join(', '))) : null),
         r.state === 'war'
           ? h('div', { class: 'row wrap' },
-              h('button', { class: 'btn sm pri', disabled: cool, onclick: () => doPropose(n.id, 'peace') }, '🕊 הצע שלום'),
-              [100, 300].map(v => h('button', { class: 'btn sm', disabled: cool || g < v, onclick: () => doPropose(n.id, 'peace', v) }, `🕊 +${v}💰`)),
+              h('button', { class: 'btn sm pri', live: el => el.disabled = rel(0, n.id).cool > S.time, onclick: () => doPropose(n.id, 'peace') }, '🕊 הצע שלום'),
+              [100, 300].map(v => h('button', { class: 'btn sm', live: el => el.disabled = rel(0, n.id).cool > S.time || player().res.gold < v, onclick: () => doPropose(n.id, 'peace', v) }, `🕊 +${v}💰`)),
               ask && g >= ask ? h('button', { class: 'btn sm pri', disabled: cool, onclick: () => { ui.peaceAsk = null; doPropose(n.id, 'peace', ask); } }, `🕊 לשלם ${ask}💰`) : null)
           : h('div', { class: 'row wrap' },
               dealBtn('trade', '⚓ סחר'), dealBtn('nap', '🤚 אי-תקיפה'), dealBtn('alliance', '🛡 ברית'),
               hasTrade(0, n.id) ? h('button', { class: 'btn sm', onclick: () => { r.trade = 0; r.op -= 10; render(); } }, 'בטל סחר') : null,
               allied(0, n.id) ? h('button', { class: 'btn sm', onclick: () => { breakAlliance(0, n.id); render(); } }, 'בטל ברית') : null,
-              h('button', { class: 'btn sm', disabled: g < 100, onclick: () => { player().res.gold -= 100; r.op = Math.min(100, r.op + 15); toast(`שלחת מתנה ל${n.name}`); render(); } }, '🎁 100💰'),
-              h('button', { class: 'btn sm warn', disabled: !!wb, onclick: () => declareWar(0, n.id) }, nap ? '⚔ הפר הסכם ותקוף' : '⚔ מלחמה')),
+              h('button', { class: 'btn sm', live: el => el.disabled = player().res.gold < 100, onclick: () => { if (player().res.gold < 100) return; player().res.gold -= 100; r.op = Math.min(100, r.op + 15); toast(`שלחת מתנה ל${n.name}`); render(); } }, '🎁 100💰'),
+              h('button', { class: 'btn sm warn', live: el => el.disabled = !!warBlock(0, n.id), onclick: () => declareWar(0, n.id) }, nap ? '⚔ הפר הסכם ותקוף' : '⚔ מלחמה')),
         wb && r.state !== 'war' ? h('div', { class: 'dim' }, 'אי אפשר להכריז: ' + wb) : null,
         opp ? h('div', { class: 'dim' }, `אם תתקוף: התנגדות צפויה ~${fl(opp)} (כולל קואליציה אפשרית)${nap ? ' · הפרת הסכם תרגיז את כולם' : ''}`) : null);
     }),
@@ -284,7 +310,8 @@ function diploTab() {
 }
 function refreshHint() {
   ui.hint = null;
-  if (ui.pick?.kind === 'build') { const s = new Set(); for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === 0 && canBuild(0, ui.pick.type, i, true, ui.pick.dt).ok) s.add(i); ui.hint = s; }
+  if (ui.pick?.kind === 'build') ui.hint = buildableTiles(0, ui.pick.type, ui.pick.dt);
+  view.hintCv = null;
 }
 function toast(msg, kind = '') {
   if (S?.demo) return;
@@ -355,7 +382,7 @@ function prefToggle() {
 function startDemo() {
   const keep = ui.home; newGame({ map: '', size: 'small', ai: 5, seed: (Math.random() * 1e9) | 0, demo: true });
   S.demo = true; S.nations[0].isAI = true; S.nations[0].pers = 'aggr'; S.speed = 4; ui.home = keep;
-  for (let d = 0; d < 120; d++) for (let k = 0; k < 10; k++) step(0.1);   // קדימה בזמן — שיהיו כבר גבולות ומלחמות
+  S.warmTo = 120;   // קדימה בזמן (בהדרגה, בכל פריים — בלי לתקוע את הפתיחה) עד שיהיו גבולות ומלחמות
   view.cam.zoom = 1.1; view.pan = { a: Math.random() * 6.28 }; centerOnXY(W / 2, H / 2);
 }
 function homePan(dt) {

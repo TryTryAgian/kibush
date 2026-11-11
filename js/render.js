@@ -224,7 +224,14 @@ function draw() {
   if (TRADE.last != null && TRADE.s === S) updateTrade(S.time - TRADE.last); else TRADE.ships = [];
   TRADE.last = S.time; TRADE.s = S;
   drawTradeShips(vis);
-  if (ui.pick?.kind === 'build' && ui.hint) { ctx.fillStyle = 'rgba(95,224,255,.28)'; for (const i of ui.hint) { const [x, y] = XY(i); ctx.fillRect(x * T, y * T, T, T); } }
+  if (ui.pick?.kind === 'build' && ui.hint) {   // סימון משבצות לבנייה: תמונה אחת (פיקסל למשבצת), נבנית רק כשהסימון משתנה
+    if (!view.hintCv || view.hintSrc !== ui.hint) {
+      const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), im = x.createImageData(W, H);
+      for (const i of ui.hint) { const o = i * 4; im.data[o] = 95; im.data[o + 1] = 224; im.data[o + 2] = 255; im.data[o + 3] = 120; }
+      x.putImageData(im, 0, 0); view.hintCv = c; view.hintSrc = ui.hint;
+    }
+    ctx.drawImage(view.hintCv, 0, 0, W * T, H * T);
+  }
   ctx.textAlign = 'center';
   // ערים: גושי בתים; שאר המבנים: משטח בטון ועליו הספרייט
   eachBuilding((b, i) => {
@@ -246,7 +253,7 @@ function draw() {
       ctx.beginPath(); ctx.moveTo(ax0, ay0); ctx.lineTo(ax1, ay1); ctx.moveTo(ax1, ay1); ctx.lineTo(ax1 - hx - hy * 0.6, ay1 - hy + hx * 0.6); ctx.moveTo(ax1, ay1); ctx.lineTo(ax1 - hx + hy * 0.6, ay1 - hy - hx * 0.6); ctx.stroke();
       ctx.restore();
     }
-    for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2; ctx.strokeStyle = o.custom ? '#ffd84a' : '#ff4f6a'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx + 7, cy); ctx.lineTo(cx, cy + 7); ctx.lineTo(cx - 7, cy); ctx.closePath(); ctx.stroke(); ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(cx - 1, cy - 9.5, 2, 2); }
+    for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2; if (o.main) { ctx.save(); ctx.translate(cx, cy); ctx.scale(1.8, 1.8); ctx.translate(-cx, -cy); } ctx.strokeStyle = o.main || o.custom ? '#ffd84a' : o.type === 'encircle' ? '#ff9a3c' : '#ff4f6a'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx + 7, cy); ctx.lineTo(cx, cy + 7); ctx.lineTo(cx - 7, cy); ctx.closePath(); ctx.stroke(); ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(cx - 1, cy - 9.5, 2, 2); if (o.main) ctx.restore(); }
   }
   // שיירות: סמל קטן בצבע האומה לאורך המסלול
   for (const c of S.convoys) {
@@ -284,17 +291,16 @@ function draw() {
         const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K));
         ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); ctx.globalAlpha = 1;
         if (cnt && S.owner[j] >= 0) {
-          if (Math.random() < fdt * (f.engaged ? 1.6 : 0.5) * 4 / (G * G)) spawnBoom(x * T + Math.random() * T, y * T + Math.random() * T, false);
-          if (f.engaged && Math.random() < fdt * 6) { ctx.strokeStyle = 'rgba(255,214,120,.9)'; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(X + 8, Y + 8); ctx.lineTo(x * T + Math.random() * T, y * T + Math.random() * T); ctx.stroke(); }
+          if (Math.random() < fdt * (f.engaged ? 1.6 : 0.5) * (cam.zoom >= CFG.UNIT_ZOOM ? 1 : 4) / (G * G)) spawnBoom(x * T + Math.random() * T, y * T + Math.random() * T, false);
         }
       });
     }
     const pocket = f.kind === 'land' && f.supply !== 'ok' && inPocket(f);
-    if (pocket && (now / 400 | 0) % 2) { ctx.strokeStyle = f.supply === 'cut' ? '#ff4060' : '#ffa030'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(X + 8, Y + 8, 10, 0, 7); ctx.stroke(); }
+    if (pocket && cam.zoom < 0.5 && (now / 400 | 0) % 2) { ctx.strokeStyle = f.supply === 'cut' ? '#ff4060' : '#ffa030'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(X + 8, Y + 8, 10, 0, 7); ctx.stroke(); }
     const type = f.kind === 'navy' ? 'ship' : f.flying ? 'plane' : mainType(f.units), strip = f.kind === 'navy' ? '#5fe0ff' : f.role === 'defend' ? (f.defRole === 'reserve' ? '#3fb8a0' : '#7ad07a') : f.solo ? '#ff7ad8' : f.opRole === 'ME' ? '#ff9a3c' : f.opRole === 'EXP' ? '#ff5ab4' : '#ffd84a';
     if (cam.zoom >= CFG.UNIT_ZOOM && cnt && !f.flying) {   // זום קרוב: היחידות עצמן, ומעליהן סמל קטן ושם
       if (sel) { ctx.strokeStyle = 'rgba(95,224,255,.5)'; ctx.lineWidth = 0.6; ctx.setLineDash([1.5, 1]); ctx.beginPath(); ctx.arc(X + 8, Y + 8, 13, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
-      drawTroops(f, X, Y, now);
+      updateUnits(f, X + 8, Y + 8, fdt, now); drawUnits(f, X + 8, Y + 8, now);
       const k = view.lk; ctx.save(); ctx.translate(X + 8, Y - 2); ctx.scale(k, k);
       drawCounter(-7, -9, 14, 8, col, type, cnt, { sel, hot: f.engaged, strip });
       if (f.kind === 'land') { const o = f.org ?? 1; ctx.fillStyle = 'rgba(12,16,24,.85)'; ctx.fillRect(-7, -0.6, 14, 1.2); ctx.fillStyle = o > 0.6 ? '#5ad07a' : o > 0.3 ? '#e8b820' : '#e04848'; ctx.fillRect(-7, -0.6, 14 * o, 1.2); }
@@ -306,7 +312,10 @@ function draw() {
       if (sel) drawLabel(X + 8, Y - 3.5, f.gen.name, null, col);
     }
   }
+  if (cam.zoom >= CFG.UNIT_ZOOM) drawShots(fdt); else { SHOTS.length = 0; }
   drawFx(fdt);
+  drawEncirclements(now, inVis);
+  if ((now / 1000 | 0) % 5 === 0) pruneVis();
   if (ui.sel != null) { const [x, y] = XY(ui.sel); ctx.strokeStyle = (now / 300 | 0) % 2 ? '#ffffff' : '#5fe0ff'; ctx.lineWidth = Math.max(0.8, 1.5 / cam.zoom); ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   // לילה: גוון כחול על כל המסך, ואורות חמים בערים
   const nl = nightLevel();

@@ -31,6 +31,15 @@ function canBuild(nid, type, i, ignoreCost, dt) {
   if (!ignoreCost && !canAfford(n, buildCost(nid, type, dt))) return no(`חסרים משאבים (${fmtCost(buildCost(nid, type, dt))})`);
   return { ok: true };
 }
+// כל המשבצות שאפשר לבנות בהן (לסימון הירוק בממשק): מסכה של "קרוב מדי" שמוטבעת פעם אחת סביב כל מבנה מאותו סוג
+function buildableTiles(nid, type, dt) {
+  const B = BUILD[type], n = S.nations[nid], out = new Set();
+  if (!unlocked(n, B) || (type === 'camp' && dt && !kindReady(n, dt))) return out;
+  const sp = Math.ceil(B.spacing * G) - 1, blocked = new Uint8Array(W * H);
+  eachBuilding((b, j) => { if (b.type !== type) return; const [bx, by] = XY(j); for (let y = Math.max(0, by - sp); y <= Math.min(H - 1, by + sp); y++) blocked.fill(1, y * W + Math.max(0, bx - sp), y * W + Math.min(W - 1, bx + sp) + 1); });
+  for (let i = 0; i < S.owner.length; i++) { if (S.owner[i] !== nid || blocked[i] || S.buildings[i]) continue; const t = S.terrain[i]; if (TER[t].water || !B.terrain.includes(t) || (B.coastal && !isCoastal(i))) continue; out.add(i); }
+  return out;
+}
 function build(nid, type, i, dt) {
   if (type === 'camp') dt = dt || 'inf';
   const r = canBuild(nid, type, i, false, dt); if (!r.ok) return r;
