@@ -143,8 +143,15 @@ function drawEncirclements(now, inVis) {
       if (o.type !== 'encircle' || o.done || !o.gens) continue;
       const e = S.fronts.find(z => z.id === o.army); if (!e) continue;
       const mine = op.n === 0, vsMe = e.n === 0; if (!mine && !vsMe) continue;
-      const col = mine ? 'rgba(255,170,60,.85)' : 'rgba(255,70,70,.85)', [ox, oy] = XY(o.tile), tx = ox * T + T / 2, ty = oy * T + T / 2;
+      const col = mine ? 'rgba(255,170,60,.85)' : 'rgba(255,70,70,.85)';
+      if (o.cut?.length) {   // קו הצוואר: מקווקו בחלקים שעוד לא נסגרו, מלא בחלקים שכבר שלנו
+        ctx.save(); ctx.lineWidth = 3 / z; ctx.lineCap = 'round';
+        for (let i = 0; i < o.cut.length; i++) { const [x, y] = XY(o.cut[i]), closed = S.owner[o.cut[i]] !== e.n; ctx.fillStyle = closed ? col : 'rgba(255,255,255,.18)'; ctx.strokeStyle = col; ctx.lineWidth = 0.8 / z * 2; if (closed) ctx.fillRect(x * T + 1.5, y * T + 1.5, T - 3, T - 3); else ctx.strokeRect(x * T + 2, y * T + 2, T - 4, T - 4); }
+        ctx.restore();
+      }
       for (const id of o.gens) {
+        const g0 = S.fronts.find(z => z.id === id), pt = g0?.planWhy === 'כיתור' && g0.plan != null ? g0.plan : o.cut ? o.cut[o.gens.indexOf(id) === 0 ? 0 : o.cut.length - 1] : o.tile;
+        const [ox, oy] = XY(pt), tx = ox * T + T / 2, ty = oy * T + T / 2;
         if (seen.has(id + ':' + o.army)) continue; seen.add(id + ':' + o.army);
         const g = S.fronts.find(z => z.id === id); if (!g || hyp(g.pos[0] - ox, g.pos[1] - oy) > 18) continue;
         const sx = g.pos[0] * T + T / 2, sy = g.pos[1] * T + T / 2, mx = (sx + tx) / 2, my = (sy + ty) / 2, ex = e.pos[0] * T + T / 2, ey = e.pos[1] * T + T / 2;

@@ -869,59 +869,93 @@ function refreshSubs(op) {
 function objDone(op, o) {
   if (o.skip) return true;
   const ow = S.owner[o.tile];
-  if (o.type === 'encircle') { const e = S.fronts.find(f => f.id === o.army); return !e || !unitCount(e.units) || inPocket(e) || S.time > o.until || ow === op.n; }
+  if (o.type === 'encircle') { const e = S.fronts.find(f => f.id === o.army); return !o.cut || !e || !unitCount(e.units) || inPocket(e) || S.time > o.until || o.cut.every(t => S.owner[t] !== op.target); }
   return ow === op.n || (op.target >= 0 ? ow !== op.target && !atWar(op.n, ow) : ow !== -1);
 }
 function opGenerals(op) { return op.gens.map(id => S.fronts.find(f => f.id === id)).filter(Boolean); }
-// כיתור: צבא אויב שאפשר לחתוך את דרך הנסיגה שלו הביתה. מוצאים את "הצוואר" — הנקודה בדרך מהצבא אל לב האומה שלו —
-// ושולחים את שני הגנרלים הקרובים, מצדדים שונים, לסגור אותו (צבתות)
+// כיתור: צבא אויב שאפשר לחתוך מהבית. מחפשים "צוואר" — קו חיתוך קצר בשטח האויב, מקצה לקצה (שטח שלנו / ים / אומה אחרת),
+// שאחרי שנכבוש את כל המשבצות שלו הצבא מנותק מהלב של האומה שלו. שני גנרלים כובשים את הקו — כל אחד מהקצה שלו לכיוון האמצע —
+// והמשימה נגמרת רק כשהקו סגור (או שהצבא כבר בכיס), לא כשנכבשה משבצת אחת
+function isolates(tg, et, cut, anchor) {
+  const okN = S.nations.map(m => m.id === tg || allied(tg, m.id)), blk = new Set(cut), seen = new Uint8Array(W * H), q = [et]; seen[et] = 1;
+  for (let h = 0; h < q.length; h++) {
+    const u = q[h]; if (u === anchor || q.length > 2600) return false;   // הגיע ללב — או שהשטח גדול מכדי להיות כיס
+    const x = u % W;
+    for (const v of [x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1, u - W, u + W]) { if (v < 0 || v >= W * H || seen[v] || blk.has(v) || isWater(v)) continue; const o = S.owner[v]; if (o < 0 || !okN[o]) continue; seen[v] = 1; q.push(v); }
+  }
+  return true;
+}
+// קו חיתוך דרך נקודה (cx,cy) בכיוון (ux,uy), לשני הצדדים, עד שיוצאים משטח האויב. מחזיר משבצות מסודרות מקצה לקצה (רציף בארבעה כיוונים)
+function cutLine(tg, cx, cy, ux, uy, maxR) {
+  const half = sgn => { const out = []; let px = Math.floor(cx), py = Math.floor(cy);
+    for (let r = 0; r <= maxR; r += 0.35) { const X = Math.floor(cx + ux * sgn * r), Y = Math.floor(cy + uy * sgn * r); if (X < 0 || Y < 0 || X >= W || Y >= H) return null;
+      const steps = X !== px && Y !== py ? [[X, py], [X, Y]] : [[X, Y]];
+      for (const [a, b] of steps) { const j = idx(a, b); if (isWater(j) || S.owner[j] !== tg) return out; if (out[out.length - 1] !== j) out.push(j); }
+      px = X; py = Y; }
+    return null; };
+  const A = half(1), B = half(-1); if (!A || !B) return null;
+  const seen = new Set(), line = []; for (const j of [...A.reverse(), ...B]) if (!seen.has(j)) { seen.add(j); line.push(j); }
+  return line;
+}
+function findNeck(op, e) {
+  const tg = op.target, et = tileOf(...e.pos);
+  let anchor = null; eachBuilding((b, j) => { if (b.n === tg && b.capital && S.owner[j] === tg) anchor = j; });
+  if (anchor == null) { let bc = -1; eachBuilding((b, j) => { if (b.n === tg && b.type === 'city' && S.owner[j] === tg && (b.lvl || 1) > bc) { bc = b.lvl || 1; anchor = j; } }); }
+  if (anchor == null || anchor === et) return null;
+  // מרחק מהלב — רק דרך השטח של האויב (ובעלי בריתו)
+  const okN = S.nations.map(m => m.id === tg || allied(tg, m.id)), cf = new Int32Array(W * H).fill(-1), q = new Int32Array(W * H); let qt = 0; cf[anchor] = 0; q[qt++] = anchor;
+  for (let h = 0; h < qt; h++) { const u = q[h], x = u % W; for (const v of [x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1, u - W, u + W]) { if (v < 0 || v >= W * H || cf[v] >= 0 || isWater(v)) continue; const o = S.owner[v]; if (o < 0 || !okN[o]) continue; cf[v] = cf[u] + 1; q[qt++] = v; } }
+  if (cf[et] < 0) return null;
+  // נקודות על הדרך מהצבא אל הלב (ירידה בשדה המרחק), כל חצי יחידה
+  const pts = []; let cur = et;
+  for (let k = 0; k < 10 * G; k++) {
+    const [x, y] = XY(cur); let nx = null, nv = cf[cur] < 0 ? 1e9 : cf[cur];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= W || Y >= H) continue; const j = idx(X, Y); if (S.owner[j] !== tg || cf[j] < 0) continue; if (cf[j] < nv) { nv = cf[j]; nx = j; } }
+    if (nx == null) break; cur = nx; pts.push(cur);
+  }
+  let best = null, bs = Infinity;
+  for (let k = Math.round(G * 0.75); k < pts.length; k += Math.max(1, G >> 1)) {
+    const [x, y] = XY(pts[k]), [ax, ay] = XY(pts[Math.max(0, k - G)]), [bx, by] = XY(pts[Math.min(pts.length - 1, k + G)]);
+    let dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    for (const rot of [0, 0.4, -0.4, 0.8, -0.8]) {
+      const c = Math.cos(rot), sn = Math.sin(rot), ux = -dy * c - dx * sn, uy = dx * c - dy * sn;
+      const line = cutLine(tg, x + 0.5, y + 0.5, ux, uy, 7 * G); if (!line || !line.length) continue;
+      const sc = line.length + k * 0.25; if (sc >= bs) continue;
+      if (!isolates(tg, et, line, anchor)) continue;
+      best = line; bs = sc;
+    }
+  }
+  return best;
+}
 function planEncircle(op) {
   if (op.target < 0 || !op.ax) return;
   const gens = opGenerals(op).filter(f => unitCount(f.units) && !f.flying && !f.retreating && !f.consol); if (gens.length < 2) return;
   if (op.subs.some(o => o.type === 'encircle' && !objDone(op, o))) return;
-  let cf = null;
   for (const e of S.fronts) {
     if (e.n !== op.target || e.kind !== 'land' || e.flying || unitCount(e.units) < 4 || inPocket(e)) continue;
-    const et = tileOf(...e.pos), near = gens.slice().sort((a, b) => hyp(a.pos[0] - e.pos[0], a.pos[1] - e.pos[1]) - hyp(b.pos[0] - e.pos[0], b.pos[1] - e.pos[1]));
+    const near = gens.slice().sort((a, b) => hyp(a.pos[0] - e.pos[0], a.pos[1] - e.pos[1]) - hyp(b.pos[0] - e.pos[0], b.pos[1] - e.pos[1]));
     if (hyp(near[0].pos[0] - e.pos[0], near[0].pos[1] - e.pos[1]) > 14) continue;
-    // בליטה: סורקים 8 כיוונים עד 4 יחידות. כיוון "סגור" = מגיעים לשטח שלנו. צבא שרוב הכיוונים סביבו סגורים — בבליטה,
-    // והצוואר הוא בכיוון הפתוח שנשאר (הדרך שלו הביתה)
-    let ox = 0, oy = 0, closed = 0;
-    for (let k = 0; k < 8; k++) {
-      const a = k * Math.PI / 4, ux = Math.cos(a), uy = Math.sin(a); let shut = false;
-      for (let r = 1; r <= 4 * G; r++) { const X = Math.round(e.pos[0] + ux * r), Y = Math.round(e.pos[1] + uy * r); if (X < 0 || Y < 0 || X >= W || Y >= H) break; const o = S.owner[idx(X, Y)]; if (o === op.n || (o >= 0 && allied(op.n, o))) { shut = true; break; } }
-      if (shut) closed++; else { ox += ux; oy += uy; }
-    }
-    let cur = null;
-    if (closed >= 4 && closed < 8 && Math.hypot(ox, oy) > 0.1) {
-      const L0 = Math.hypot(ox, oy); cur = tileOf(e.pos[0] + ox / L0 * 2.5 * G, e.pos[1] + oy / L0 * 2.5 * G);
-    } else {
-      // אחרת: הולכים מהצבא לכיוון הלב של האומה שלו, בשטח שלה, עד 4 יחידות
-      cf = cf || coreField(op.target); cur = et;
-      for (let k = 0; k < 6 * G; k++) {
-        const [x, y] = XY(cur); let nx = null, nv = cf[cur] < 0 ? 1e9 : cf[cur];
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= W || Y >= H) continue; const j = idx(X, Y); if (S.owner[j] !== op.target || cf[j] < 0) continue; if (cf[j] < nv) { nv = cf[j]; nx = j; } }
-        if (nx == null) break; cur = nx; if (dist(cur, et) >= 4 || cf[cur] <= 2) break;
-      }
-      if (cur === et || dist(cur, et) < 2) continue;
-    }
-    // צבת: שני גנרלים מצדדים שונים של הקו צבא→צוואר; כוח משותף מספיק מול הצבא
-    const [nx0, ny0] = XY(cur), vx = nx0 - e.pos[0], vy = ny0 - e.pos[1], side = g => Math.sign(vx * (g.pos[1] - e.pos[1]) - vy * (g.pos[0] - e.pos[0]));
-    const cand = near.slice(0, 4), a = cand[0], b = cand.find(g => g !== a && side(g) !== side(a)) || cand[1];
-    if (!b || frontPower(a, 'atk') + frontPower(b, 'atk') < frontPower(e, 'def') * 0.6) continue;
-    // נקודות הסגירה: הצוואר ושתי נקודות בצדדים שלו
-    const L = Math.hypot(vx, vy) || 1, px = -vy / L, py = vx / L, objs = [];
-    for (const sgn of [-1, 0, 1]) {
-      const t = tileOf(nx0 + px * sgn * 1.5 * G, ny0 + py * sgn * 1.5 * G);
-      if (!isWater(t) && validTarget(op.n, t)) objs.push({ tile: t, type: 'encircle', army: e.id, gens: [a.id, b.id], until: S.time + 25, done: false, ...opXY(op, t) });
-    }
-    if (!objs.length) continue;
-    op.subs.unshift(...objs); op.objectives = [op.main, ...op.subs];
+    const cut = findNeck(op, e); if (!cut || cut.length > 7 * G) continue;
+    // צבת: לכל קצה של הקו — הגנרל הקרוב אליו (שני גנרלים שונים)
+    const [x0, y0] = XY(cut[0]), [x1, y1] = XY(cut[cut.length - 1]), cand = near.slice(0, 4), d = (g, x, y) => hyp(g.pos[0] - x, g.pos[1] - y);
+    let a = null, b = null, bd = Infinity;
+    for (const g of cand) for (const h of cand) if (g !== h) { const v = d(g, x0, y0) + d(h, x1, y1); if (v < bd) { bd = v; a = g; b = h; } }
+    if (!a || !b || frontPower(a, 'atk') + frontPower(b, 'atk') < frontPower(e, 'def') * 0.6) continue;
+    const mid = cut[cut.length >> 1];
+    op.subs.unshift({ tile: mid, type: 'encircle', army: e.id, gens: [a.id, b.id], cut, until: S.time + 14 + cut.length * 0.8, done: false, ...opXY(op, mid) });
+    op.objectives = [op.main, ...op.subs];
     a.retarget = b.retarget = true;
-    if (op.n === 0) toast(`🎯 המטה מתכנן כיתור של ${e.gen.name}: ${a.gen.name} ו${b.gen.name} סוגרים מאחוריו`, 'good');
+    if (op.n === 0) toast(`🎯 המטה מתכנן כיתור של ${e.gen.name}: ${a.gen.name} ו${b.gen.name} סוגרים את הצוואר מאחוריו (${Math.ceil(cut.length / G)} יחידות לסגור)`, 'good');
     else if (e.n === 0) toast(`⚠ ${e.gen.name} בסכנת כיתור!`, 'bad');
     return;
   }
+}
+// היעד הבא של גנרל בכיתור: המשבצת הראשונה שעוד לא שלנו על הקו, מהקצה שלו לכיוון האמצע; אם החצי שלו סגור — עוזר בחצי השני
+function encircleTile(op, o, f) {
+  const k = o.gens.indexOf(f.id), seq = k === 0 ? o.cut : o.cut.slice().reverse(), bad = f.bad || [];
+  const open_ = t => S.owner[t] === op.target && !bad.includes(t) && validTarget(op.n, t);
+  const mineHalf = seq.slice(0, Math.ceil(seq.length / 2)).find(open_);
+  return mineHalf ?? seq.find(open_) ?? null;
 }
 function enemyPowerNear(nid, tile, r) { const [x, y] = XY(tile); let p = 0; for (const g of S.fronts) if (g.kind === 'land' && atWar(nid, g.n) && hyp(g.pos[0] - x, g.pos[1] - y) <= r) p += frontPower(g, 'def'); return p; }
 // נתיבים ותפקידים: המאמץ העיקרי (החזק) על הציר עצמו, הקיבוע בנתיבים מקבילים משני הצדדים,
@@ -962,6 +996,9 @@ function pickLaneTarget(op, f, gens, open, next) {
   const laneOf = o => { let best = null, bd = Infinity; for (const g of line) { const d = Math.abs(o.l - op.lanes[g.id]); if (d < bd) { bd = d; best = g; } } return best; };
   const pool = [...open.map(o => ({ o, la: 0 })), ...next.map(o => ({ o, la: 1 }))].filter(p => !p.o.skip && !bad.includes(p.o.tile));
   const holdLine = why => { const [px, py] = opPoint(op, me.a + 3, L); return { tile: nearestOwn(nid, px, py, true) ?? tileOf(...f.pos), why, hold: true }; };
+  // כיתור שהמטה הטיל עליי — קודם לכל תפקיד אחר (גם קיבוע ודרג שני)
+  const enc = pool.filter(p => p.o.type === 'encircle' && p.o.gens?.includes(f.id));
+  for (const p of enc) { const t = encircleTile(op, p.o, f); if (t != null) return { tile: t, why: 'כיתור' }; }
   // דרג שני: נוסע מאחורי המאמץ העיקרי; כשנפתחת פרצה — עובר דרכה לעומק, לעבר יעדים שהאויב לא מגן עליהם
   if (role === 'EXP') {
     if (!f.expGo) { const [px, py] = opPoint(op, meA - 4, meL); return { tile: nearestOwn(nid, px, py, true) ?? op.ax.origin, why: 'דרג שני', hold: true }; }
@@ -971,9 +1008,6 @@ function pickLaneTarget(op, f, gens, open, next) {
   }
   // קיבוע: לא בורחים קדימה מהמאמץ העיקרי
   if (role === 'PIN' && ME && !ME.consol && me.a > meA + CFG.PIN_LEAD) return holdLine('קיבוע');
-  // כיתור שהמטה הטיל עליי — קודם לכל
-  const enc = pool.filter(p => p.o.type === 'encircle' && p.o.gens?.includes(f.id));
-  if (enc.length) { const [fx, fy] = f.pos; return { tile: enc.sort((x, y) => dist(x.o.tile, tileOf(fx, fy)) - dist(y.o.tile, tileOf(fx, fy)))[0].o.tile, why: 'כיתור' }; }
   // ציר שהשחקן צייר לגנרל הזה — גובר על הכול
   const axO = pool.find(p => p.o.by === f.id);
   if (axO) return { tile: axO.o.tile, why: 'ציר שציירת' };
@@ -1077,7 +1111,7 @@ function updateOp(op, dt) {
       if (cur && !cur.custom && !cur.main) { cur.fails = (cur.fails || 0) + 1; if (cur.fails >= 2) cur.skip = true; }
       f.stuck = 0; f.retarget = true;
     }
-    const lost = f.plan == null || ((f.planWhy === 'יעד' || f.planWhy === 'כיתור') && !live_.has(f.plan)) || (S.owner[f.plan] === nid && !f.planHold);
+    const lost = f.plan == null || (f.planWhy === 'יעד' && !live_.has(f.plan)) || (f.planWhy === 'כיתור' && !open.some(o => o.type === 'encircle' && o.cut?.includes(f.plan))) || (S.owner[f.plan] === nid && !f.planHold);
     f.planT = (f.planT || 0) - dt;
     if (!lost && !f.retarget && f.planT > 0) continue;
     const pick = pickLaneTarget(op, f, act, open, next);
