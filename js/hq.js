@@ -210,13 +210,18 @@ function planDefense(nid) {
   const ef = enemyField(nid, en), auras = fortressAuras(nid);
   const armorPow = f => frontDivs(f).filter(d => d.type === 'heavy' || d.type === 'light').reduce((a, d) => a + divPow(d, 'atk'), 0);
   // עתודה ניידת: כשיש לפחות שני מגינים — זה עם הכי הרבה שריון (נשמר כדי שלא יתחלף כל פעם)
-  let reserve = null;
-  if (defs.length >= 2) reserve = defs.find(f => f.defRole === 'reserve') || defs.slice().sort((a, b) => armorPow(b) - armorPow(a))[0];
-  const holders = defs.filter(f => f !== reserve);
+  // הגנה ניידת (FM 3-90): מעט מקבעים בקו (בעיכוב — מוכרים שטח), ורוב הכוח הנייד בכוח מחץ שמכה באויב שחדר כשהוא חשוף
+  const mobile = defMode(nid) === 'mobile' && defs.length >= 3;
+  const nRes = defs.length < 2 ? 0 : mobile ? Math.max(2, Math.ceil(defs.length * 0.45)) : 1;
+  const prev = defs.filter(f => f.defRole === 'reserve'), byArmor = defs.slice().sort((a, b) => armorPow(b) - armorPow(a));
+  const strikers = [...prev, ...byArmor.filter(f => !prev.includes(f))].slice(0, nRes);
+  for (const f of defs) if (!strikers.includes(f) && f.defRole === 'reserve') f.defRole = null;
+  const reserve = strikers[0] || null;
+  const holders = defs.filter(f => !strikers.includes(f));
   const ranked = sectors.slice().sort((a, b) => b.risk - a.risk);
   const zones = defenseZones(nid, en, sectors, defs), plan = assignHolders(nid, holders, zones);
   for (const f of holders) {
-    const s = plan.get(f) || ranked[0];
+    const s0 = plan.get(f) || ranked[0], s = mobile && s0.posture === 'hold' ? { ...s0, posture: 'delay' } : s0;
     f.atCamp = false; f.defRole = s.posture; f.sector = s.tile; f.zoneKind = s.kind;
     // חדירה לשטח שלנו: מגינים על המבנה החשוב הקרוב לצבא האויב (או תוקפים אותו כשאנחנו חזקים מספיק)
     if (s.kind === 'incursion') {
@@ -235,6 +240,7 @@ function planDefense(nid) {
     // סכנת כיתור: רוב השטח סביבי כבר של האויב — נסיגה לקו הבא
     if (f.engaged && ownShare(nid, fx, fy) < CFG.ENCIRCLE_SHARE) { spot = beltTile(nid, s.tile, depth + CFG.DELAY_STEP, ef); f.delayD = depth + CFG.DELAY_STEP; if (nid === 0 && !f.wasOut) toast(`↩ ${f.gen.name} נסוג מפני כיתור`, 'bad'); f.wasOut = true; }
     else f.wasOut = false;
+    if (!fortHere) { const ps = passNear(nid, spot, 3 * G); spot = ps ?? highGround(nid, spot, 2 * G); }   // מעבר הרים בגזרה — מחזיקים עליו; אחרת גבעה סמוכה   // עיגון על השטח: גבעה או רכס סמוכים (ובלי פסגות שאי אפשר לעמוד בהן)
     // מכת נגד מיידית: משבצת שאבדה ליד העמדה, כשאנחנו חזקים שם
     let lost = null, ld = Infinity;
     if (s.posture !== 'delay') { const [sx, sy] = XY(spot), R = 4 * G; for (let y = Math.max(0, sy - R); y <= Math.min(H - 1, sy + R); y++) for (let x = Math.max(0, sx - R); x <= Math.min(W - 1, sx + R); x++) { const j = y * W + x; if (S.lastOwner[j] === nid && en.includes(S.owner[j])) { const d = dist(j, spot); if (d <= 4 && d < ld) { ld = d; lost = j; } } } }
@@ -243,9 +249,12 @@ function planDefense(nid) {
     else { f.target = null; f.zone = []; f.defend = spot; }
   }
   if (!reserve) return;
+  strikers.forEach((r, k) => strike(nid, r, k, ranked, en, ef, mobile));
+}
+function strike(nid, reserve, k, ranked, en, ef, mobile) {
   // --- עתודה: מחכה מאחורי הגזרה המאוימת; מכה בפריצה או בראש חץ שהתארך (המכה מהגב של מנשטיין) ---
   reserve.defRole = 'reserve'; reserve.atCamp = false;
-  const top = ranked[0], rest = beltTile(nid, top.tile, CFG.RESERVE_BACK, ef);
+  const top = ranked[Math.min(k, ranked.length - 1)], rest = beltTile(nid, top.tile, CFG.RESERVE_BACK, ef);
   const cores = {}, rp = frontPower(reserve, 'atk');
   let best = null, bs = -Infinity;
   if (unitCount(reserve.units) && reserve.org > 0.5) for (const e of S.fronts) {
@@ -255,7 +264,7 @@ function planDefense(nid) {
     const d = hyp(e.pos[0] - reserve.pos[0], e.pos[1] - reserve.pos[1]); if (d > CFG.RES_RANGE) continue;
     const weak = e.org < 0.6 || e.supply !== 'ok' || e.consol;
     const overext = depth >= CFG.OVEREXT && (weak || rp > frontPower(e, 'def') * CFG.CA_RATIO);
-    const breach = depth >= CFG.MAIN_BELT && rp > frontPower(e, 'def') * 0.8;
+    const breach = depth >= CFG.MAIN_BELT * (mobile ? 0.6 : 1) && rp > frontPower(e, 'def') * (mobile ? 0.65 : 0.8);
     if (!overext && !breach) continue;
     const s = (overext ? 20 : 8) + depth - d * 0.5;
     if (s > bs) { bs = s; best = { e, cf, overext }; }
@@ -274,4 +283,46 @@ function planDefense(nid) {
     }
   }
   reserve.caOn = null; reserve.target = null; reserve.zone = []; reserve.defend = rest;
+}
+
+// קרקע שולטת: משבצת שלנו קרובה עם שטח שמחזק את המגן (גבעות, הרים, יער) — לא מתרחקים יותר מ-r
+function highGround(nid, t, r) {
+  const [x0, y0] = XY(t); let best = t, bs = TER_DEF[S.terrain[t]] * 10;
+  for (let y = Math.max(0, y0 - r); y <= Math.min(H - 1, y0 + r); y++) for (let x = Math.max(0, x0 - r); x <= Math.min(W - 1, x0 + r); x++) {
+    const j = y * W + x; if (S.owner[j] !== nid || isWater(j) || S.terrain[j] === SNOW) continue;
+    const sc = TER_DEF[S.terrain[j]] * 10 - Math.hypot(x - x0, y - y0) / G * 0.8; if (sc > bs + 0.5) { bs = sc; best = j; }
+  }
+  return best;
+}
+
+// מצב הגנה: שחקן בוחר; המחשב — אישיות תוקפנית/ימית מעדיפה הגנה ניידת, מתבצר מעדיף הגנת שטח
+function defMode(nid) { const n = S.nations[nid]; return n.defMode || (n.isAI && (n.pers === 'aggr' || n.pers === 'naval') ? 'mobile' : 'area'); }
+// מעבר הרים שלנו קרוב לנקודה
+function passNear(nid, t, r) { const [x, y] = XY(t); let best = null, bd = r; for (const p of passes()) { if (S.owner[p.tile] !== nid) continue; const [px, py] = XY(p.tile), d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = p.tile; } } return best; }
+// ===================== מעברים =====================
+// צווארי בקבוק בשטח: משבצת עבירה שמשני צדדיה (בכיוון כלשהו) מחסום — פסגות או ים — במרחק קצר. מחושב פעם אחת למפה.
+const _pass = { s: null, list: [] };
+function passes() {
+  if (_pass.s === S) return _pass.list;
+  _pass.s = S; const out = [], blk = j => isWater(j) || S.terrain[j] === SNOW, MAXW = Math.round(3 * G), STEP = Math.max(1, G >> 1);
+  const DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
+  for (let y = 2; y < H - 2; y += STEP) for (let x = 2; x < W - 2; x += STEP) {
+    const t = y * W + x; if (blk(t)) continue;
+    let bestW = Infinity, hasSnow = false;
+    for (const [dx, dy] of DIRS) {   // רוחב: הולכים בניצב לכיוון (dx,dy) לשני הצדדים עד מחסום
+      const px = -dy, py = dx; let a = 0, b = 0, sa = false, sb = false;
+      for (a = 1; a <= MAXW; a++) { const X = x + px * a, Y = y + py * a; if (X < 0 || Y < 0 || X >= W || Y >= H) { a = 99; break; } const j = idx(X, Y); if (blk(j)) { sa = S.terrain[j] === SNOW; break; } }
+      for (b = 1; b <= MAXW; b++) { const X = x - px * b, Y = y - py * b; if (X < 0 || Y < 0 || X >= W || Y >= H) { b = 99; break; } const j = idx(X, Y); if (blk(j)) { sb = S.terrain[j] === SNOW; break; } }
+      if (a > MAXW || b > MAXW) continue;
+      // ועוד: בכיוון התנועה עצמו המעבר פתוח (אחרת זה כיס, לא מעבר)
+      let open = 0; for (const sg of [1, -1]) { const X = x + dx * sg * 2 * G, Y = y + dy * sg * 2 * G; if (X >= 0 && Y >= 0 && X < W && Y < H && !blk(idx(X, Y))) open++; }
+      if (open < 2) continue;
+      const w = (a + b) * (dx && dy ? 1.41 : 1); if (w < bestW) { bestW = w; hasSnow = sa || sb; }
+    }
+    if (bestW <= MAXW && hasSnow) out.push({ tile: t, w: bestW });   // מעבר הרים (לפחות צד אחד פסגה); מצר ים בלבד — לא
+  }
+  // דיכוי כפילויות: מעבר אחד לכל אזור (הצר ביותר)
+  out.sort((a, b) => a.w - b.w); const keep = [];
+  for (const p of out) if (!keep.some(q => dist(q.tile, p.tile) < 4)) keep.push(p);
+  return _pass.list = keep;
 }

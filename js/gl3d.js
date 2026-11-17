@@ -24,7 +24,7 @@ const g3C = () => { const c = view.cam; return [c.x + innerWidth / 2 / c.zoom, c
 function g3H(wx, wy) {
   if (!TERR.hg) return 0; const T = CFG.T, u = clamp(wx / T, 0, W - 1.001), v = clamp(wy / T, 0, H - 1.001), x = u | 0, y = v | 0, fx = u - x, fy = v - y, A = TERR.hg, CW = TERR.CW, k = y * CW + x;
   const e = (A[k] * (1 - fx) + A[k + 1] * fx) * (1 - fy) + (A[k + CW] * (1 - fx) + A[k + CW + 1] * fx) * fy;
-  return Math.max(0, e - 0.35) * CFG.H3;
+  const m = Math.max(0, e - 2.4); return (Math.max(0, e - 0.35) + 0.38 * m * Math.sqrt(m) * Math.sqrt(Math.sqrt(m))) * CFG.H3;   // הרים: גובה מוגזם (לא ליניארי) — הרכסים מתנשאים מעל הגבעות
 }
 function g3P(wx, wy, h) { const z = view.cam.zoom, [cx, cy] = g3C(); return [(wx - cx) * z + innerWidth / 2, (wy - cy) * z * G3.cos - (h ?? g3H(wx, wy)) * z * G3.sin + innerHeight / 2]; }
 function g3Inv(sx, sy) {
@@ -439,6 +439,7 @@ function g3GroundTexture(now) {
     if (ui.pick?.kind === 'build' && view.hintCv) ctx.drawImage(view.hintCv, 0, 0, W * T, H * T);
     for (const f of S.fronts) if (f.kind === 'land' && f.zone?.length) { const col = S.nations[f.n].color; for (const j of f.zone) { const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K)); ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); } ctx.globalAlpha = 1; }
     for (const d of DECALS) { if (d.x < fp.x0 - 20 || d.x > fp.x1 + 20 || d.y < fp.y0 - 20 || d.y > fp.y1 + 20) continue; const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r); g.addColorStop(0, 'rgba(18,14,10,.6)'); g.addColorStop(0.6, 'rgba(30,24,16,.35)'); g.addColorStop(1, 'rgba(40,32,20,0)'); ctx.fillStyle = g; ctx.fillRect(d.x - d.r, d.y - d.r, d.r * 2, d.r * 2); }
+    drawPasses(ctx, null);
     for (const op of S.ops) if (op.n === 0) for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2, r = o.main ? 12 : 7; ctx.strokeStyle = o.main || o.custom ? '#ffd84a' : o.type === 'encircle' ? '#ff9a3c' : '#ff4f6a'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.stroke(); }
     if (ui.sel != null) { const [x, y] = XY(ui.sel); ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 1; ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   } finally { ctx = main; }
@@ -577,6 +578,8 @@ function drawOverlay3(now, fdt) {
   }
   runDelayed(fdt);
   drawEncirclements(now, inVis); drawAxes(now);
+  // מעברי הרים: תווית זקופה
+  if (cam.zoom >= 1.4) for (const p of passes()) { const [x, y] = XY(p.tile), wx = x * T + T / 2, wy = y * T + T / 2; if (!inVis(wx, wy, 30)) continue; g3Upright(wx, wy, 4); drawLabel(wx, wy, '⛰ מעבר', null, '#e8d8a0'); }
   // זקוף: סמלי מבנים ותוויות ערים
   eachBuilding((b, i) => {
     const [x, y] = XY(i), wx = x * T + T / 2, wy = y * T + T / 2; if (!inVis(wx, wy, 40)) return;

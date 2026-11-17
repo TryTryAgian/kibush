@@ -194,7 +194,7 @@ function genActions(f) {
 }
 function assignToOp(f, op) { f.order = null; f.holdTile = null; const old = S.ops.find(o => o.id === f.op); if (old) old.gens = old.gens.filter(id => id !== f.id); if (!op.gens.includes(f.id)) op.gens.push(f.id); f.role = 'attack'; f.op = op.id; f.target = null; f.defend = null; }
 const opName = op => op.target >= 0 ? nm(op.target) : 'התפשטות';
-const OBJ_IC = { encircle: '⭕ כיתור', capital: '★ בירה', city: '🏙', factory: '🏭', airport: '✈', port: '⚓', camp: '⛺', university: '🎓', land: '🌾', custom: '🎯' };
+const OBJ_IC = { encircle: '⭕ כיתור', capital: '★ בירה', city: '🏙', factory: '🏭', airport: '✈', port: '⚓', camp: '⛺', university: '🎓', land: '🌾', custom: '🎯', pass: '⛰' };
 function frontsTab() {
   const land = landGenerals(0), defs = land.filter(f => f.role !== 'attack'), fleets = S.fronts.filter(f => f.n === 0 && f.kind === 'navy'), ops = S.ops.filter(o => o.n === 0), full = land.length >= maxGenerals(0);
   const newGen = (role, op) => { const f = createFront(0, role); if (!f) return toast('הגעת למספר הגנרלים המרבי', 'bad'); if (op) assignToOp(f, op); allocateDivisions(0); planDefense(0); ui.selFront = f.id; toast(`מונה ${f.gen.name} (${TRAITS[f.gen.trait].name})`, 'good'); render(); };
@@ -202,6 +202,8 @@ function frontsTab() {
     watch(() => landGenerals(0).length + ':' + maxGenerals(0) + ':' + S.fronts.filter(f => f.n === 0).map(f => f.id + f.role + (f.op ?? '') + (f.order || '') + (f.kind === 'land' && f.supply === 'cut' ? 'c' : '')).join() + ':' + S.ops.filter(o => o.n === 0).map(o => o.id + '/' + (o.main?.tile ?? '') + '/' + o.state + '/' + o.gens.length).join()),
     h('h3', {}, h('span', {}, 'גנרלים ', h('span', { dir: 'ltr' }, `${land.length}/${maxGenerals(0)}`)), h('button', { class: 'btn sm', onclick: openOpHelp }, '❓ איך זה עובד')),
     h('h3', {}, '🛡 הגנה', h('button', { class: 'btn sm pri', live: el => el.disabled = landGenerals(0).length >= maxGenerals(0), onclick: () => newGen('defend') }, '+ גנרל')),
+    h('div', { class: 'row wrap' }, h('span', { class: 'dim' }, 'שיטת הגנה:'),
+      ...[['area', '🧱 הגנת שטח', 'כל הגנרלים מחזיקים את הקו, עתודה אחת'], ['mobile', '⚡ הגנה ניידת', 'מעט מעכבים בקו, כוח מחץ גדול מכה באויב שחדר (מ-3 מגינים)']].map(([k, t, d]) => h('button', { class: 'btn sm' + (defMode(0) === k ? ' pri' : ''), title: d, onclick: () => { player().defMode = k; planDefense(0); render(); } }, t))),
     defs.length ? null : h('div', { class: 'dim' }, 'בשלום — במחנות. במלחמה — על הגבול מול האויב, ליד ביצורים ומבנים חשובים.'),
     ...defs.map(genCard),
     ...(() => { const solos = S.fronts.filter(f => f.n === 0 && f.solo); return solos.length ? [h('h3', {}, '🎯 אוגדות עצמאיות', h('span', { class: 'dim' }, 'הקש עליהן במפה כדי לתת פקודה')), ...solos.map(genCard)] : []; })(),
@@ -233,7 +235,7 @@ function openNewOp() {
   const others = S.nations.filter(n => n.id !== 0 && n.alive);
   modal(h('h2', {}, '⚔ מבצע חדש — נגד מי?'),
     ...others.map(n => { const war = atWar(0, n.id); return h('button', { class: 'btn' + (war ? ' warn' : ''), onclick: () => { closeModal(); createOp(0, n.id); if (!war) toast(`אתם לא במלחמה עם ${n.name} — המבצע ימתין להכרזה`, 'bad'); ui.tab = 'fronts'; render(); } }, h('span', { class: 'dot', style: { background: n.color } }), `${n.name} ${war ? '⚔' : '(שלום)'}`); }),
-    S.owner.some((o, j) => o === -1 && !isWater(j)) ? h('button', { class: 'btn pri', onclick: () => { closeModal(); createOp(0, -1); ui.tab = 'fronts'; render(); } }, '🌾 התפשטות לשטח ניטרלי') : null,
+    S.owner.some((o, j) => o === -1 && !isWater(j) && S.terrain[j] !== SNOW) ? h('button', { class: 'btn pri', onclick: () => { closeModal(); createOp(0, -1); ui.tab = 'fronts'; render(); } }, '🌾 התפשטות לשטח ניטרלי') : null,
     h('button', { class: 'btn', onclick: closeModal }, 'ביטול'));
 }
 function openOpHelp() {

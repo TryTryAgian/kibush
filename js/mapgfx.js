@@ -39,12 +39,14 @@ function prepTerrain() {
   const TH = t => TER[t].water ? -0.3 : t === SAND ? 0.4 : t === HILLS ? 3 : t === MOUNT ? 6 : t === SNOW ? 8.5 : t === FOREST ? 1.3 : 1;
   let hg = new Float32Array(CW * CHh);
   for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { let s = 0, n = 0; for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H) { s += TH(S.terrain[Y * W + X]); n++; } } hg[y * CW + x] = s / n; }
-  const R = Math.max(1, Math.round(G * 0.9)), tmp = new Float32Array(CW * CHh);
+  const raw = hg.slice(), R = Math.max(1, Math.round(G * 0.9)), tmp = new Float32Array(CW * CHh);
   for (let pass = 0; pass < 3; pass++) {
     for (let y = 0; y < CHh; y++) { let acc = 0, cnt = 0; for (let x = -R; x < CW + R; x++) { if (x + R < CW) { acc += hg[y * CW + x + R]; cnt++; } if (x - R - 1 >= 0) { acc -= hg[y * CW + x - R - 1]; cnt--; } if (x >= 0 && x < CW) tmp[y * CW + x] = acc / cnt; } }
     for (let x = 0; x < CW; x++) { let acc = 0, cnt = 0; for (let y = -R; y < CHh + R; y++) { if (y + R < CHh) { acc += tmp[(y + R) * CW + x]; cnt++; } if (y - R - 1 >= 0) { acc -= tmp[(y - R - 1) * CW + x]; cnt--; } if (y >= 0 && y < CHh) hg[y * CW + x] = acc / cnt; } }
   }
-  for (let k = 0; k < hg.length; k++) hg[k] += (el[k] - 0.5) * 1.4 * Math.min(1, Math.max(0.25, hg[k] / 3));
+  // רכסים: בתוך אזורי ההרים — רעש "רכס" (קווי פסגה חדים ועמקים ביניהם), כך שהרים נראים כמו רכס ולא כמו רמה
+  for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { const k = y * CW + x, m = clamp((hg[k] - 2.4) / 3, 0, 1); if (!m) continue; const u = x / G, v = y / G, r1 = 1 - Math.abs(2 * nz(u * 0.6 + 13, v * 0.6 - 7, 4) - 1), r2 = 1 - Math.abs(2 * nz(u * 1.7 - 31, v * 1.7 + 5, 2) - 1); hg[k] += m * (r1 * r1 * r1 * 5 + r2 * r2 * 0.7 - 1.8); }
+  for (let k = 0; k < hg.length; k++) { if (raw[k] > hg[k] && raw[k] > 2.5) hg[k] += (raw[k] - hg[k]) * 0.5; hg[k] += (el[k] - 0.5) * 1.4 * Math.min(1, Math.max(0.25, hg[k] / 3)); }   // פסגות חדות יותר — הטשטוש לא משטח את ההרים
   // הצללה מצפון-מערב
   const sh = new Float32Array(CW * CHh), K = 0.55 / G * 4;
   for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { const k = y * CW + x, l = hg[y * CW + Math.max(0, x - 1)], r = hg[y * CW + Math.min(CW - 1, x + 1)], u = hg[Math.max(0, y - 1) * CW + x], d = hg[Math.min(CHh - 1, y + 1) * CW + x]; sh[k] = clamp(1 + ((r - l) + (d - u)) * K * 0.25, 0.72, 1.22); }
@@ -221,7 +223,7 @@ function roadGeom(a, b) {
     const [ux, uy] = XY(u), gu = g[loc(u)], hu = tileH(u);
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
       const X = ux + dx, Y = uy + dy; if (X < x0 || X > x1 || Y < y0 || Y > y1) continue;
-      const v = Y * W + X; if (isWater(v)) continue;
+      const v = Y * W + X; if (isWater(v) || S.terrain[v] === SNOW) continue;
       if (dx && dy && (isWater(uy * W + X) || isWater(Y * W + ux))) continue;
       const len = dx && dy ? 1.414 : 1, t = S.terrain[v], slope = Math.abs(tileH(v) - hu) / len;
       let c = len * (1 + extra(t) + slope * slope * 2 + slope) * (0.85 + 0.3 * hash01(X >> 1, Y >> 1, S.seed + 77));
@@ -545,7 +547,7 @@ function updateTrade(dt) {
   }
   for (const s of ships) {
     if (s.wait > 0) { s.wait -= dt; continue; }
-    s.t += s.dir * UNITS.ship.spd * 0.7 * dt / MOVE_COST[SEA];
+    s.t += s.dir * CFG.TRADE_SHIP_SPD * 1.4 * dt;
     if (s.dir > 0 && s.t >= s.path.total) { s.t = s.path.total; s.dir = -1; s.wait = 1.5; }
     else if (s.dir < 0 && s.t <= 0) { s.t = 0; s.dir = 1; s.wait = 1.5; s.trips++; }
   }
@@ -606,4 +608,13 @@ function drawTradeShips(vis) {
     }
     ctx.save(); ctx.translate(X, Y); drawShipShape(ctx, S.nations[s.n].color, s.wait > 0 && s.dir < 0 && s.t >= s.path.total ? ang : ang, s.len); ctx.restore();
   }
+}
+
+// סימון מעברי הרים על המפה (בזום קרוב): שני קווים מתכנסים — "צוואר" בין רכסים
+function drawPasses(c, vis) {
+  if (view.cam.zoom < 1.1) return; const T = CFG.T;
+  c.save(); c.lineCap = 'round';
+  for (const p of passes()) { const [x, y] = XY(p.tile), X = x * T + T / 2, Y = y * T + T / 2; if (vis && (X < vis.x0 - 10 || X > vis.x1 + 10 || Y < vis.y0 - 10 || Y > vis.y1 + 10)) continue;
+    for (const [lw, col] of [[2.2, 'rgba(30,24,10,.6)'], [1, '#ffe08a']]) { c.strokeStyle = col; c.lineWidth = lw; c.beginPath(); c.moveTo(X - 8, Y - 6); c.quadraticCurveTo(X - 2, Y, X - 8, Y + 6); c.moveTo(X + 8, Y - 6); c.quadraticCurveTo(X + 2, Y, X + 8, Y + 6); c.stroke(); } }
+  c.restore();
 }

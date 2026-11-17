@@ -26,7 +26,7 @@ function frontSpeed(f) {
   const base = ds.length ? Math.min(...ds.map(d => DIV_TYPES[d.type].spd)) * 0.75 : 2.2 * G;
   return base * mod(S.nations[f.n], 'reinforce');   // (מהירויות האוגדות כבר בקנה מידה של הרשת)
 }
-function validTarget(nid, j) { if (isWater(j) || S.owner[j] === nid) return false; const o = S.owner[j]; return o < 0 || atWar(nid, o); }
+function validTarget(nid, j) { if (isWater(j) || S.owner[j] === nid || S.terrain[j] === SNOW) return false; const o = S.owner[j]; return o < 0 || atWar(nid, o); }
 // האם יש לאומה חוף של m בטווח נחיתה מנמל שלנו — סורקים רק את החלון סביב הנמלים
 function navalReach(nid, m, ports) {
   const R = Math.ceil(CFG.PORT_RANGE * G);
@@ -533,16 +533,16 @@ function fortressAuras(o) {
   return _aur.m[o] = a;
 }
 function tileDefense(j, auras) {
-  const o = S.owner[j]; let d = 1 + TER[S.terrain[j]].def;
+  const o = S.owner[j]; let d = (1 + TER[S.terrain[j]].def) * TER_CAP[S.terrain[j]];
   if (o < 0) return d;
-  d += 2;
+  d += 2 * TER_CAP[S.terrain[j]];
   const b = S.buildings[j]; if (b && done(b)) d += BUILD[b.type].def * (b.type === 'fortress' ? mod(S.nations[o], 'fort') : 1) + (b.capital ? 6 : 0);
   if ((auras || fortressAuras(o)).some(a => cheb(a.i, j) <= a.r)) d += 4 * mod(S.nations[o], 'fort');
   const [x, y] = XY(j);   // גנרל מגן בקרבת מקום מחזק את השטח
   for (const g of S.fronts) if (g.n === o && g.kind === 'land' && hyp(g.pos[0] - x, g.pos[1] - y) <= 3) { d += Math.min(10, frontPower(g, 'def') * 0.05); break; }
   return d;
 }
-function fortBonus(f) { const [x, y] = f.pos, dig = f.order === 'hold' ? 1.25 : f.order === 'delay' ? 1.1 : 1; return dig * (fortressAuras(f.n).some(a => { const [ax, ay] = XY(a.i); return Math.max(Math.abs(ax - x), Math.abs(ay - y)) / G <= a.r; }) ? 1.5 * mod(S.nations[f.n], 'fort') : 1); }
+function fortBonus(f) { const [x, y] = f.pos, dig = (f.order === 'hold' ? 1.25 : f.order === 'delay' ? 1.1 : 1) * TER_DEF[S.terrain[tileOf(x, y)]]; return dig * (fortressAuras(f.n).some(a => { const [ax, ay] = XY(a.i); return Math.max(Math.abs(ax - x), Math.abs(ay - y)) / G <= a.r; }) ? 1.5 * mod(S.nations[f.n], 'fort') : 1); }
 function frontPower(f, kind) {
   const n = S.nations[f.n], tr = TRAITS[f.gen.trait]; let p = 0;
   for (const t of UKEYS) if (f.units[t]) p += f.units[t] * UNITS[t][kind] * mod(n, t + '_' + kind);
@@ -596,7 +596,7 @@ function computeZone(f) {
     const j = yy * W + xx;
     if (!validTarget(nid, j)) continue;
     const o = S.owner, ownN = (xx > 0 && o[j - 1] === nid) + (xx < W - 1 && o[j + 1] === nid) + (o[j - W] === nid) + (o[j + W] === nid); if (!ownN) continue;
-    const [x, y] = XY(j); cands.push([dist(j, f.target) + 0.6 * hyp(x - px, y - py) - 0.7 * ownN + laneDev(j), j]);
+    const [x, y] = XY(j); cands.push([dist(j, f.target) + 0.6 * hyp(x - px, y - py) - 0.7 * ownN + laneDev(j) + TER_PEN[S.terrain[j]], j]);
   }
   if (f.approach === 'sea') cands = cands.filter(c => dist(c[1], f.target) <= 8);
   f.landing = false;
@@ -687,6 +687,8 @@ function updateFront(f, dt) {
   let P = frontPower(f, 'atk') * CFG.PRESSURE_K * capMul * (TRAITS[f.gen.trait].capture || 1) * mod(S.nations[nid], 'capture') * (f.supply === 'cut' ? 0.5 : 0.7 + 0.3 * (f.supLvl ?? 1)) * dt;   // רחוק מהרשת = כיבוש איטי
   if (enemyPow) { const my = frontPower(f, 'atk'); P *= my / (my + enemyPow); }
   if (f.zone.some(j => S.owner[j] >= 0)) f.org = Math.max(0, f.org - 0.01 * dt);   // תקיפת שטח מוגן שוחקת מעט
+  const rough = f.zone.reduce((a, j) => a + (S.terrain[j] === MOUNT ? 1 : S.terrain[j] === HILLS ? 0.4 : 0), 0) / f.zone.length;
+  if (rough) f.org = Math.max(0, f.org - 0.03 * rough * dt);   // טיפוס בהרים שוחק את הכוח
   const w = f.zone.map((_, k) => 1 / (1 + k * 0.5)), ws = w.reduce((a, b) => a + b, 0), auraCache = {};
   for (let k = 0; k < f.zone.length; k++) {
     const j = f.zone[k], o = S.owner[j];
@@ -804,8 +806,8 @@ function extractFront(f, mode) {
   return { ok: true };
 }
 function cancelOp(op) { for (const id of op.gens) { const f = S.fronts.find(x => x.id === id); if (f) { f.role = 'defend'; f.op = null; f.target = null; f.plan = null; f.zone = []; f.opRole = null; f.consol = null; f.expGo = false; f.planHold = false; f.cellKey = null; } } S.ops = S.ops.filter(o => o !== op); }
-const OBJ_VAL = o => o.type === 'capital' ? 12 : o.type === 'encircle' ? 10 : KEY_VAL[o.type] || 0;
-const OBJ_NAMES = { capital: 'הבירה', city: 'עיר', factory: 'מפעל', port: 'נמל', airport: 'שדה תעופה', camp: 'מחנה', university: 'אוניברסיטה', custom: 'יעד שסימנת', encircle: 'כיתור' };
+const OBJ_VAL = o => o.type === 'capital' ? 12 : o.type === 'encircle' ? 10 : o.type === 'pass' ? 6 : KEY_VAL[o.type] || 0;
+const OBJ_NAMES = { capital: 'הבירה', city: 'עיר', factory: 'מפעל', port: 'נמל', airport: 'שדה תעופה', camp: 'מחנה', university: 'אוניברסיטה', custom: 'יעד שסימנת', encircle: 'כיתור', pass: 'מעבר הרים' };
 const objName = o => o.type === 'city' || o.type === 'capital' ? `${OBJ_NAMES[o.type]}${S.buildings[o.tile] ? ' ' + cityName(o.tile, S.buildings[o.tile]) : ''}` : OBJ_NAMES[o.type] || 'יעד';
 // קואורדינטות לאורך הציר (a) ולרוחבו (l) — ביחידות משחק
 const opXY = (op, tile) => { const [x, y] = XY(tile), vx = x + 0.5 - op.ax.ox, vy = y + 0.5 - op.ax.oy; return { a: (vx * op.ax.dx + vy * op.ax.dy) / G, l: (-vx * op.ax.dy + vy * op.ax.dx) / G }; };
@@ -822,9 +824,9 @@ function planOp(op, from) {
   if (op.target < 0) { op.state = 'exec'; op.ax = null; op.main = null; return; }
   const nid = op.n, own = []; for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid) own.push(i);
   const custom = op.objectives.find(o => o.custom && o.by == null && !objDone(op, o));
-  let fld = travelField(own, false, nid); op.naval = false;
+  let fld = travelField(own, false, nid, op.target); op.naval = false;   // גם לפני המלחמה: מתכננים את הציר כאילו כבר נלחמים
   let cands = keyTargets(op, fld);
-  if (!cands.length && !custom && ownPorts(nid).length) { fld = travelField(own, true, nid); cands = keyTargets(op, fld); op.naval = cands.length > 0; }
+  if (!cands.length && !custom && ownPorts(nid).length) { fld = travelField(own, true, nid, op.target); cands = keyTargets(op, fld); op.naval = cands.length > 0; }
   op.landF = fld;
   if (!cands.length && !custom) { op.main = null; op.ax = null; op.subs = []; op.objectives = []; return; }
   // נקודת מוצא
@@ -862,6 +864,8 @@ function refreshSubs(op) {
     const c = opXY(op, j); if (Math.abs(c.l) > half || c.a < -4 || c.a > horizon) return;
     subs.push({ tile: j, type: b.capital ? 'capital' : b.type, done: false, a: c.a, l: c.l });
   });
+  // מעברי הרים ברצועה (סון דזה: "מעבר צר — תפוס ראשון"): קרקע מפתח, מטרת משנה
+  for (const p of passes()) { const j = p.tile; if (S.owner[j] !== op.target || !isFinite(op.landF?.[j] ?? 0)) continue; const c = opXY(op, j); if (Math.abs(c.l) > half || c.a < -4 || c.a > horizon) continue; subs.push({ tile: j, type: 'pass', done: false, a: c.a, l: c.l }); }
   const mc = opXY(op, op.main.tile); Object.assign(op.main, { a: mc.a, l: mc.l });
   op.subs = [...keep, ...subs];
   op.objectives = [op.main, ...op.subs];
@@ -881,7 +885,7 @@ function isolates(tg, et, cut, anchor) {
   for (let h = 0; h < q.length; h++) {
     const u = q[h]; if (u === anchor || q.length > 2600) return false;   // הגיע ללב — או שהשטח גדול מכדי להיות כיס
     const x = u % W;
-    for (const v of [x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1, u - W, u + W]) { if (v < 0 || v >= W * H || seen[v] || blk.has(v) || isWater(v)) continue; const o = S.owner[v]; if (o < 0 || !okN[o]) continue; seen[v] = 1; q.push(v); }
+    for (const v of [x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1, u - W, u + W]) { if (v < 0 || v >= W * H || seen[v] || blk.has(v) || isWater(v) || S.terrain[v] === SNOW) continue; const o = S.owner[v]; if (o < 0 || !okN[o]) continue; seen[v] = 1; q.push(v); }
   }
   return true;
 }
@@ -890,7 +894,7 @@ function cutLine(tg, cx, cy, ux, uy, maxR) {
   const half = sgn => { const out = []; let px = Math.floor(cx), py = Math.floor(cy);
     for (let r = 0; r <= maxR; r += 0.35) { const X = Math.floor(cx + ux * sgn * r), Y = Math.floor(cy + uy * sgn * r); if (X < 0 || Y < 0 || X >= W || Y >= H) return null;
       const steps = X !== px && Y !== py ? [[X, py], [X, Y]] : [[X, Y]];
-      for (const [a, b] of steps) { const j = idx(a, b); if (isWater(j) || S.owner[j] !== tg) return out; if (out[out.length - 1] !== j) out.push(j); }
+      for (const [a, b] of steps) { const j = idx(a, b); if (isWater(j) || S.terrain[j] === SNOW || S.owner[j] !== tg) return out; if (out[out.length - 1] !== j) out.push(j); }
       px = X; py = Y; }
     return null; };
   const A = half(1), B = half(-1); if (!A || !B) return null;
@@ -974,7 +978,19 @@ function assignLanes(op, gens) {
   op.lanes = {}; op.laneJump = {};
   line.forEach((f, i) => { op.lanes[f.id] = (i - (line.length - 1) / 2) * gap; f.opRole = f === me ? 'ME' : 'PIN'; f.opRoleOp = op.id; });
   if (exp) { op.lanes[exp.id] = op.lanes[me.id]; if (exp.opRole !== 'EXP') exp.expGo = false; exp.opRole = 'EXP'; exp.opRoleOp = op.id; }
-  for (const f of gens) { const [px, py] = opPoint(op, f === exp ? -4 : -1, op.lanes[f.id]); op.laneJump[f.id] = nearestOwn(op.n, px, py, true) ?? op.ax.origin; }
+  // נקודת זינוק: הולכים לאורך הנתיב עד קצה השטח שלנו (הגבול מול האויב) — לא נקודה קבועה על הציר, שבנתיב צדדי יכולה להיות רחוקה מהחזית
+  const edge = L => { let last = null; for (let a = -4; a <= 30; a += 0.5) { const [px, py] = opPoint(op, a, L), x = Math.round(px), y = Math.round(py); if (x < 0 || y < 0 || x >= W || y >= H) break; const j = idx(x, y); if (S.owner[j] === op.n && !isWater(j)) last = { a, j }; else if (last && !isWater(j)) break; } return last; };
+  // הגבול המשותף עם האויב: משבצות שלנו שנוגעות בשטח שלו. נקודת הזינוק = משבצת הגבול הקרובה לנתיב
+  const fr = []; if (op.target >= 0) for (let i = 0; i < W * H; i++) { if (S.owner[i] !== op.n || isWater(i)) continue; const x = i % W; if ((x > 0 && S.owner[i - 1] === op.target) || (x < W - 1 && S.owner[i + 1] === op.target) || S.owner[i - W] === op.target || S.owner[i + W] === op.target) fr.push(i); }
+  const nearFr = (px, py) => { let b = null, bd = Infinity; for (const i of fr) { const d = (i % W - px) ** 2 + (((i / W) | 0) - py) ** 2; if (d < bd) { bd = d; b = i; } } return b; };
+  for (const f of gens) {
+    if (fr.length) { const [px, py] = opPoint(op, 0, op.lanes[f.id]); let jt = nearFr(px, py); if (f === exp && jt != null) { const [jx, jy] = XY(jt); jt = nearestOwn(op.n, jx - op.ax.dx * 4 * G, jy - op.ax.dy * 4 * G, true) ?? jt; } op.laneJump[f.id] = jt; continue; }
+    const e = edge(op.lanes[f.id]);
+    let jt = e ? e.j : null;
+    if (e && f === exp) { const [px, py] = opPoint(op, e.a - 4, op.lanes[f.id]); jt = nearestOwn(op.n, px, py, true) ?? e.j; }
+    if (jt == null) { const [px, py] = opPoint(op, f === exp ? -4 : -1, op.lanes[f.id]); jt = nearestOwn(op.n, px, py, true); }
+    op.laneJump[f.id] = jt ?? op.ax.origin;
+  }
   op.laneKey = gens.map(f => f.id).sort().join(',');
 }
 // נקודת דחיפה: משבצת האויב הקרובה לנקודה a על הנתיב L
@@ -984,7 +1000,7 @@ function pushTile(op, a, L, open, next) {
   for (let r = 0; r <= 8 * G && best == null; r += 2 * G) for (let y = Math.floor(py - r); y <= py + r; y++) for (let x = Math.floor(px - r); x <= px + r; x++) {
     if (x < 0 || y < 0 || x >= W || y >= H) continue; const j = idx(x, y);
     if (!validTarget(nid, j) || (op.target >= 0 && S.owner[j] !== op.target && S.owner[j] !== -1) || !isFinite(op.landF?.[j] ?? 0)) continue;
-    const d = (x - px) ** 2 + (y - py) ** 2; if (d < bd) { bd = d; best = j; }
+    const d = Math.hypot(x - px, y - py) + TER_PEN[S.terrain[j]] * G * 1.5; if (d < bd) { bd = d; best = j; }
   }
   return best;
 }
@@ -995,7 +1011,7 @@ function pickLaneTarget(op, f, gens, open, next) {
   const line = gens.filter(g => g.opRole !== 'EXP' && op.lanes[g.id] != null);
   const laneOf = o => { let best = null, bd = Infinity; for (const g of line) { const d = Math.abs(o.l - op.lanes[g.id]); if (d < bd) { bd = d; best = g; } } return best; };
   const pool = [...open.map(o => ({ o, la: 0 })), ...next.map(o => ({ o, la: 1 }))].filter(p => !p.o.skip && !bad.includes(p.o.tile));
-  const holdLine = why => { const [px, py] = opPoint(op, me.a + 3, L); return { tile: nearestOwn(nid, px, py, true) ?? tileOf(...f.pos), why, hold: true }; };
+  const holdLine = why => { const [px, py] = opPoint(op, Math.max(me.a, -2) + 3, L); return { tile: nearestOwn(nid, px, py, true) ?? tileOf(...f.pos), why, hold: true }; };
   // כיתור שהמטה הטיל עליי — קודם לכל תפקיד אחר (גם קיבוע ודרג שני)
   const enc = pool.filter(p => p.o.type === 'encircle' && p.o.gens?.includes(f.id));
   for (const p of enc) { const t = encircleTile(op, p.o, f); if (t != null) return { tile: t, why: 'כיתור' }; }
@@ -1020,12 +1036,12 @@ function pickLaneTarget(op, f, gens, open, next) {
   if (role === 'PIN') {
     // סיוע — רק למאמץ העיקרי, ורק מהנתיבים הסמוכים לו
     if (ME && ME.plan != null && !ME.retreating && !ME.consol && ME.engaged && frontPower(ME, 'atk') < (ME.needPow || 0) * 0.8 && Math.abs(L - meL) <= 9) return { tile: ME.plan, why: 'סיוע' };
-    const t = pushTile(op, me.a + 3, L, open, next);
+    const t = pushTile(op, Math.max(me.a, -1) + 3, L, open, next);
     if (t != null && localRatio(f, t) >= 1) return { tile: t, why: 'דחיפה' };
     return holdLine('קיבוע');
   }
   // מאמץ עיקרי: לא מסתובב לעזור — ממשיך לדחוף קדימה בציר
-  const t = pushTile(op, me.a + 6, L, open, next);
+  const t = pushTile(op, Math.max(me.a, -1) + 6, L, open, next);
   return t != null ? { tile: t, why: 'דחיפה' } : null;
 }
 // נקודת זינוק לנתיב (בנחיתה — הנמל שלנו הקרוב ליעד)
@@ -1042,12 +1058,19 @@ function updateOp(op, dt) {
   const paused = !atWar(nid, op.target);
   const gens = opGenerals(op).filter(f => !f.flying);
   for (const f of gens) { f.role = 'attack'; f.op = op.id; }
-  if (paused) { op.status = `לא במלחמה עם ${nm(op.target)}`; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
+  if (paused) {   // עוד לא במלחמה: מרכזים כוחות בנקודות הזינוק ליד הגבול, כדי שביום ההכרזה כולם כבר שם
+    if (!op.ax) planOp(op);
+    const act0 = gens.filter(f => !f.retreating);
+    if (op.ax && (!op.lanes || op.laneKey !== act0.map(f => f.id).sort().join(','))) assignLanes(op, act0);
+    let nAt = 0;
+    for (const f of act0) { f.target = null; f.zone = []; f.plan = null; f.defend = op.ax ? jumpOff(f) : tileOf(...f.pos); const [jx, jy] = XY(f.defend); f.prepAt = hyp(f.pos[0] - jx, f.pos[1] - jy) <= 3; if (f.prepAt) nAt++; }
+    op.status = `לא במלחמה עם ${nm(op.target)} · ריכוז כוחות ${nAt}/${act0.length} בנקודות הזינוק`; op.state = 'prep'; op.prepT = 0; return;
+  }
   // מעקב התקדמות
   const before = new Set(op.objectives.filter(o => o.done).map(o => o.tile));
   op.objectives.forEach(o => o.done = objDone(op, o));
   for (const o of op.objectives) if (o.done && !before.has(o.tile) && o.type !== 'encircle') {
-    op.lastGain = S.time;
+    op.lastGain = S.time; for (const g of gens) g.culmN = 0;
     const near = gens.slice().sort((a, b) => dist(tileOf(...a.pos), o.tile) - dist(tileOf(...b.pos), o.tile))[0];
     if (near?.opRole === 'ME') op.meCapT = S.time;
     if (!o.main) op.subT = Math.min(op.subT, 0.3);   // יעד נכבש — מחשבים מטרות משנה מחדש בקרוב
@@ -1082,6 +1105,25 @@ function updateOp(op, dt) {
       if (nid === 0) toast(`🧭 ${cand.gen.name} מתקדם בקלות — הופך למאמץ העיקרי (משיכת סיור)`, 'good');
     }
   }
+  // החלפת ציר (ליידל הארט: "אל תחדש מאמץ שנכשל באותו קו"): המאמץ העיקרי תקוע — מחפשים נתיב שבו האויב חלש יותר והשטח קל יותר
+  op.shiftT = (op.shiftT || 0) - dt;
+  if (exec_ && ME && op.shiftT <= 0 && !op.subs.some(o => o.type === 'encircle' && !objDone(op, o))) {
+    op.shiftT = 3;
+    const stalled = S.time - (op.lastGain ?? S.time) > 8 || (ME.culmN || 0) >= 2;
+    if (stalled) {
+      const meA = Math.max(0, opXY(op, tileOf(...ME.pos)).a), curL = op.lanes[ME.id] ?? 0;
+      const cost = L => { const [px, py] = opPoint(op, meA + 3, L), cx = Math.round(px), cy = Math.round(py); if (cx < 0 || cy < 0 || cx >= W || cy >= H) return Infinity;
+        let pen = 0, n = 0; const R = 2 * G; for (let y = cy - R; y <= cy + R; y += 2) for (let x = cx - R; x <= cx + R; x += 2) { if (x < 0 || y < 0 || x >= W || y >= H) continue; const j = y * W + x; if (isWater(j)) { pen += 3; n++; continue; } pen += Math.min(6, TER_PEN[S.terrain[j]]); n++; }
+        return enemyPowerNear(nid, idx(cx, cy), 6) + (n ? pen / n : 6) * 25 + Math.abs(L - curL) * 1.5; };
+      const c0 = cost(curL); let bL = null, bc = c0 * 0.6;
+      for (const d of [-12, -8, -4, 4, 8, 12]) { const c = cost(curL + d); if (c < bc) { bc = c; bL = curL + d; } }
+      if (bL != null) {
+        op.lanes[ME.id] = bL; ME.culmN = 0; ME.bad = []; ME.retarget = true; op.lastGain = S.time; op.shiftT = 12;
+        for (const g of act) if (g !== ME && op.lanes[g.id] != null && Math.abs(op.lanes[g.id] - bL) < 3) { op.lanes[g.id] = curL; g.retarget = true; }   // מי שהיה בנתיב החדש — עובר לישן (ממשיך לקבע שם)
+        if (nid === 0) toast(`🔀 ${ME.gen.name}: ההתקפה נתקעה — מעבירים את המאמץ העיקרי לנתיב ${bL > curL ? 'השמאלי' : 'הימני'}, שם האויב חלש יותר`, 'good');
+      }
+    }
+  }
   // שחרור הדרג השני
   if (EXP && ME) {
     if (EXP.consol || ME.consol) EXP.expGo = false;
@@ -1098,7 +1140,7 @@ function updateOp(op, dt) {
   }
   for (const f of act) {
     if (exec_ && checkCulmination(f)) {
-      f.consol = S.time + CFG.CONSOL_DAYS; f.consolTile = consolidateTile(f);
+      f.consol = S.time + CFG.CONSOL_DAYS; f.consolTile = consolidateTile(f); f.culmN = (f.culmN || 0) + 1;
       if (nid === 0) toast(`⛺ ${f.gen.name} הגיע לנקודת השיא — מתבסס ומקבל השלמות`, 'bad');
     }
     if (f.consol) {
@@ -1139,7 +1181,7 @@ function updateOp(op, dt) {
   }
   if (op.state === 'exec') {
     for (const f of act) {
-      if (f.plan == null) { f.target = null; f.defend = tileOf(...f.pos); continue; }
+      if (f.plan == null) { f.target = null; f.zone = []; f.defend = jumpOff(f); continue; }   // אין יעד כרגע — מחכים בנקודת הזינוק, לא בבסיס מרוחק
       if (f.planHold) { f.target = null; f.zone = []; f.defend = f.plan; }
       else if (f.target !== f.plan) { f.target = f.plan; f.defend = null; f.zoneT = 0; }
     }
@@ -1151,7 +1193,7 @@ function updateOp(op, dt) {
 function expandCells(op) {
   const nid = op.n, C = CFG.EXPAND_CELL * G, cells = new Map(), o = S.owner;
   for (let i = 0; i < o.length; i++) {
-    if (o[i] !== -1 || isWater(i)) continue;
+    if (o[i] !== -1 || isWater(i) || S.terrain[i] === SNOW) continue;
     const [x, y] = XY(i), key = Math.floor(x / C) + ',' + Math.floor(y / C);
     let c = cells.get(key); if (!c) cells.set(key, c = { key, n: 0, front: [], tiles: [], cx: 0, cy: 0 });
     c.n++; c.cx += x; c.cy += y; c.tiles.push(i);
@@ -1267,6 +1309,20 @@ function occupationEffects() {
   if (S.day % 10 === 0) for (let i = 0; i < S.owner.length; i++) { const o = S.owner[i]; if (o >= 0 && S.core[i] !== o && S.time - S.capDay[i] > CFG.INTEGRATE_DAYS) { S.core[i] = o; markTile(i); } }
 }
 // כיסים: יחידות מנותקות נשחקות; שטח אויב מבודד ללא צבא קורס לכובש שמסביב
+// פסגות: אי אפשר לתקוף אותן — רכס שלם עובר לבעלות מי שמקיף אותו מכל הצדדים (מתעדכן פעם ביום)
+const _snow = { s: null, comps: [] };
+function snowFlip() {
+  if (_snow.s !== S) { _snow.s = S; _snow.comps = []; const seen = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) { if (seen[i] || S.terrain[i] !== SNOW) continue; const c = [i]; seen[i] = 1;
+      for (let h = 0; h < c.length; h++) { const u = c[h], x = u % W; for (const v of [x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1, u - W, u + W]) if (v >= 0 && v < W * H && !seen[v] && S.terrain[v] === SNOW) { seen[v] = 1; c.push(v); } }
+      _snow.comps.push(c); } }
+  for (const c of _snow.comps) {
+    const own = new Set(); let land = 0;
+    for (const u of c) { const x = u % W; for (const v of [x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1, u - W, u + W]) if (v >= 0 && v < W * H && S.terrain[v] !== SNOW && !isWater(v)) { own.add(S.owner[v]); land++; } }
+    if (own.size !== 1 || !land) continue; const o = [...own][0]; if (o < 0) continue;
+    for (const u of c) if (S.owner[u] !== o) { S.owner[u] = o; S.capDay[u] = S.time; markTile(u); }
+  }
+}
 function pocketEffects() {
   for (const f of S.fronts) if (f.kind === 'land' && f.supply === 'cut' && inPocket(f)) for (const t of UKEYS) if (f.units[t] > 0 && Math.random() < 0.5) f.units[t] -= Math.max(1, Math.round(f.units[t] * 0.03));
   const comp = new Int32Array(W * H);

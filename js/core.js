@@ -188,6 +188,7 @@ function findPath(nid, from, to, opt = {}) {
       if (opt.water) { if (!vw && v !== to) continue; }
       else if (vw) { if (!opt.sea) continue; if (!uw && !isOwnPort(nid, u) && !(opt.embarkAny && S.owner[u] === nid)) continue; }
       else {
+        if (S.terrain[v] === SNOW && v !== to) continue;   // פסגות: מחסום טבעי — עוקפים דרך מעברים
         if (uw && opt.portsOnly && !isOwnPort(nid, v)) continue;
         if (opt.own && v !== to && S.owner[v] !== nid) continue;
         if (v !== to && !passable(nid, v)) { if (opt.hostile && atWar(nid, S.owner[v])) pen = 5; else continue; }
@@ -205,9 +206,9 @@ function findPath(nid, from, to, opt = {}) {
 }
 // מפת "זמן הגעה" (Dijkstra) מכמה מקורות — לתכנון מבצעים. sea=false: ים חוסם; sea=true: שיט יקר
 // nid: רק דרך שטח שהצבא יכול לעבור בו (שלך, בני ברית, ניטרלי או אויב במלחמה) — לא דרך אומות בשלום
-function travelField(sources, sea, nid) {
+function travelField(sources, sea, nid, also) {
   const N = W * H, d = new Float64Array(N).fill(Infinity), heap = new Heap();
-  const ok = nid == null ? null : v => { const o = S.owner[v]; return o < 0 || o === nid || allied(nid, o) || atWar(nid, o); };
+  const ok = nid == null ? null : v => { const o = S.owner[v]; return o < 0 || o === nid || o === also || allied(nid, o) || atWar(nid, o); };
   for (const s of sources) { d[s] = 0; heap.push(0, s); }
   while (heap.size) {
     const [du, u] = heap.pop(); if (du > d[u]) continue;
