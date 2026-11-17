@@ -30,7 +30,8 @@ const CFG = {
   NAP_DAYS: 120,               // אורך הסכם אי-תקיפה
   EXTRACT_RANGE: 45, EXTRACT_AIR_GOLD: 60, EXTRACT_SEA_GOLD: 40, EXTRACT_CD: 12,   // חילוץ כוח מכותר: טווח משדה תעופה, עלות, ימי המתנה
   PARA_RANGE: 12, PARA_CAP: 8, PARA_COOLDOWN: 15,   // הצנחה: טווח משדה תעופה, חיילים לכל שדה, ימי המתנה
-  TRAIN_SPD: 5 * G,            // רכבת: משבצות ליום
+  TRAIN_SPD: 2.5 * G,
+  CARAVAN_SPD: 2 * G,            // שיירת סחר (קוסמטית): משבצות ליום            // רכבת: משבצות ליום
   // --- נגד כדור שלג ---
   OCC_GOLD: 0.05 / (G * G),    // זהב ליום לכל משבצת כבושה (שאינה ליבה)
   OCC_EFF: 0.7,                // תפוקה מרבית של מבנה בשטח כבוש
@@ -143,7 +144,7 @@ const TECH = {
   science:    { b: 'econ',  name: 'אקדמיה',             cost: 120, req: [],                        eff: { know: 0.3 },               desc: '+30% ידע' },
   agri:       { b: 'econ',  name: 'חקלאות מתקדמת',      cost: 120, req: [],                        eff: { man: 0.25 },               desc: '+25% כוח אדם מערים' },
   industry:   { b: 'econ',  name: 'תעשייה כבדה',        cost: 160, req: [],                        eff: { mat: 0.3 },                desc: '+30% חומרים ממפעלים' },
-  trade:      { b: 'econ',  name: 'כלכלת ים',           cost: 160, req: [],                        eff: { trade: 0.5 },              desc: '+50% הכנסות מסחר' },
+  trade:      { b: 'econ',  name: 'כלכלת סחר',           cost: 160, req: [],                        eff: { trade: 0.5 },              desc: '+50% הכנסות מסחר' },
   mass_prod:  { b: 'econ',  name: 'ייצור המוני',        cost: 380, req: ['industry'],              eff: { train: 0.3, mat: 0.2 },    desc: '+30% קצב אימון, +20% חומרים' },
   research:   { b: 'econ',  name: 'מכוני מחקר',         cost: 420, req: ['science'],               eff: { know: 0.4 },               desc: '+40% ידע' },
   banking:    { b: 'econ',  name: 'בנקאות',             cost: 450, req: ['trade', 'agri'],         eff: { gold: 0.2 },               desc: '+20% זהב' },

@@ -52,6 +52,8 @@ const FS_LIT = `#version 300 es
 precision highp float; precision highp sampler2DShadow;
 in vec3 vNor; in vec4 vCol; in vec4 vL; in vec2 vUV; in float vH; in vec3 vW;
 uniform vec4 uPL[24]; uniform vec3 uPLC[24]; uniform int uNPL; uniform float uEmit;
+uniform sampler2D uFarm; uniform float uT, uFS; uniform int uSeed;
+float h01(int x, int y, int s){ uint h = uint(x)*374761393u + uint(y)*668265263u + uint(s)*1442695041u; h = (h ^ (h >> 13u)) * 1274126177u; h ^= (h >> 16u); return float(h) / 4294967296.0; }
 uniform vec3 uSun, uSunCol, uAmb; uniform sampler2DShadow uSh; uniform sampler2D uTex; uniform float uGround, uNight, uShOn, uTime;
 out vec4 o;
 float shade(){
@@ -63,6 +65,17 @@ float shade(){
 }
 void main(){
   vec3 n = normalize(vNor); vec3 base = uGround > 0.5 ? texture(uTex, vUV).rgb : vCol.rgb;
+  // שדות: תלמים בתבליט (אותה חלוקה לשדות כמו בתמונת הקרקע) — האור והצל של השמש נופלים עליהם
+  if (uGround > 0.5 && texelFetch(uFarm, ivec2(floor(vW.xy / uT)), 0).r > 0.5) {
+    float wx = vW.x, wy = vW.y; int cx = int(floor(wx / uFS)), cy = int(floor(wy / uFS)); bool sx = h01(cx, cy, uSeed + 61) < 0.5;
+    int fx = sx ? int(floor(wx / (uFS * 2.0))) : cx, fy = sx ? cy : int(floor(wy / (uFS * 2.0)));
+    float lx = wx - (sx ? float(fx) * uFS * 2.0 : float(fx) * uFS), ly = wy - (sx ? float(fy) * uFS : float(fy) * uFS * 2.0);
+    if (h01(fx, fy, uSeed + 62 + (sx ? 1 : 0)) >= 0.12 && lx > 0.35 && ly > 0.35) {
+      bool ax = h01(fx, fy, uSeed + 63) < 0.5; float q = (ax ? lx : ly) * 6.2832 / 1.5;
+      n = normalize(n + (ax ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)) * cos(q) * 0.55);
+      base *= 0.92 + 0.08 * sin(q);
+    }
+  }
   float em = uGround > 0.5 ? 0.0 : vCol.a;
   float d = max(dot(n, uSun), 0.0) * shade();
   vec3 c = base * (uAmb + uSunCol * d);
@@ -105,6 +118,9 @@ function g3Init() {
     G3.shadow = { tex: dt, fb, SZ };
     G3.gTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, G3.gTex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    G3.farmTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, G3.farmTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     G3.instBuf = gl.createBuffer(); G3.gl = gl; G3.ok = true;
   } catch (e) { console.error('WebGL', e); G3.ok = false; }
@@ -313,10 +329,15 @@ function unitModel(t) {
       m.box(-2.4, -1.2, 0.3, 2.4, 1.2, 1.5, uni); m.box(1.2, -1.1, 1.5, 2.4, 1.1, 2.4, dk);
       m.cyl(-0.6, 0, 0.8, 1.5, 2.1, dk, 8); for (const o of [-0.45, -0.15, 0.15, 0.45]) m.box(-0.4, o - 0.07, 2.1, 1.8, o + 0.07, 2.25, met);
       for (const X of [-1.8, -0.4, 1.4]) { m.box(X - 0.35, -1.4, 0, X + 0.35, -1.1, 0.7, met); m.box(X - 0.35, 1.1, 0, X + 0.35, 1.4, 0.7, met); }
+    } else if (t === 'cargo') {   // משאית סחר: תא נהג בצבע האומה, ארגזים צבעוניים מאחור
+      m.box(0.9, -1, 0.5, 2.5, 1, 2, uni); m.box(2.45, -0.8, 1.2, 2.55, 0.8, 1.85, [0.5, 0.7, 0.85, 0]); m.box(-2.6, -1.05, 0.5, 0.8, 1.05, 0.8, [0.3, 0.27, 0.22, 0]);
+      m.box(-2.5, -0.95, 0.8, -1.0, 0.0, 1.8, [0.62, 0.42, 0.24, 0]); m.box(-2.5, 0.05, 0.8, -1.0, 0.95, 1.6, [0.35, 0.5, 0.58, 0]); m.box(-0.9, -0.95, 0.8, 0.7, 0.95, 2.1, [0.72, 0.62, 0.4, 0]);
+      for (const X of [-1.9, -0.3, 1.7]) { m.box(X - 0.35, -1.15, 0, X + 0.35, -0.95, 0.7, met); m.box(X - 0.35, 0.95, 0, X + 0.35, 1.15, 0.7, met); }
     } else if (t === 'truck') {
       m.box(-2.4, -1, 0.5, 0.8, 1, 2.3, [0.45, 0.47, 0.35, 0]); m.box(0.8, -1, 0.5, 2.4, 1, 1.9, uni); m.box(2.35, -0.8, 1.2, 2.45, 0.8, 1.8, [0.5, 0.7, 0.85, 0]);
       for (const X of [-1.8, -0.4, 1.6]) { m.box(X - 0.35, -1.15, 0, X + 0.35, -0.95, 0.7, met); m.box(X - 0.35, 0.95, 0, X + 0.35, 1.15, 0.7, met); }
     } else if (t === 'tree') treeInto(m, 0, 0, 1, [0.24, 0.32, 0.17, 0]);
+    else if (t === 'bush') { m.box(-0.9, -0.8, 0, 0.9, 0.8, 1.1, [0.24, 0.33, 0.17, 0]); m.box(-0.6, -0.55, 1.1, 0.6, 0.55, 1.6, [0.29, 0.39, 0.2, 0]); }
     else if (t === 'tree2') { m.cyl(0, 0, 0.2, 0, 1.4, [0.35, 0.27, 0.19, 0], 5); m.box(-1.1, -1.1, 1.2, 1.1, 1.1, 3, [0.28, 0.38, 0.19, 0]); m.box(-0.7, -0.7, 3, 0.7, 0.7, 3.8, [0.33, 0.44, 0.22, 0]); }
     else if (t === 'plane') {   // מטוס קרב: גוף, כנפיים משוכות, זנב
       const body = [0.55, 0.58, 0.6, 2], dk2 = [0.3, 0.32, 0.34, 0];
@@ -436,6 +457,16 @@ function g3Trees() {
     for (let k = 0; k < 2; k++) { const r = hash01(x, y, 300 + k); if (k && r < 0.4) continue; const wx = (x + hash01(x, y, 310 + k)) * T, wy = (y + hash01(x, y, 320 + k)) * T, s = 0.9 + hash01(x, y, 330 + k) * 0.7, g = 0.85 + hash01(y, x, 340 + k) * 0.3;
       out.push(wx, wy, g3H(wx, wy), r * 6.28, s * 1.15, g, g * (0.95 + r * 0.1), g); }
   }
+  // גדרות חיות בין השדות: שיחים לאורך שוליים של שדות (אותם שדות שבתמונת הקרקע)
+  const FS = 7, seed = S.seed, farmAt = (wx, wy) => { const tx = wx / T | 0, ty = wy / T | 0; return tx >= 0 && ty >= 0 && tx < W && ty < H && TERR.farm?.[ty * W + tx]; };
+  const hedges = [];
+  for (let cy = Math.floor(fp.y0 / FS); cy <= Math.ceil(fp.y1 / FS) && hedges.length < 200000; cy++) for (let cx = Math.floor(fp.x0 / FS); cx <= Math.ceil(fp.x1 / FS); cx++) {
+    const sx = hash01(cx, cy, seed + 61) < 0.5, fx = sx ? Math.floor(cx / 2) : cx, fy = sx ? cy : Math.floor(cy / 2), X0 = sx ? fx * FS * 2 : fx * FS, Y0 = sx ? fy * FS : fy * FS * 2;
+    if (X0 !== cx * FS || Y0 !== cy * FS || hash01(fx, fy, seed + 66) >= 0.35) continue;
+    const w = sx ? FS * 2 : FS, h = sx ? FS : FS * 2;
+    for (const [ax, ay, bx, by] of [[X0, Y0, X0 + w, Y0], [X0, Y0, X0, Y0 + h]]) { const L = Math.hypot(bx - ax, by - ay); for (let d = 0.6; d < L; d += 1.5 + hash01(cx * 7 + d * 10 | 0, cy, 360) * 0.8) { const wx = ax + (bx - ax) * d / L + (hash01(cx, cy * 3 + d | 0, 361) - 0.5) * 0.4, wy = ay + (by - ay) * d / L; if (!farmAt(wx, wy) || hash01(cx * 13 + d * 7 | 0, cy * 5, 364) < 0.3) continue; const g = 0.85 + hash01(cx + d | 0, cy, 362) * 0.3; hedges.push(wx, wy, g3H(wx, wy), d, 0.55 + hash01(cy, cx + d | 0, 363) * 0.35, g, g, g); } }
+  }
+  G3.hedges = new Float32Array(hedges);
   for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) { const i = y * W + x; if (S.terrain[i] !== GRASS || TERR.farm?.[i] || near.has(i) || hash01(x, y, 350) > 0.035) continue; const wx = (x + 0.5) * T, wy = (y + 0.5) * T; out.push(wx, wy, g3H(wx, wy), 0, 0.9, 1, 1, 1); }
   return G3.trees = new Float32Array(out);
 }
@@ -473,8 +504,9 @@ function g3Scene(now) {
   }
   for (const c of S.convoys) { const [x, y] = pathPos(c.path, c.t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [nx, ny] = pathPos(c.path, Math.min(c.path.total, c.t + 0.3)), a = Math.atan2(ny - y, nx - x);
     if (c.mode === 'air') add('plane', c.n, wx, wy, a, 1.4, 18); else if (isWater(tileOf(x, y))) add('ship', c.n, wx, wy, a, 0.9, 0.1, true); else add('truck', c.n, wx, wy, a, 0.8); }
+  for (const c of TRADE.caravans || []) for (let k = 0; k < c.cars; k++) { const t = clamp(c.t - c.dir * k * 1.1 * ROAD_COST, 0, c.path.total), [x, y] = pathPos(c.path, t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(c.path, clamp(t + c.dir * 0.5 * ROAD_COST, 0, c.path.total)), [x1, y1] = pathPos(c.path, clamp(t - c.dir * 0.5 * ROAD_COST, 0, c.path.total)); add('cargo', c.n, wx, wy, Math.atan2(y2 - y1, x2 - x1), 0.9); }
   for (const s of TRADE.ships || []) { const [x, y] = pathPos(s.path, s.t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(s.path, clamp(s.t + s.dir * 0.4, 0, s.path.total)); add('ship', s.n, wx, wy, Math.atan2(y2 - y, x2 - x), s.len / 9, 0.1, true); }
-  for (const r of S.rails) { for (let k = 0; k < 4; k++) { const t = clamp(r.t - r.dir * k * 0.62, 0, r.path.total), [x, y] = pathPos(r.path, t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(r.path, clamp(t + r.dir * 0.2, 0, r.path.total)); add(k ? 'wagon' : 'loco', r.n, wx, wy, Math.atan2(y2 - y, x2 - x), 1, 0.3); } }
+  for (const r of S.rails) { for (let k = 0; k < 4; k++) { const t = clamp(r.t - r.dir * k * 0.6 * RAIL_COST, 0, r.path.total), [x, y] = pathPos(r.path, t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(r.path, clamp(t + r.dir * 0.3 * RAIL_COST, 0, r.path.total)), [x1, y1] = pathPos(r.path, clamp(t - r.dir * 0.3 * RAIL_COST, 0, r.path.total)); add(k ? 'wagon' : 'loco', r.n, wx, wy, Math.atan2(y2 - y1, x2 - x1), 1, 0.3); } }
   eachBuilding((b, i) => { if (b.type !== 'airport' || !done(b)) return; const [x, y] = XY(i), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) return; add('plane', b.n, wx - 1.8, wy + 7.4, -Math.PI / 2, 1, 0.9); add('plane', b.n, wx + 6, wy - 1.6, 0, 0.95, 0.9); });
   for (const w of WRECKS) if (w.tank) { const k = 'wreck:x'; let g = groups.get(k); if (!g) groups.set(k, g = { t: 'wreck', n: -1, a: [] }); g.a.push(w.x, w.y, g3H(w.x, w.y), w.ang || 0, 0.8, 1, 1, 1); }
   return { items, groups };
@@ -482,10 +514,12 @@ function g3Scene(now) {
 function draw3D(now, fdt) {
   const gl = G3.gl, dpr = devicePixelRatio || 1, Wd = innerWidth * dpr | 0, Hd = innerHeight * dpr | 0;
   view.fdt = fdt;
-  if (TRADE.last != null && TRADE.s === S) updateTrade(S.time - TRADE.last); else TRADE.ships = []; TRADE.last = S.time; TRADE.s = S;
+  if (TRADE.last != null && TRADE.s === S) updateTrade(vTime() - TRADE.last); else { TRADE.ships = []; TRADE.caravans = []; } TRADE.last = vTime(); TRADE.s = S;
   if (glCv.width !== Wd || glCv.height !== Hd) { glCv.width = Wd; glCv.height = Hd; }
   g3Footprint();
-  if (now - G3.gT > 250) g3GroundTexture(now);
+  const zs = S.fronts.reduce((a, f) => a + (f.zone?.length ? f.zone[0] + f.zone.length * 7 + Math.round(Object.values(f.prog || {}).reduce((x, y) => x + y, 0) * 3) : 0), 0);
+  const sig = [OWNV, DECALS.length, ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty].join('|');
+  if (G3.gT === 0 || (sig !== G3.gSig && now - G3.gT > 400) || now - G3.gT > 4000) { G3.gSig = sig; g3GroundTexture(now); }
   const sun = sunState(), VP = camMatrix(), LVP = lightMatrix(sun, G3.fp), sc = g3Scene(now), trees = g3Trees(), lines = g3Fx(fdt, now), PL = g3Lights(sun);
   const passes = [['sh', G3.sh], ['lit', G3.lit]];
   gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
@@ -499,6 +533,8 @@ function draw3D(now, fdt) {
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, G3.shadow.tex); gl.uniform1i(P.u.uSh, 0);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, G3.gTex); gl.uniform1i(P.u.uTex, 1);
       gl.uniform1i(P.u.uNPL, PL.length); gl.uniform1f(P.u.uEmit, 0); if (PL.length) { gl.uniform4fv(P.u['uPL[0]'], PL.flatMap(l => [l[0], l[1], l[2], l[3]])); gl.uniform3fv(P.u['uPLC[0]'], PL.flatMap(l => l[4])); }
+      if (G3.farmVer !== TERR.farmVer || G3.farmS !== S) { G3.farmVer = TERR.farmVer; G3.farmS = S; const a = new Uint8Array(W * H); for (let i = 0; i < a.length; i++) a[i] = TERR.farm[i] ? 255 : 0; gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, G3.farmTex); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, W, H, 0, gl.RED, gl.UNSIGNED_BYTE, a); G3.trees = null; }
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, G3.farmTex); gl.uniform1i(P.u.uFarm, 2); gl.uniform1f(P.u.uT, CFG.T); gl.uniform1f(P.u.uFS, 7); gl.uniform1i(P.u.uSeed, S.seed | 0);
       gl.uniform2f(P.u.uUV0, G3.fp.x0, G3.fp.y0); gl.uniform2f(P.u.uUVS, G3.fp.x1 - G3.fp.x0, G3.fp.y1 - G3.fp.y0);
     }
     // קרקע
@@ -509,6 +545,7 @@ function draw3D(now, fdt) {
     // מבנים וערים (קנה מידה אנכי לבנייה בתהליך — דרך מופע יחיד)
     for (const it of sc.items) { if (it.sc < 1) { g3DrawModel(P, it.mdl, new Float32Array([...it.M, it.sc, 1, 1, 1]), 1); } else g3DrawModel(P, it.mdl, null, 0, it.M); }
     if (trees.length) { g3DrawModel(P, unitModel('tree'), trees, trees.length / 8); }
+    if (G3.hedges?.length) g3DrawModel(P, unitModel('bush'), G3.hedges, G3.hedges.length / 8);
     for (const g of sc.groups.values()) g3DrawModel(P, unitModel(g.t), new Float32Array(g.a), g.a.length / 8);
   }
   g3DrawParticles(VP, lines);
@@ -608,6 +645,8 @@ function g3Fx(dt, now) {
   // עשן מארובות המפעלים
   eachBuilding((b, i) => { if (b.type !== 'factory' || !done(b)) return; const [x, y] = XY(i), cx = x * T + T / 2, cy = y * T + T / 2; if (cx < fp.x0 || cx > fp.x1 || cy < fp.y0 || cy > fp.y1) return;
     for (const dx of [5.1, 7.4]) if (RND() < dt * 2.5) { const h = g3H(cx, cy); part({ x: cx + dx, y: cy + 0.8, z: h + 9.2, vx: 1.6, vz: 2.2, drag: 0.2, life: 3.5, s0: 1.2, s1: 5, c0: [0.38, 0.37, 0.36, 0.5], c1: [0.6, 0.6, 0.6, 0] }); } });
+  // עשן קטר
+  for (const r of S.rails) { if (RND() > dt * 4) continue; const [x, y] = pathPos(r.path, r.t), wx = x * T + T / 2, wy = y * T + T / 2; if (wx < fp.x0 || wx > fp.x1 || wy < fp.y0 || wy > fp.y1) continue; part({ x: wx, y: wy, z: g3H(wx, wy) + 3.6, vz: 2.5, vx: 0.8, drag: 0.4, life: 2, s0: 0.9, s1: 3.4, c0: [0.75, 0.75, 0.72, 0.45], c1: [0.8, 0.8, 0.8, 0] }); }
   // עדכון חלקיקים
   for (let i = PARTS.length - 1; i >= 0; i--) { const p = PARTS[i]; p.t += dt; if (p.t >= p.life) { PARTS.splice(i, 1); continue; }
     const dr = Math.max(0, 1 - p.drag * dt); p.vx *= dr; p.vy *= dr; p.vz = p.vz * dr + p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; }

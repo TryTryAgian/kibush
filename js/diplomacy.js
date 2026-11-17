@@ -138,7 +138,7 @@ function dealInvalid(kind, a, b) {
   if (kind === 'peace') return r.state !== 'war' ? 'לא במלחמה' : null;
   if (r.state === 'war') return 'במלחמה';
   if ((kind === 'alliance' || kind === 'nap') && finalWar()) return 'נשארו שתי אומות — אין יותר בריתות';
-  if (kind === 'trade') return hasTrade(a, b) ? 'כבר קיים' : (!bCount(a, 'port') || !bCount(b, 'port')) ? 'דורש נמל אצל שני הצדדים' : null;
+  if (kind === 'trade') return hasTrade(a, b) ? 'כבר קיים' : !tradeRoute(a, b) ? 'אין נתיב סחר — אין גבול משותף, הדרך ביבשה חסומה באויב ואין נמלים לשני הצדדים' : null;
   if (kind === 'nap') return allied(a, b) ? 'כבר בעלי ברית' : napActive(a, b) ? 'כבר קיים' : null;
   if (kind === 'alliance') return allied(a, b) ? 'כבר קיים' : S.nations.some(m => m.alive && atWar(m.id, a) && allied(m.id, b)) ? 'בעלי ברית של אויב' : null;
   return null;
@@ -220,3 +220,38 @@ function neighborsOf(nid) {
   return s;
 }
 
+
+// ===================== נתיבי סחר =====================
+// סחר לא דורש נמל: שכנים עם גבול משותף סוחרים הכי הרבה (ככל שהגבול ארוך יותר), אומות רחוקות — בדרך יבשתית
+// דרך שטחים של אחרים (ככל שרחוק יותר — פחות), ובים — בין נמלים. דרך יבשתית שעוברת באומה שנלחמת באחד הצדדים — חסומה.
+const _tr = { s: null, day: -1, border: null, land: new Map() };
+function borderLens() {
+  if (_tr.s === S && _tr.day === S.day && _tr.border) return _tr.border;
+  _tr.s = S; _tr.day = S.day; _tr.land.clear();
+  const n = S.nations.length, B = new Float32Array(n * n), O = S.owner, N = O.length;
+  for (let i = 0; i < N; i++) { const a = O[i]; if (a < 0) continue; let b;
+    if (i % W < W - 1 && (b = O[i + 1]) >= 0 && b !== a) { B[a * n + b]++; B[b * n + a]++; }
+    if (i < N - W && (b = O[i + W]) >= 0 && b !== a) { B[a * n + b]++; B[b * n + a]++; } }
+  return _tr.border = B;
+}
+// מרחק יבשתי (במשבצות) מהשטח של a לשטח של b, בלי לעבור בשטח של מי שנלחם באחד מהם
+function landTradeDist(a, b) {
+  borderLens(); const k = Math.min(a, b) + ':' + Math.max(a, b); if (_tr.land.has(k)) return _tr.land.get(k);
+  const O = S.owner, N = O.length, D = new Int32Array(N).fill(-1), q = new Int32Array(N), CAP = 70 * G; let h = 0, t = 0, res = Infinity;
+  const ok = i => { if (isWater(i)) return false; const o = O[i]; return o < 0 || o === a || o === b || (!atWar(o, a) && !atWar(o, b)); };
+  for (let i = 0; i < N; i++) if (O[i] === a) { D[i] = 0; q[t++] = i; }
+  while (h < t) { const u = q[h++], d = D[u]; if (O[u] === b) { res = d; break; } if (d >= CAP) continue; const x = u % W;
+    for (const v of [x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1, u - W, u + W]) if (v >= 0 && v < N && D[v] < 0 && ok(v)) { D[v] = d + 1; q[t++] = v; } }
+  _tr.land.set(k, res); return res;
+}
+// הנתיב הטוב ביותר בין שתי אומות (מנקודת המבט של a): { kind: 'border'|'land'|'sea', gold, mat } או null
+function tradeRoute(a, b) {
+  if (a === b || atWar(a, b) || !S.nations[a]?.alive || !S.nations[b]?.alive) return null;
+  const B = borderLens(), n = S.nations.length, bl = B[a * n + b], opts = [];
+  if (bl > 0) { const g = 2 + Math.min(4, bl / (4 * G)); opts.push({ kind: 'border', gold: g, mat: g * 1.3 }); }
+  else { const d = landTradeDist(a, b); if (d < Infinity) { const f = clamp(1 - d / (70 * G), 0.15, 1); opts.push({ kind: 'land', gold: 0.6 + 1.6 * f, mat: 0.8 + 2 * f, d }); } }
+  const pa = Math.min(3, bCount(a, 'port')); if (pa && bCount(b, 'port')) opts.push({ kind: 'sea', gold: 2 * pa, mat: 3 * pa });
+  if (!opts.length) return null;
+  return opts.reduce((x, y) => (y.gold + y.mat * 0.6 > x.gold + x.mat * 0.6 ? y : x));
+}
+const TRADE_KIND = { border: ['🤝', 'גבול משותף'], land: ['🐪', 'דרך יבשתית'], sea: ['⚓', 'בים'] };

@@ -35,8 +35,12 @@ function placeSlots(f, v, cx, cy) {
   const zone = f.target != null && near.length ? near : null;
   front.forEach((u, k) => {
     const jx = (u.j - 0.5) * 3, jy = ((u.j * 7) % 1 - 0.5) * 3;
-    if (zone) { const [zx, zy] = XY(zone[k % zone.length]); u.sx = zx * T + T / 2 - fx * 5 + jx; u.sy = zy * T + T / 2 - fy * 5 + jy; }
-    else { const row = (k / 6) | 0, inRow = Math.min(6, front.length - row * 6), off = ((k % 6) - (inRow - 1) / 2) * 3.4 + (row % 2) * 1.7; u.sx = cx + px * off + fx * (3 - row * 3.4) + jx * 0.4; u.sy = cy + py * off + fy * (3 - row * 3.4) + jy * 0.4; }
+    if (zone) {   // משבצת קבועה ליחידה כל עוד היא עדיין באזור — בלי ריקוד בין משבצות
+      if (u.zt == null || !zone.includes(u.zt)) { const used = new Set(front.map(o => o.zt)); let best = zone[k % zone.length], bd = Infinity; for (const z of zone) { const [zx, zy] = XY(z), dd = Math.hypot(zx * T - u.x, zy * T - u.y) + (used.has(z) ? 20 : 0); if (dd < bd) { bd = dd; best = z; } } u.zt = best; }
+      const [zx, zy] = XY(u.zt), nx = zx * T + T / 2 - fx * 5 + jx, ny = zy * T + T / 2 - fy * 5 + jy;
+      if (Math.hypot(nx - u.sx, ny - u.sy) > 1.5) { u.sx = nx; u.sy = ny; }
+    }
+    else { u.zt = null; const row = (k / 6) | 0, inRow = Math.min(6, front.length - row * 6), off = ((k % 6) - (inRow - 1) / 2) * 3.4 + (row % 2) * 1.7; const nx = cx + px * off + fx * (3 - row * 3.4) + jx * 0.4, ny = cy + py * off + fy * (3 - row * 3.4) + jy * 0.4; if (u.sx == null || Math.hypot(nx - u.sx, ny - u.sy) > 1.2) { u.sx = nx; u.sy = ny; } }
   });
   back.forEach((u, k) => { const off = (k - (back.length - 1) / 2) * 5.5; u.sx = cx - fx * 11 + px * off; u.sy = cy - fy * 11 + py * off; });
 }
@@ -52,8 +56,11 @@ function updateUnits(f, cx, cy, dt, now) {
   const hd = frontHeading(f);
   for (const u of v.units) {
     const dx = u.sx - u.x, dy = u.sy - u.y, d = Math.hypot(dx, dy);
-    if (d > 0.3) { const s = Math.min(d, (4 + d * 2.2) * dt); u.x += dx / d * s; u.y += dy / d * s; u.ang = Math.atan2(dy, dx); u.mv = true; }
-    else { u.mv = false; u.ang += (((hd - u.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 3); }
+    // תזוזה קצרה (תיקון עמדה): זזים בלי להסתובב, הפנים לאויב. רק מעבר אמיתי מסובב את היחידה לכיוון הנסיעה. הסיבוב מוגבל במהירות
+    u.mv = d > 0.3; if (u.mv) { const s = Math.min(d, (4 + d * 2.2) * dt); u.x += dx / d * s; u.y += dy / d * s; }
+    if (d > 0.3 && !u.reloc && d > 4) u.reloc = true; else if (d < 1.2) u.reloc = false;
+    const want = u.reloc ? Math.atan2(dy, dx) : hd, turn = (u.t === 'inf' || u.t === 'cmdo' ? 5 : 1.8) * dt;
+    let da = want - u.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); u.ang += clamp(da, -turn, turn);
   }
   // ירי
   if (!f.engaged || dt <= 0) return;

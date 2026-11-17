@@ -44,16 +44,27 @@ function load() {
 
 /* ---------- 16. BOOT & LOOP ---------- */
 let last = performance.now(), acc = 0, lastUi = 0;
+// החלקת תנועה: הסימולציה מתקדמת בצעדים (כל 0.3 שניות במהירות ×1); בציור משלבים בין המיקום הקודם לנוכחי לפי הזמן שעבר מאז הצעד
+function snapPrev() { if (!S) return; for (const f of S.fronts) f.pp = [f.pos[0], f.pos[1]]; for (const c of S.convoys) { c.pt = c.t; c.pPath = c.path; } for (const r of S.rails) { r.pt = r.t; r.pPath = r.path; } }
+const IP = [];
+function interpBegin() {
+  IP.length = 0; const a = view.alpha ?? 1; if (!S || a >= 1) return;
+  for (const f of S.fronts) if (f.pp && Math.abs(f.pp[0] - f.pos[0]) + Math.abs(f.pp[1] - f.pos[1]) < 3 * G) { IP.push([f, 'pos', f.pos]); f.pos = [f.pp[0] + (f.pos[0] - f.pp[0]) * a, f.pp[1] + (f.pos[1] - f.pp[1]) * a]; }
+  for (const c of [...S.convoys, ...S.rails]) if (c.pt != null && c.pPath === c.path) { IP.push([c, 't', c.t]); c.t = c.pt + (c.t - c.pt) * a; }
+}
+function interpEnd() { for (const [o, k, v] of IP) o[k] = v; IP.length = 0; }
+const vTime = () => S.time - (1 - (view.alpha ?? 1)) * (S.speed > 0 ? CFG.TICK : 0);
 function loop(now) {
   const real = Math.min(0.25, (now - last) / 1000); last = now;
   if (S && !S.over && S.speed > 0 && (!modalOpen() || S.demo)) {
     acc += real * S.speed / CFG.DAY_SEC; let n = 0;
-    while (acc >= CFG.TICK && n++ < 20) { step(CFG.TICK); acc -= CFG.TICK; }
+    while (acc >= CFG.TICK && n++ < 20) { snapPrev(); step(CFG.TICK); acc -= CFG.TICK; }
     if (n >= 20) acc = 0;
   }
+  view.alpha = S && S.speed > 0 && !S.demo ? clamp(acc / CFG.TICK, 0, 1) : 1;
   // משחק הרקע של מסך הבית: ריצה מהירה קדימה בתקציב של ~10ms לפריים
   if (S?.demo && S.warmTo && S.time < S.warmTo) { const t0 = performance.now(); while (S.time < S.warmTo && performance.now() - t0 < 10) step(CFG.TICK); }
-  view.anim = now / 380; if (S?.demo) homePan(real); draw();
+  view.anim = now / 380; if (S?.demo) homePan(real); interpBegin(); try { draw(); } finally { interpEnd(); }
   if (now - lastUi > 250) { lastUi = now; updateLive(); }
   requestAnimationFrame(loop);
 }

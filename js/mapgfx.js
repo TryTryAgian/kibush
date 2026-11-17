@@ -51,7 +51,7 @@ function prepTerrain() {
   // שדות: רעש בסיסי + תוספת סביב ערים (מחושבת מחדש כשעיר נבנית או גדלה)
   const farmN = new Float32Array(W * H); for (let i = 0; i < W * H; i++) { const [x, y] = XY(i); farmN[i] = nz(x / G * 0.18 + 300, y / G * 0.18 - 70, 3); }
   const pal = {}; for (const k in MAPPAL) pal[k] = Array.isArray(MAPPAL[k]) ? MAPPAL[k].map(hex2rgb) : hex2rgb(MAPPAL[k]);
-  Object.assign(TERR, { jx, jy, el, cd, CW, coastD, nearC, farmN, farm: new Uint8Array(W * H), hg, sh, pal, s: S, cityKey: cityKey() });
+  Object.assign(TERR, { jx, jy, el, cd, CW, coastD, nearC, farmN, farm: new Uint8Array(W * H), hg, sh, pal, s: S, cityKey: cityKey(), farmVer: (TERR.farmVer || 0) + 1 });
   computeFarm();
   TERR.chunks.clear();
 }
@@ -72,7 +72,7 @@ function refreshFarmland() {
   for (const e of changed) {
     const j = +e.split(':')[0], b = S.buildings[j]; if (!b) continue; const [cx, cy] = XY(j), R = Math.ceil(farmRad(b)) + 2;
     const box = [Math.max(0, cx - R), Math.max(0, cy - R), Math.min(W - 1, cx + R), Math.min(H - 1, cy + R)];
-    computeFarm(box);
+    computeFarm(box); TERR.farmVer = (TERR.farmVer || 0) + 1;
     const n = TP.CH; for (let qy = Math.floor(box[1] / n); qy <= Math.floor(box[3] / n); qy++) for (let qx = Math.floor(box[0] / n); qx <= Math.floor(box[2] / n); qx++) TERR.chunks.delete(qx + ',' + qy);
     const bw = box[2] - box[0] + 1, bh = box[3] - box[1] + 1; terrainCv.getContext('2d').putImageData(paintTerrain(box[0], box[1], bw, bh, TP.O), box[0] * TP.O, box[1] * TP.O);
   }
@@ -154,7 +154,7 @@ function buildTerrainCanvas() {
   terrainCv.getContext('2d').putImageData(paintTerrain(0, 0, W, H, TP.O), 0, 0);
   ownerCv.width = W * CFG.T; ownerCv.height = H * CFG.T;   // פיקסל ליחידת עולם
   railCv.width = W * TP.O; railCv.height = H * TP.O;
-  hatchPat.clear(); BCACHE.clear(); TOWNC.clear(); TRADE.ships = []; TRADE.routes.clear();
+  hatchPat.clear(); BCACHE.clear(); TOWNC.clear(); TRADE.ships = []; TRADE.caravans = []; TRADE.routes.clear(); TRADE.lanes.clear();
   view.railDirty = true; view.ownerDirty = true;
 }
 function terrainChunk(cx, cy) {
@@ -191,13 +191,54 @@ function drawTerrain(z, vis) {
 function roadNet() {
   const cities = [], others = [];
   eachBuilding((b, j) => { if (!done(b)) return; (b.type === 'city' ? cities : others).push(j); });
-  const clearLine = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b), n = Math.ceil(Math.hypot(bx - ax, by - ay) * 1.5); for (let k = 1; k < n; k++) { const t = tileOf(ax + (bx - ax) * k / n, ay + (by - ay) * k / n); if (isWater(t)) return false; } return true; };
+  if (ROADG.s !== S) { ROADG.s = S; ROADG.geo.clear(); ROADG.map = new Uint8Array(W * H); }
   const seen = new Set(), roads = [];
-  const add = (a, b, w) => { const k = a < b ? a + ':' + b : b + ':' + a; if (seen.has(k) || !clearLine(a, b)) return; seen.add(k); roads.push([a, b, w]); };
+  const add = (a, b, w) => { const k = a < b ? a + ':' + b : b + ':' + a; if (seen.has(k)) return; seen.add(k); const g = roadGeom(a, b); if (g) roads.push([a, b, w, g]); };
   for (const a of cities) cities.filter(b => b !== a && dist(a, b) <= 18).sort((x, y) => dist(a, x) - dist(a, y)).slice(0, 2).forEach(b => add(a, b, 2.4));
   const all = cities.concat(others);
   for (const a of others) { let b = null, bd = 7; for (const o of all) { if (o === a) continue; const d = dist(a, o); if (d < bd) { bd = d; b = o; } } if (b != null) add(a, b, 1.6); }
   return roads;
+}
+// ===================== תוואי כבישים =====================
+// כביש לא נמתח בקו ישר: חיפוש מסלול על המשבצות שמעדיף שטח שטוח, עוקף הרים, מים וביצות,
+// מתחבר לכבישים קיימים (צמתים טבעיים) — ואז מוחלק לעקומה. נשמר במטמון עד משחק חדש.
+const ROADG = { s: null, geo: new Map(), map: null };
+const TILE_H = t => TER[t].water ? -0.3 : t === SAND ? 0.4 : t === HILLS ? 3 : t === MOUNT ? 6 : t === SNOW ? 8.5 : t === FOREST ? 1.3 : 1;
+const tileH = i => TILE_H(S.terrain[i]);   // לפי סוג השטח בלבד — דטרמיניסטי (גם בלי ציור)
+function roadGeom(a, b) {
+  const k = a < b ? a + ':' + b : b + ':' + a;
+  if (ROADG.geo.has(k)) { const g = ROADG.geo.get(k); return g && (g.a === a ? g : g.rev || (g.rev = { a, tiles: g.tiles.slice().reverse(), pts: g.pts.slice().reverse(), len: g.len })); }
+  const [ax, ay] = XY(a), [bx, by] = XY(b), P = 8 + Math.round(dist(a, b) * G * 0.35);
+  const x0 = Math.max(0, Math.min(ax, bx) - P), x1 = Math.min(W - 1, Math.max(ax, bx) + P), y0 = Math.max(0, Math.min(ay, by) - P), y1 = Math.min(H - 1, Math.max(ay, by) + P), BW = x1 - x0 + 1, BH = y1 - y0 + 1;
+  const g = new Float32Array(BW * BH).fill(Infinity), from = new Int32Array(BW * BH).fill(-1), heap = new Heap(), RM = ROADG.map;
+  const loc = i => { const x = i % W - x0, y = ((i / W) | 0) - y0; return y * BW + x; };
+  const extra = t => t === FOREST ? 0.7 : t === HILLS ? 1.4 : t === MOUNT ? 6 : t === SNOW ? 9 : t === SAND ? 0.25 : 0;
+  const hx = (x, y) => Math.hypot(bx - x, by - y) * 0.55;
+  g[loc(a)] = 0; heap.push(hx(ax, ay), a);
+  let found = false, n = 0;
+  while (heap.size && n++ < 60000) {
+    const [, u] = heap.pop(); if (u === b) { found = true; break; }
+    const [ux, uy] = XY(u), gu = g[loc(u)], hu = tileH(u);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const X = ux + dx, Y = uy + dy; if (X < x0 || X > x1 || Y < y0 || Y > y1) continue;
+      const v = Y * W + X; if (isWater(v)) continue;
+      if (dx && dy && (isWater(uy * W + X) || isWater(Y * W + ux))) continue;
+      const len = dx && dy ? 1.414 : 1, t = S.terrain[v], slope = Math.abs(tileH(v) - hu) / len;
+      let c = len * (1 + extra(t) + slope * slope * 2 + slope) * (0.85 + 0.3 * hash01(X >> 1, Y >> 1, S.seed + 77));
+      if (RM[v]) c *= 0.45;   // נוסעים על כביש קיים
+      const nc = gu + c, lv = loc(v); if (nc < g[lv]) { g[lv] = nc; from[lv] = u; heap.push(nc + hx(X, Y), v); }
+    }
+  }
+  if (!found) { ROADG.geo.set(k, null); return null; }
+  const tiles = []; for (let u = b; u !== -1; u = from[loc(u)]) tiles.unshift(u);
+  for (const t of tiles) RM[t] = 1;
+  // החלקה: דילול נקודות ואז חיתוך פינות (Chaikin) — עקומה רכה שעוקבת אחרי התוואי
+  let pts = tiles.filter((_, i) => i === 0 || i === tiles.length - 1 || i % 3 === 0).map(t => XY(t));
+  for (let it = 0; it < 3; it++) { const o = [pts[0]]; for (let i = 0; i < pts.length - 1; i++) { const [px, py] = pts[i], [qx, qy] = pts[i + 1]; o.push([px * 0.75 + qx * 0.25, py * 0.75 + qy * 0.25], [px * 0.25 + qx * 0.75, py * 0.25 + qy * 0.75]); } o.push(pts[pts.length - 1]); pts = o; }
+  let len = 0; for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  const geo = { a: Math.min(a, b) === a ? a : b, tiles, pts, len };
+  if (geo.a !== a) { geo.tiles.reverse(); geo.pts.reverse(); geo.a = a; }
+  ROADG.geo.set(k, geo); return geo;
 }
 function railSegments() {
   const segs = [];
@@ -214,12 +255,14 @@ function railSegments() {
 // ציור כבישים ומסילות על הקשר נתון (בסקירה — לקנבס; בזום קרוב — וקטורי, רק מה שבמסך)
 function strokeInfra(c, roads, segs, vis) {
   const T = CFG.T, h = T / 2, inV = (ax, ay, bx, by) => !vis || !(Math.max(ax, bx) * T < vis.x0 - T || Math.min(ax, bx) * T > vis.x1 + T || Math.max(ay, by) * T < vis.y0 - T || Math.min(ay, by) * T > vis.y1 + T);
-  c.lineCap = 'round';
-  for (const [w, col] of [[0, 'rgba(30,30,28,.55)'], [1, '#8c8a80']]) {
-    c.strokeStyle = col; c.beginPath();
-    for (const [a, b, rw] of roads) { const [ax, ay] = XY(a), [bx, by] = XY(b); if (!inV(ax, ay, bx, by)) continue; c.moveTo(ax * T + h, ay * T + h); c.lineTo(bx * T + h, by * T + h); }
-    c.lineWidth = w ? 1.2 : 3; c.stroke();
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  const vr = roads.filter(r => { const p = r[3].pts; let X0 = 1e9, X1 = -1e9, Y0 = 1e9, Y1 = -1e9; for (const [x, y] of p) { if (x < X0) X0 = x; if (x > X1) X1 = x; if (y < Y0) Y0 = y; if (y > Y1) Y1 = y; } return inV(X0, Y0, X1, Y1); });
+  const trace = r => { const p = r[3].pts; c.moveTo(p[0][0] * T + h, p[0][1] * T + h); for (let i = 1; i < p.length; i++) c.lineTo(p[i][0] * T + h, p[i][1] * T + h); };
+  // שוליים כהים, כתף עפר, ואספלט/עפר לפי סוג הכביש
+  for (const [mw, col, only] of [[1.5, 'rgba(28,26,22,.42)', 0], [1.1, '#a39780', 0], [0.62, '#77746c', 2.4], [0.55, '#9a8e74', 1.6]]) {
+    for (const wv of [2.4, 1.6]) { if (only && only !== wv) continue; c.strokeStyle = col; c.lineWidth = wv * mw; c.beginPath(); for (const r of vr) if (r[2] === wv) trace(r); c.stroke(); }
   }
+  c.setLineDash([1.2, 1.6]); c.strokeStyle = 'rgba(225,215,170,.55)'; c.lineWidth = 0.18; c.beginPath(); for (const r of vr) if (r[2] === 2.4) trace(r); c.stroke(); c.setLineDash([]);
   c.lineCap = 'butt';
   const pass = (lw, col, dash) => { c.lineWidth = lw; c.strokeStyle = col; c.setLineDash(dash); c.beginPath(); for (const [a, b, X, Y] of segs) { if (!inV(a, b, X, Y)) continue; c.moveTo(a * T + h, b * T + h); c.lineTo(X * T + h, Y * T + h); } c.stroke(); };
   pass(4.2, '#3a362e', [0.8, 1.4]); pass(1.8, '#2a2a28', []); pass(0.5, '#b8b4a8', []);
@@ -235,7 +278,7 @@ function bucketInfra() {
         const k = cx + ',' + cy; if (!B.has(k)) B.set(k, { roads: [], segs: [] }); B.get(k)[kind].push(item);
       }
   };
-  for (const r of view.roads) { const [ax, ay] = XY(r[0]), [bx, by] = XY(r[1]); add('roads', r, ax, ay, bx, by); }
+  for (const r of view.roads) { let X0 = 1e9, X1 = -1e9, Y0 = 1e9, Y1 = -1e9; for (const [x, y] of r[3].pts) { X0 = Math.min(X0, x); X1 = Math.max(X1, x); Y0 = Math.min(Y0, y); Y1 = Math.max(Y1, y); } add('roads', r, X0, Y0, X1, Y1); }
   for (const g of view.railSegs) add('segs', g, g[0], g[1], g[2], g[3]);
 }
 function drawInfraChunks(vis) {
@@ -458,7 +501,7 @@ function drawTrain(r) {
 
 // ===================== ספינות מסחר =====================
 // ספינות קוסמטיות בין נמלים של אומות עם הסכם סחר: יוצאות מהנמל, שטות, עוגנות בנמל היעד וחוזרות
-const TRADE = { ships: [], routes: new Map(), last: null, spawnT: 0 };
+const TRADE = { ships: [], caravans: [], routes: new Map(), lanes: new Map(), last: null, spawnT: 0 };
 function drawShipShape(x, col, ang, len, moored) {
   x.save(); x.rotate(ang); const L = len, B = L * 0.3;
   x.fillStyle = 'rgba(10,20,26,.45)'; x.beginPath(); x.moveTo(-L / 2 + 0.6, -B / 2 + 0.6); x.lineTo(L / 2 - B / 2 + 0.6, -B / 2 + 0.6); x.lineTo(L / 2 + 0.6, 0.6); x.lineTo(L / 2 - B / 2 + 0.6, B / 2 + 0.6); x.lineTo(-L / 2 + 0.6, B / 2 + 0.6); x.fill();
@@ -470,7 +513,7 @@ function drawShipShape(x, col, ang, len, moored) {
   x.fillStyle = col; x.fillRect(-L / 2 - 0.3, -0.3, 0.6, 0.6);
   x.restore();
 }
-function tradeRoute(a, b) {
+function shipLane(a, b) {
   const key = a + '>' + b; if (TRADE.routes.has(key)) return TRADE.routes.get(key);
   const wa = waterNear(a), wb = waterNear(b), p = wa != null && wb != null ? findPath(S.buildings[a]?.n ?? 0, wa, wb, { water: true }) : null;
   TRADE.routes.set(key, p); return p;
@@ -483,11 +526,19 @@ function updateTrade(dt) {
   if (TRADE.spawnT <= 0) {
     TRADE.spawnT = 1;
     const ports = {}; eachBuilding((b, j) => { if (b.type === 'port' && done(b)) (ports[b.n] = ports[b.n] || []).push(j); });
-    TRADE.tp = {}; for (const n of S.nations) TRADE.tp[n.id] = n.alive ? new Set(tradePartners(n.id).map(m => m.id)) : new Set();
+    // סוג הנתיב קובע מה רואים: ספינות בים, שיירות משאיות בכבישים (גבול משותף / דרך יבשתית)
+    TRADE.tp = {}; TRADE.lp = {};
+    for (const n of S.nations) { TRADE.tp[n.id] = new Set(); TRADE.lp[n.id] = new Set(); if (!n.alive) continue;
+      for (const m of S.nations) { if (m.id === n.id || !m.alive || !hasTrade(n.id, m.id)) continue; const r = tradeRoute(n.id, m.id); if (!r) continue; (r.kind === 'sea' ? TRADE.tp : TRADE.lp)[n.id].add(m.id); } }
+    const rk = roadKey(); if (TRADE.laneKey !== rk || S.day - (TRADE.laneDay ?? -99) > 10) { TRADE.lanes.clear(); TRADE.laneKey = rk; TRADE.laneDay = S.day; }
+    for (const n of S.nations) for (const pid of TRADE.lp[n.id] || []) {
+      if (TRADE.caravans.filter(c => c.n === n.id && c.to === pid).length >= 2 || TRADE.caravans.length >= 36 || Math.random() > 0.45) continue;
+      const path = landLane(n.id, pid); if (path && path.total > 1) TRADE.caravans.push({ n: n.id, to: pid, path, t: 0, dir: 1, wait: 0, trips: 0, cars: 2 + (Math.random() * 2 | 0), spd: 0.85 + Math.random() * 0.3 });
+    }
     for (const n of S.nations) {
       if (!n.alive || !ports[n.id]) continue;
       for (const pid of TRADE.tp[n.id]) { if (!ports[pid] || ships.filter(s => s.n === n.id && s.to === pid).length >= 2 || ships.length >= 40 || Math.random() > 0.35) continue;
-        const a = pick(ports[n.id]), b = ports[pid].slice().sort((p, q) => dist(p, a) - dist(q, a))[0], path = tradeRoute(a, b);
+        const a = pick(ports[n.id]), b = ports[pid].slice().sort((p, q) => dist(p, a) - dist(q, a))[0], path = shipLane(a, b);
         if (path && path.total > 2) ships.push({ n: n.id, to: pid, path, t: 0, dir: 1, wait: 0, trips: 0, len: 8 + Math.random() * 3 });
       }
     }
@@ -498,8 +549,48 @@ function updateTrade(dt) {
     if (s.dir > 0 && s.t >= s.path.total) { s.t = s.path.total; s.dir = -1; s.wait = 1.5; }
     else if (s.dir < 0 && s.t <= 0) { s.t = 0; s.dir = 1; s.wait = 1.5; s.trips++; }
   }
+  for (const c of TRADE.caravans) {
+    if (c.wait > 0) { c.wait -= dt; continue; }
+    c.t += c.dir * CFG.CARAVAN_SPD * ROAD_COST * c.spd * dt;
+    if (c.dir > 0 && c.t >= c.path.total) { c.t = c.path.total; c.dir = -1; c.wait = 1.2; }
+    else if (c.dir < 0 && c.t <= 0) { c.t = 0; c.dir = 1; c.wait = 1.2; c.trips++; }
+  }
+  TRADE.caravans = TRADE.caravans.filter(c => !(c.t === 0 && c.dir === 1 && c.wait > 0 && (!TRADE.lp?.[c.n]?.has(c.to) || c.trips > 2)));
   // ספינה שסיימה הלוך-חזור כשהסחר נגמר (מלחמה) — לא יוצאת שוב
   TRADE.ships = ships.filter(s => !(s.t === 0 && s.dir === 1 && s.wait > 0 && (!TRADE.tp?.[s.n]?.has(s.to) || s.trips > 3)));
+}
+// נתיב יבשתי לשיירת סחר: מעיר של אומה אחת לעיר של השנייה — לאורך רשת הכבישים (כל הכבישים, של כל האומות),
+// ואם אין שרשרת כבישים — כביש ישיר שנסלל לפי השטח בין שתי הערים הקרובות
+function landLane(a, b) {
+  const key = a + '>' + b; if (TRADE.lanes.has(key)) return TRADE.lanes.get(key);
+  const roads = roadEdges(), adj = new Map(), link = (u, v, w) => { if (!adj.has(u)) adj.set(u, []); adj.get(u).push([v, w]); };
+  const okT = t => { const o = S.owner[t]; return o < 0 || o === a || o === b || (!atWar(o, a) && !atWar(o, b)); };
+  for (const [u, v, , g] of roads) if (g.tiles.every(okT)) { link(u, v, g.len); link(v, u, g.len); }
+  const isA = j => S.buildings[j]?.n === a && S.owner[j] === a, isB = j => S.buildings[j]?.n === b && S.owner[j] === b;
+  const d = new Map(), prev = new Map(), heap = new Heap();
+  for (const j of adj.keys()) if (isA(j)) { d.set(j, 0); heap.push(0, j); }
+  let end = null;
+  while (heap.size) { const [c, u] = heap.pop(); if (c > d.get(u)) continue; if (isB(u)) { end = u; break; } for (const [v, w] of adj.get(u) || []) { const nc = c + w; if (nc < (d.get(v) ?? Infinity)) { d.set(v, nc); prev.set(v, u); heap.push(nc, v); } } }
+  let path = null;
+  if (end != null) { const legs = []; for (let u = end; prev.has(u); u = prev.get(u)) legs.unshift(roadSeg(prev.get(u), u)); path = legs.length === 1 ? legs[0] : joinPaths(...legs); }
+  else {
+    const ca = [], cb = []; eachBuilding((x, j) => { if (x.type !== 'city' || !done(x)) return; if (isA(j)) ca.push(j); else if (isB(j)) cb.push(j); });
+    let best = null, bd = 30; for (const p of ca) for (const q of cb) { const dd = dist(p, q); if (dd < bd) { bd = dd; best = [p, q]; } }
+    if (best) { const g = roadGeom(best[0], best[1]); if (g && g.tiles.every(okT)) path = roadSeg(best[0], best[1]); }
+  }
+  TRADE.lanes.set(key, path); return path;
+}
+function drawCaravans(vis) {
+  const T = CFG.T;
+  for (const c of TRADE.caravans) for (let k = c.cars - 1; k >= 0; k--) {
+    const t = clamp(c.t - c.dir * k * 1.1 * ROAD_COST, 0, c.path.total), [x, y] = pathPos(c.path, t), X = x * T + T / 2, Y = y * T + T / 2;
+    if (X < vis.x0 - 10 || X > vis.x1 + 10 || Y < vis.y0 - 10 || Y > vis.y1 + 10) continue;
+    const [x2, y2] = pathPos(c.path, clamp(t + c.dir * 0.5 * ROAD_COST, 0, c.path.total)), [x1, y1] = pathPos(c.path, clamp(t - c.dir * 0.5 * ROAD_COST, 0, c.path.total)), a = Math.atan2(y2 - y1, x2 - x1);
+    ctx.save(); ctx.translate(X, Y); ctx.rotate(a);
+    ctx.fillStyle = 'rgba(16,14,10,.4)'; ctx.fillRect(-1.6, -0.6, 3.6, 1.6);
+    ctx.fillStyle = '#9a7a4a'; ctx.fillRect(-1.8, -0.8, 2.3, 1.6); ctx.fillStyle = S.nations[c.n].color; ctx.fillRect(0.6, -0.75, 1.1, 1.5);
+    ctx.restore();
+  }
 }
 function drawTradeShips(vis) {
   const T = CFG.T;

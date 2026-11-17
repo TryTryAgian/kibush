@@ -111,14 +111,14 @@ function logiGraph(nid) {
   const okN = j => { const b = S.buildings[j]; return b && b.n === nid && done(b) && m[j]; };
   const add = (a, b, cost, kind, ref) => { if (!nodes.has(a)) nodes.set(a, []); if (!nodes.has(b)) nodes.set(b, []); nodes.get(a).push([b, cost, kind, ref]); nodes.get(b).push([a, cost, kind, ref]); };
   eachBuilding((b, j) => { if (okN(j) && !nodes.has(j)) nodes.set(j, []); });
-  for (const [a, b] of _rg.roads) if (okN(a) && okN(b) && roadClear(nid, a, b)) add(a, b, dist(a, b) * G * ROAD_COST, 'road');
+  for (const [a, b, , g] of _rg.roads) if (okN(a) && okN(b) && roadClear(nid, a, b)) add(a, b, g.len * ROAD_COST, 'road');
   for (const r of S.rails) if (r.n === nid && okN(r.a) && okN(r.b) && r.path.tiles.every(t => S.owner[t] === nid)) add(r.a, r.b, r.path.total, 'rail', r);
   return _lg[nid] = { nodes, t: S.time, s: S, v: _rg.key };
 }
 // כביש שעובר בשטח שהאויב כבש — חתוך (לא עוברים בו)
 function roadClear(nid, a, b) {
-  const [ax, ay] = XY(a), [bx, by] = XY(b), n = Math.ceil(Math.hypot(bx - ax, by - ay));
-  for (let k = 1; k < n; k++) { const o = S.owner[tileOf(ax + (bx - ax) * k / n, ay + (by - ay) * k / n)]; if (o !== nid && !(o >= 0 && allied(nid, o))) return false; }
+  const g = roadGeom(a, b); if (!g) return false;
+  for (const t of g.tiles) { const o = S.owner[t]; if (o !== nid && !(o >= 0 && allied(nid, o))) return false; }
   return true;
 }
 // ===================== מצב אספקה =====================
@@ -137,7 +137,11 @@ function supplyAt(nid, tile) {
   for (const [j, c] of d) { const off = dist(j, tile); if (off > 14) continue; const v = off + 0.3 * c / G; if (v < best) best = v; }
   return best === Infinity ? CFG.SUP_MIN : clamp(1 - (best - CFG.SUP_FREE) / CFG.SUP_FALL, CFG.SUP_MIN, 1);
 }
-const roadSeg = (a, b) => { const d = dist(a, b) * G * ROAD_COST; return { tiles: [a, b], cum: [0, d], total: d }; };
+const roadSeg = (a, b) => {
+  const g = roadGeom(a, b); if (!g) { const d = dist(a, b) * G * ROAD_COST; return { tiles: [a, b], cum: [0, d], total: d }; }
+  const cum = [0]; for (let i = 1; i < g.tiles.length; i++) { const [x, y] = XY(g.tiles[i - 1]), [X, Y] = XY(g.tiles[i]); cum.push(cum[i - 1] + Math.hypot(X - x, Y - y) * ROAD_COST); }
+  return { tiles: g.tiles, cum, total: cum[cum.length - 1] };
+};
 const revPath = p => ({ tiles: p.tiles.slice().reverse(), cum: p.cum.map(c => p.total - c).reverse(), total: p.total });
 // מסלול ברשת: כניסה (המבנה עצמו או מבנה קרוב), דייקסטרה על הרשת, ויציאה בנקודת האיסוף
 function roadRoute(nid, src, dest) {

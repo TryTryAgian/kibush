@@ -75,8 +75,7 @@ function dailyYield(nid, tilesCount) {
       y[k] += v;
     }
   });
-  const ports = Math.min(3, bCount(nid, 'port'));
-  for (const m of tradePartners(nid)) { y.gold += 2 * ports * mod(n, 'trade'); y.mat += 3 * ports * mod(n, 'trade'); }
+  for (const m of S.nations) { if (m.id === nid || !m.alive || !hasTrade(nid, m.id)) continue; const r = tradeRoute(nid, m.id); if (r) { y.gold += r.gold * mod(n, 'trade'); y.mat += r.mat * mod(n, 'trade'); } }
   for (const k of ['gold', 'mat', 'know']) if (y[k] > 0) y[k] *= se;
   if (y.gold > 0) y.gold *= mod(n, 'gold');
   if (n.isAI) { const k = CFG.AI_ECON[S.settings.diff || 'normal']; for (const r of ['gold', 'mat', 'know']) if (y[r] > 0) y[r] *= k; }   // רמת קושי

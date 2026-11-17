@@ -282,7 +282,7 @@ function doPropose(to, kind, gold = 0) { const r = propose(0, to, kind, gold); i
 const daysLeft = until => Math.max(0, Math.ceil(until - S.time));
 function diploTab() {
   const others = S.nations.filter(n => n.id !== 0), g = player().res.gold, lead = leaderThreat();
-  return [watch(() => S.offers.length + ':' + others.map(n => n.alive ? [rel(0, n.id).state, allied(0, n.id), napActive(0, n.id), hasTrade(0, n.id), truceActive(0, n.id), leaderThreat()].join('') : 'x').join('|')), h('h3', {}, 'דיפלומטיה', h('span', { class: 'dim' }, `כוחך: ${fl(militaryPower(0))} · עם בעלי ברית: ${fl(allianceBloc(0))}`)),
+  return [watch(() => S.offers.length + ':' + others.map(n => n.alive ? [rel(0, n.id).state, allied(0, n.id), napActive(0, n.id), hasTrade(0, n.id), truceActive(0, n.id), leaderThreat(), tradeRoute(0, n.id)?.kind].join('') : 'x').join('|')), h('h3', {}, 'דיפלומטיה', h('span', { class: 'dim' }, `כוחך: ${fl(militaryPower(0))} · עם בעלי ברית: ${fl(allianceBloc(0))}`)),
     h('div', { class: 'card' }, h('div', { class: 'uline' }, h('b', {}, '🌡 מד האיום שלך'), h('span', { live: el => { const v = Math.round(thr(0)); el.textContent = v + (v >= CFG.THREAT_COAL ? ' · קואליציה!' : v >= CFG.THREAT_WARN ? ' · חשד' : ''); el.style.color = v >= CFG.THREAT_COAL ? '#ff5050' : v >= CFG.THREAT_WARN ? '#ffb040' : '#9fd' } })),
       h('div', { class: 'tbar' }, h('i', { live: el => { const v = thr(0); el.style.width = v + '%'; el.style.background = v >= CFG.THREAT_COAL ? '#ff5050' : v >= CFG.THREAT_WARN ? '#ffb040' : '#5ad07a'; } }), h('b', { style: { left: CFG.THREAT_WARN + '%' } }), h('b', { style: { left: CFG.THREAT_COAL + '%' } })),
       h('div', { class: 'dim' }, `כל כיבוש מעלה את המד; בשלום הוא יורד. מעל ${CFG.THREAT_COAL} השכנים מתאחדים נגדך, מעל ${CFG.THREAT_ALLY_LEAVE} גם בעלי הברית עוזבים.`),
@@ -305,7 +305,7 @@ function diploTab() {
         h('div', { class: 'row wrap' },
           allied(0, n.id) ? h('span', { class: 'pill ally' }, `🛡 ברית · ${daysLeft(r.ally)} י׳`) : null,
           nap ? h('span', { class: 'pill nap' }, `🤚 אי-תקיפה · ${daysLeft(r.nap)} י׳`) : null,
-          hasTrade(0, n.id) ? h('span', { class: 'pill trade' }, `⚓ סחר · ${daysLeft(r.trade)} י׳`) : null,
+          hasTrade(0, n.id) ? (tr => tr ? h('span', { class: 'pill trade', title: TRADE_KIND[tr.kind][1] }, `${TRADE_KIND[tr.kind][0]} סחר ${TRADE_KIND[tr.kind][1]} +${(tr.gold * mod(player(), 'trade')).toFixed(1)}💰 +${(tr.mat * mod(player(), 'trade')).toFixed(1)}⚙ · ${daysLeft(r.trade)} י׳`) : h('span', { class: 'pill war' }, `⛔ סחר חסום · ${daysLeft(r.trade)} י׳`))(tradeRoute(0, n.id)) : (tr => !atWar(0, n.id) && tr ? h('span', { class: 'dim' }, `נתיב סחר אפשרי: ${TRADE_KIND[tr.kind][0]} ${TRADE_KIND[tr.kind][1]} (~${tr.gold.toFixed(1)}💰 ביום)`) : null)(tradeRoute(0, n.id)),
           truceActive(0, n.id) ? h('span', { class: 'pill' }, `🏳 שביתת נשק · ${daysLeft(r.truce)} י׳`) : null),
         h('div', { class: 'kv' }, h('span', {}, 'יחס: ', h('b', {}, String(fl(r.op)))), h('span', {}, 'כוח: ', h('b', {}, String(fl(militaryPower(n.id))))),
           h('span', {}, 'יבשה: ', h('b', {}, Math.round(shareOf(n.id) * 100) + '%')),
@@ -319,7 +319,7 @@ function diploTab() {
               [100, 300].map(v => h('button', { class: 'btn sm', live: el => el.disabled = rel(0, n.id).cool > S.time || player().res.gold < v, onclick: () => doPropose(n.id, 'peace', v) }, `🕊 +${v}💰`)),
               ask && g >= ask ? h('button', { class: 'btn sm pri', disabled: cool, onclick: () => { ui.peaceAsk = null; doPropose(n.id, 'peace', ask); } }, `🕊 לשלם ${ask}💰`) : null)
           : h('div', { class: 'row wrap' },
-              dealBtn('trade', '⚓ סחר'), dealBtn('nap', '🤚 אי-תקיפה'), dealBtn('alliance', '🛡 ברית'),
+              dealBtn('trade', '🤝 סחר'), dealBtn('nap', '🤚 אי-תקיפה'), dealBtn('alliance', '🛡 ברית'),
               hasTrade(0, n.id) ? h('button', { class: 'btn sm', onclick: () => { r.trade = 0; r.op -= 10; render(); } }, 'בטל סחר') : null,
               allied(0, n.id) ? h('button', { class: 'btn sm', onclick: () => { breakAlliance(0, n.id); render(); } }, 'בטל ברית') : null,
               h('button', { class: 'btn sm', live: el => el.disabled = player().res.gold < 100, onclick: () => { if (player().res.gold < 100) return; player().res.gold -= 100; r.op = Math.min(100, r.op + 15); toast(`שלחת מתנה ל${n.name}`); render(); } }, '🎁 100💰'),
@@ -371,7 +371,7 @@ function openHelp() {
   modal(h('h2', {}, '❓ איך משחקים'),
     h('ul', {},
       h('li', {}, `המטרה: לשלוט ב-${Math.round(winR() * 100)}% מהיבשה. בזמן אמת — ⏸ עוצר, ×2/×4 מאיצים.`),
-      h('li', {}, 'כלכלה: ערים — זהב, חומרים וכוח אדם. מפעלים — חומרים. אוניברסיטאות — ידע. נמלים — מסחר עם אומות שיש איתן הסכם.'),
+      h('li', {}, 'כלכלה: ערים — זהב, חומרים וכוח אדם. מפעלים — חומרים. אוניברסיטאות — ידע. נמלים — סחר בים ושייטת. סחר: הסכם עם שכן שחולק איתך גבול שווה הכי הרבה (גבול ארוך = יותר); עם אומה רחוקה — דרך יבשתית (פחות ככל שרחוק), או בים אם לשניכם נמל. אומה שנלחמת באחד מכם וחוסמת את הדרך — עוצרת את הסחר ביבשה.'),
       h('li', {}, `צבא: כל מחנה צבאי = אוגדה אחת (חי״ר, קומנדו, שריון קל/כבד, ארטילריה, הגנה אווירית — לפי סוג המחנה). שדה תעופה = כנף אווירית, נמל = שייטת. המחנה מאמן את האוגדה שלו עד תקן מלא; אחוז הגיוס (${CFG.MOB_MIN * 100}%–${CFG.MOB_MAX * 100}%) מאיץ את האימון אבל מחליש את כלכלת הערים. יחידות כבדות דורשות מפעל.`),
       h('li', {}, 'מחקר: עץ בענפים — כל מחקר פותח את הבאים. סוגי המחנות נפתחים דרך המחקר.'),
       h('li', {}, 'מבצעים: בוחרים אומה, המטה מתכנן יעדים (בירה, ערים, מפעלים, נמלים, שדות תעופה) והגנרלים מבצעים. גנרלי הגנה שומרים על הגבול. פרטים — בלשונית מבצעים.'),

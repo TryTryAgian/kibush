@@ -48,11 +48,16 @@ function tdSprite(t, nid, x, y, ang, s, anim) {
 function frontHeading(f) {
   let tx = null, ty = null;
   if (f.path) { const c = f.path.cum; for (let k = 0; k < f.path.tiles.length; k++) if (c[k] > f.pathT + 0.3) { [tx, ty] = XY(f.path.tiles[k]); tx += 0.5; ty += 0.5; break; } }
-  else if (f.zone?.length) { [tx, ty] = XY(f.zone[0]); tx += 0.5; ty += 0.5; }
+  else if (f.zone?.length) {   // כיוון ממוצע לאזור הלחימה — לא למשבצת אחת (שמתחלפת כל רגע ומסובבת את היחידות)
+    let sx = 0, sy = 0; const n = Math.min(16, f.zone.length);
+    for (let k = 0; k < n; k++) { const [zx, zy] = XY(f.zone[k]), dx = zx - f.pos[0], dy = zy - f.pos[1], l = Math.hypot(dx, dy); if (l > 0.5) { sx += dx / l; sy += dy / l; } }
+    if (sx * sx + sy * sy > 0.25) { tx = f.pos[0] + 0.5 + sx; ty = f.pos[1] + 0.5 + sy; }
+  }
   else if (f.kind === 'navy' && f.navTarget != null) { [tx, ty] = XY(f.navTarget); }
   let want = f._hd ?? 0;
-  if (tx != null) { const dx = tx - (f.pos[0] + 0.5), dy = ty - (f.pos[1] + 0.5); if (dx * dx + dy * dy > 0.01) want = Math.atan2(dy, dx); }
-  let d = want - (f._hd ?? want); d = Math.atan2(Math.sin(d), Math.cos(d)); f._hd = (f._hd ?? want) + d * 0.08;
+  if (tx != null) { const dx = tx - (f.pos[0] + 0.5), dy = ty - (f.pos[1] + 0.5); if (dx * dx + dy * dy > 0.25) want = Math.atan2(dy, dx); }
+  const now = performance.now(), dt = Math.min(0.2, (now - (f._hdT ?? now)) / 1000); f._hdT = now;   // החלקה לפי זמן — לא לפי מספר הקריאות
+  let d = want - (f._hd ?? want); d = Math.atan2(Math.sin(d), Math.cos(d)); f._hd = (f._hd ?? want) + d * (1 - Math.exp(-dt * 1.6));
   return f._hd;
 }
 function drawTroops(f, X, Y, now) {
@@ -222,9 +227,9 @@ function draw() {
   if (view.railDirty || view.roadKey !== roadKey() && (now - (view.roadT || 0) > 2000)) { view.roadT = now; rebuildRails(); }
   if (z < TP.ZD) ctx.drawImage(railCv, 0, 0, W * T, H * T); else drawInfraChunks(vis);
   // ספינות מסחר: זזות לפי זמן המשחק (עוצרות בהשהיה)
-  if (TRADE.last != null && TRADE.s === S) updateTrade(S.time - TRADE.last); else TRADE.ships = [];
-  TRADE.last = S.time; TRADE.s = S;
-  drawTradeShips(vis);
+  if (TRADE.last != null && TRADE.s === S) updateTrade(vTime() - TRADE.last); else { TRADE.ships = []; TRADE.caravans = []; }
+  TRADE.last = vTime(); TRADE.s = S;
+  drawTradeShips(vis); drawCaravans(vis);
   if (ui.pick?.kind === 'build' && ui.hint) {   // סימון משבצות לבנייה: תמונה אחת (פיקסל למשבצת), נבנית רק כשהסימון משתנה
     if (!view.hintCv || view.hintSrc !== ui.hint) {
       const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), im = x.createImageData(W, H);
