@@ -9,7 +9,7 @@ const VIS = new Map(), SHOTS = [], WRECKS = [], DELAY = [];
 const PLT = { inf: 4, cmdo: 3, ltank: 2, htank: 2, art: 2, aa: 2 };      // יחידות לכל מחלקה
 const PLT_ORDER = ['htank', 'ltank', 'cmdo', 'inf', 'aa', 'art'], REAR = { art: 1, aa: 1 };
 const FIRE = { inf: 1.4, cmdo: 1.6, ltank: 0.8, htank: 0.6, art: 0.35, aa: 0.5 };   // יריות לשנייה בקרב
-const MAX_PLT = 26;
+const MAX_PLT = 36;
 function visOf(f) { let v = VIS.get(f.id); if (!v) VIS.set(f.id, v = { units: [], slotT: 0, n: f.n }); return v; }
 // מספר המחלקות לפי היחידות של הגנרל; מחלקה שאבדה בקרב — הריסה במקום
 function syncPlatoons(f, v, cx, cy) {

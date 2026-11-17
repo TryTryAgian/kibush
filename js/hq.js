@@ -197,7 +197,7 @@ function beltTile(nid, at, depth, ef) {
 function ownShare(nid, x, y, r = 3 * G) { let o = 0, t = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const xx = Math.round(x) + dx, yy = Math.round(y) + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue; const j = idx(xx, yy); if (isWater(j)) continue; t++; if (S.owner[j] === nid) o++; } return t ? o / t : 1; }
 function planDefense(nid) {
   const n = S.nations[nid];
-  const defs = S.fronts.filter(f => f.n === nid && f.kind === 'land' && f.role === 'defend' && !f.retreating && !f.solo && !f.airborne); if (!defs.length) return;
+  const defs = S.fronts.filter(f => f.n === nid && f.kind === 'land' && f.role === 'defend' && !f.retreating && !f.solo && !f.airborne && !f.order); if (!defs.length) return;
   const en = enemiesOf(nid);
   const camps = []; eachBuilding((b, j) => { if (b.n === nid && done(b) && b.type === 'camp') camps.push(j); });
   const sectors = en.length ? sectorScan(nid) : [];

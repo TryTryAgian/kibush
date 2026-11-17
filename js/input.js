@@ -54,8 +54,10 @@ function onTap(i) {
   else { ui.sel = ui.sel === i ? null : i; ui.tab = null; }
   render();
 }
+// מסך → עולם (בתלת-ממד: חיתוך עם הקרקע המוטה)
+function screenToWorld(sx, sy) { const cam = view.cam; return G3.on ? g3Inv(sx, sy) : [cam.x + sx / cam.zoom, cam.y + sy / cam.zoom]; }
 function screenToTile(sx, sy) {
-  const cam = view.cam, x = Math.floor((cam.x + sx / cam.zoom) / CFG.T), y = Math.floor((cam.y + sy / cam.zoom) / CFG.T);
+  const [wx, wy] = screenToWorld(sx, sy), x = Math.floor(wx / CFG.T), y = Math.floor(wy / CFG.T);
   return x >= 0 && y >= 0 && x < W && y < H ? idx(x, y) : null;
 }
 function clampCam() {
@@ -64,7 +66,10 @@ function clampCam() {
 }
 function zoomAt(sx, sy, nz) {
   const cam = view.cam; nz = clamp(nz, CFG.ZOOM_MIN, CFG.ZOOM_MAX);
-  const wx = cam.x + sx / cam.zoom, wy = cam.y + sy / cam.zoom; cam.zoom = nz; cam.x = wx - sx / nz; cam.y = wy - sy / nz; clampCam();
+  const [wx, wy] = screenToWorld(sx, sy); cam.zoom = nz; g3Update();
+  // הנקודה שמתחת לעכבר נשארת במקומה (גם כשהמצלמה נוטה)
+  const h = G3.on ? g3H(wx, wy) : 0, cx = wx - (sx - innerWidth / 2) / nz, cy = wy - ((sy - innerHeight / 2) / nz + h * G3.sin) / G3.cos;
+  cam.x = cx - innerWidth / 2 / nz; cam.y = cy - innerHeight / 2 / nz; clampCam();
 }
 function centerOnXY(x, y) { const cam = view.cam; cam.x = (x + 0.5) * CFG.T - innerWidth / 2 / cam.zoom; cam.y = (y + 0.5) * CFG.T - innerHeight / 2 / cam.zoom; clampCam(); }
 function centerOn(i) { view.cam.zoom = clamp(innerWidth / (36 * 16), 0.5, 4); centerOnXY(...XY(i)); }
@@ -76,8 +81,8 @@ cv.addEventListener('pointerdown', e => {
     gesture = { type: 'pan', sx: e.clientX, sy: e.clientY, moved: false };
     // גרירה שמתחילה על הגנרל הנבחר = ציור ציר התקפה
     const f = S && ui.selFront != null && !ui.pick ? S.fronts.find(x => x.id === ui.selFront && x.n === 0 && x.kind === 'land' && !x.flying) : null;
-    if (f) { const cam = view.cam, wx = cam.x + e.clientX / cam.zoom, wy = cam.y + e.clientY / cam.zoom, gx = (f.pos[0] + 0.5) * CFG.T, gy = (f.pos[1] + 0.5) * CFG.T;
-      if (Math.hypot(wx - gx, wy - gy) * cam.zoom < 34) { gesture = { type: 'axis', f, sx: e.clientX, sy: e.clientY, moved: false }; AXDRAG = { f, wx, wy }; } }
+    if (f) { const cam = view.cam, [wx, wy] = screenToWorld(e.clientX, e.clientY), gx = (f.pos[0] + 0.5) * CFG.T, gy = (f.pos[1] + 0.5) * CFG.T;
+      if (Math.hypot(wx - gx, wy - gy) * cam.zoom < 40) { gesture = { type: 'axis', f, sx: e.clientX, sy: e.clientY, moved: false }; AXDRAG = { f, wx, wy }; } }
   }
   else if (ptrs.size === 2) { AXDRAG = null; const [a, b] = [...ptrs.values()]; gesture = { type: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), z0: view.cam.zoom }; }
 });
@@ -86,11 +91,11 @@ cv.addEventListener('pointermove', e => {
   const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
   if (gesture.type === 'axis') {
     if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) > 10) gesture.moved = true;
-    const cam = view.cam; AXDRAG = { f: gesture.f, wx: cam.x + e.clientX / cam.zoom, wy: cam.y + e.clientY / cam.zoom, live: gesture.moved }; return;
+    const [wx, wy] = screenToWorld(e.clientX, e.clientY); AXDRAG = { f: gesture.f, wx, wy, live: gesture.moved }; return;
   }
   if (gesture.type === 'pan') {
     if (Math.hypot(e.clientX - gesture.sx, e.clientY - gesture.sy) > 8) gesture.moved = true;
-    if (gesture.moved) { view.cam.x -= dx / view.cam.zoom; view.cam.y -= dy / view.cam.zoom; clampCam(); }
+    if (gesture.moved) { view.cam.x -= dx / view.cam.zoom; view.cam.y -= dy / view.cam.zoom / (G3.on ? G3.cos : 1); clampCam(); }
   } else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, gesture.z0 * Math.hypot(a.x - b.x, a.y - b.y) / gesture.d0); }
 });
 const endPtr = e => {
@@ -111,3 +116,26 @@ cv.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.clientX, e.clie
 addEventListener('resize', () => { resize(); clampCam(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && S) save(); });
 
+
+// מקלדת (מחשב): חצים/WASD להזזה, +/- לזום, רווח להשהיה, 1-3 למהירות, Esc לביטול
+const keys = new Set();
+addEventListener('keydown', e => {
+  if (!S || e.target.closest?.('input,textarea')) return;
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); S.speed = S.speed ? 0 : (view.lastSpeed || 1); if (S.speed) view.lastSpeed = S.speed; render(); return; }
+  if (k === '1' || k === '2' || k === '3') { S.speed = k === '1' ? 1 : k === '2' ? 2 : 4; view.lastSpeed = S.speed; render(); return; }
+  if (k === '+' || k === '=') { zoomAt(innerWidth / 2, innerHeight / 2, view.cam.zoom * 1.25); return; }
+  if (k === '-' || k === '_') { zoomAt(innerWidth / 2, innerHeight / 2, view.cam.zoom / 1.25); return; }
+  if (k === 'escape') { ui.pick = null; ui.sel = null; ui.selFront = null; ui.tab = null; AXDRAG = null; render(); return; }
+  keys.add(k);
+});
+addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+addEventListener('blur', () => keys.clear());
+(function panLoop(t0) {
+  requestAnimationFrame(t => { const dt = Math.min(0.05, (t - t0) / 1000);
+    if (S && keys.size) { const sp = 700 * dt / view.cam.zoom, c = view.cam; let dx = 0, dy = 0;
+      if (keys.has('arrowleft') || keys.has('a') || keys.has('ש')) dx -= sp; if (keys.has('arrowright') || keys.has('d') || keys.has('ג')) dx += sp;
+      if (keys.has('arrowup') || keys.has('w') || keys.has("'")) dy -= sp; if (keys.has('arrowdown') || keys.has('s') || keys.has('ד')) dy += sp;
+      if (dx || dy) { c.x += dx; c.y += dy / (G3.on ? G3.cos : 1); clampCam(); } }
+    panLoop(t); });
+})(performance.now());

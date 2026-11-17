@@ -129,7 +129,7 @@ function armyTab() {
 // סמל תפקיד קצר לגנרל
 function genIcon(f) {
   if (f.kind === 'navy') return '⚓'; if (f.solo) return f.airborne ? '🪂' : '🎯';
-  if (f.retreating) return '↩'; if (f.consol) return '⛺';
+  if (f.flying) return '✈'; if (f.retreating) return '↩'; if (f.order) return { hold: '🛡', delay: '⏪', withdraw: '🏃' }[f.order]; if (f.consol) return '⛺';
   if (f.role === 'attack') return f.op != null && S.ops.find(o => o.id === f.op)?.target < 0 ? '🌾' : { ME: '⭐', PIN: '📌', EXP: '⚡' }[f.opRole] || '⚔';
   if (f.zoneKind === 'incursion' && f.defRole !== 'reserve') return '🚨';
   return { reserve: '🛡', depth: '🧱', screen: '👁', delay: '⏳' }[f.defRole] || '🛡';
@@ -150,7 +150,7 @@ function genCard(f) {
       live(el => { el.textContent = (f.supply && f.supply !== 'ok' ? '🔴 ' : '') + shortStatus(f); }, 'span', { class: 'gst dim' }),
       h('button', { class: 'btn xs', onclick: e => { e.stopPropagation(); centerOnXY(...f.pos); } }, '📍')),
     sel ? [
-      f.kind === 'land' && !f.solo ? live(el => { el.textContent = (f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (f.defRole !== 'reserve' && f.zoneKind === 'incursion' ? '🚨 הודף חדירה לשטח' : DEF_NAMES[f.defRole] || '') : '') + ' · ' + f.status + (f.op != null && f.planWhy && !f.planHold ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע למאמץ העיקרי', 'דחיפה': '➡ דוחף קדימה', 'ניצול': '⚡ ניצול לעומק', 'כיתור': '⭕ סוגר כיתור', 'התפשטות': '🌾 מתפשט' }[f.planWhy] || ''}` : ''); }, 'div', { class: 'role' }) : null,
+      f.kind === 'land' && !f.solo ? live(el => { el.textContent = f.order ? `פקודה ישירה · ${f.status}` + (f.order === 'withdraw' ? '' : ' · לחץ שוב כדי לבטל') : (f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (f.defRole !== 'reserve' && f.zoneKind === 'incursion' ? '🚨 הודף חדירה לשטח' : DEF_NAMES[f.defRole] || '') : '') + ' · ' + f.status + (f.op != null && f.planWhy && !f.planHold ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע למאמץ העיקרי', 'דחיפה': '➡ דוחף קדימה', 'ניצול': '⚡ ניצול לעומק', 'כיתור': '⭕ סוגר כיתור', 'התפשטות': '🌾 מתפשט' }[f.planWhy] || ''}` : ''); }, 'div', { class: 'role' }) : null,
       h('div', { class: 'kv' },
         f.kind === 'land' ? live(el => { el.textContent = `מורל ${Math.round((f.org ?? 1) * 100)}% · 📦 אספקה ${Math.round((f.supLvl ?? 1) * 100)}%`; }) : null,
         f.kind === 'land' ? live(el => { el.textContent = { sea: '🔴 בכיס — אספקה בים', air: '🔴 בכיס — רכבת אווירית', cut: '🔴 בכיס — מנותק!' }[f.supply] || ''; el.style.color = '#ff8a7a'; }) : null,
@@ -178,19 +178,28 @@ function genActions(f) {
     acts.push(h('button', { class: 'btn sm', onclick: stop(() => { f.navTarget = null; f.mission = 'home'; f.path = null; }) }, '🏠 הביתה'));
   } else if (!f.solo) {
     if (f.role !== 'defend') acts.push(h('button', { class: 'btn sm', onclick: stop(() => { const op = S.ops.find(o => o.id === f.op); if (op) op.gens = op.gens.filter(id => id !== f.id); f.role = 'defend'; f.op = null; f.target = null; f.zone = []; planDefense(0); }) }, '🛡 להגנה'));
-    for (const op of S.ops.filter(o => o.n === 0 && o.id !== f.op)) acts.push(h('button', { class: 'btn sm warn', onclick: stop(() => assignToOp(f, op)) }, '⚔ ' + opName(op)));
+    for (const op of S.ops.filter(o => o.n === 0 && o.id !== f.op)) acts.push(h('button', { class: 'btn sm warn', onclick: stop(() => { giveOrder(f, null); assignToOp(f, op); }) }, '⚔ ' + opName(op)));
+    // פקודות ישירות: החזק / עכב / סגת
+    for (const [k, l, tip] of [['hold', '🛡 החזק', 'נשאר במקום ונלחם עד הסוף (+25% הגנה)'], ['delay', '⏪ עכב', 'מגן, וכשהמורל יורד נסוג צעד לעומק — מוכר שטח תמורת זמן (+10% הגנה)'], ['withdraw', '🏃 סגת', 'נסוג לבסיס הקרוב בעורף בלי להילחם']])
+      acts.push(h('button', { class: 'btn sm' + (f.order === k ? ' on' : ''), title: tip, onclick: stop(() => { giveOrder(f, f.order === k ? null : k); toast(f.order ? `${f.gen.name}: ${ORDER_NAMES[k]} — ${tip}` : `${f.gen.name} חוזר לפיקוד המטה`); }) }, l));
+    if (f.order) acts.push(h('button', { class: 'btn sm', onclick: stop(() => { giveOrder(f, null); toast(`${f.gen.name} חוזר לפיקוד המטה`); }) }, '✕ בטל פקודה'));
+    // חילוץ כוח מכותר
+    if (pocketed(f)) for (const [mode, l] of [['air', '✈ חילוץ אווירי'], ['sea', '⚓ חילוץ ימי']]) {
+      const c = extractCheck(f, mode);
+      acts.push(h('button', { class: 'btn sm ' + (c.ok ? 'pri' : ''), onclick: stop(() => { const r = extractFront(f, mode); if (!r.ok) toast(r.reason, 'bad'); }) }, `${l}${c.gold ? ` · ${c.gold}💰` : ''}`));
+    }
   }
   acts.push(h('button', { class: 'btn sm', onclick: stop(() => { disbandFront(f); toast(f.solo ? `${f.gen.name} חוזרת למחנה` : `${f.gen.name} שוחרר — האוגדות חוזרות למחנות`); }) }, f.solo ? '↩ למחנה' : '✕ שחרר'));
   return acts;
 }
-function assignToOp(f, op) { const old = S.ops.find(o => o.id === f.op); if (old) old.gens = old.gens.filter(id => id !== f.id); if (!op.gens.includes(f.id)) op.gens.push(f.id); f.role = 'attack'; f.op = op.id; f.target = null; f.defend = null; }
+function assignToOp(f, op) { f.order = null; f.holdTile = null; const old = S.ops.find(o => o.id === f.op); if (old) old.gens = old.gens.filter(id => id !== f.id); if (!op.gens.includes(f.id)) op.gens.push(f.id); f.role = 'attack'; f.op = op.id; f.target = null; f.defend = null; }
 const opName = op => op.target >= 0 ? nm(op.target) : 'התפשטות';
 const OBJ_IC = { encircle: '⭕ כיתור', capital: '★ בירה', city: '🏙', factory: '🏭', airport: '✈', port: '⚓', camp: '⛺', university: '🎓', land: '🌾', custom: '🎯' };
 function frontsTab() {
   const land = landGenerals(0), defs = land.filter(f => f.role !== 'attack'), fleets = S.fronts.filter(f => f.n === 0 && f.kind === 'navy'), ops = S.ops.filter(o => o.n === 0), full = land.length >= maxGenerals(0);
   const newGen = (role, op) => { const f = createFront(0, role); if (!f) return toast('הגעת למספר הגנרלים המרבי', 'bad'); if (op) assignToOp(f, op); allocateDivisions(0); planDefense(0); ui.selFront = f.id; toast(`מונה ${f.gen.name} (${TRAITS[f.gen.trait].name})`, 'good'); render(); };
   return [
-    watch(() => landGenerals(0).length + ':' + maxGenerals(0) + ':' + S.fronts.filter(f => f.n === 0).map(f => f.id + f.role + (f.op ?? '')).join() + ':' + S.ops.filter(o => o.n === 0).map(o => o.id + '/' + (o.main?.tile ?? '') + '/' + o.state + '/' + o.gens.length).join()),
+    watch(() => landGenerals(0).length + ':' + maxGenerals(0) + ':' + S.fronts.filter(f => f.n === 0).map(f => f.id + f.role + (f.op ?? '') + (f.order || '') + (f.kind === 'land' && f.supply === 'cut' ? 'c' : '')).join() + ':' + S.ops.filter(o => o.n === 0).map(o => o.id + '/' + (o.main?.tile ?? '') + '/' + o.state + '/' + o.gens.length).join()),
     h('h3', {}, h('span', {}, 'גנרלים ', h('span', { dir: 'ltr' }, `${land.length}/${maxGenerals(0)}`)), h('button', { class: 'btn sm', onclick: openOpHelp }, '❓ איך זה עובד')),
     h('h3', {}, '🛡 הגנה', h('button', { class: 'btn sm pri', live: el => el.disabled = landGenerals(0).length >= maxGenerals(0), onclick: () => newGen('defend') }, '+ גנרל')),
     defs.length ? null : h('div', { class: 'dim' }, 'בשלום — במחנות. במלחמה — על הגבול מול האויב, ליד ביצורים ומבנים חשובים.'),
@@ -239,6 +248,8 @@ function openOpHelp() {
     h('li', {}, '📦 אספקה ולוגיסטיקה: התגבור נוסע ברשת הכבישים והמסילות בין המבנים שלך עד נקודת האיסוף הקרובה לגנרל, ומשם אליו. אספקת הגנרל תלויה במרחק שלו מהרשת: רחוק ממנה — כיבוש איטי, מורל שמתאושש לאט ועצירה מוקדמת. כביש שעובר בשטח שהאויב כבש נחתך. שיירה ליד צבא אויב נופלת למארב (אלא אם צבא שלך מלווה אותה), וכנף אוויר של האויב תוקפת שיירות ליד שדה התעופה שלה.'),
     h('li', {}, 'מורל: יורד בקרב ומתאושש עם אספקה. מתחת ל-15% הגנרל נסוג להתארגן וחוזר מעל 70%.'),
     h('li', {}, 'כניעה: אומה שאיבדה את הבירה וחצי מהמבנים החשובים (או שני שלישים מהשטח) — נכנעת, וכל השטח שלה מסופח לאויביה.'),
+    h('li', {}, 'פקודות לגנרל: 🛡 החזק — נשאר ונלחם (+25% הגנה, לא נסוג מוקדם). ⏪ עכב — מגן, וכשהמורל יורד נסוג צעד לעומק. 🏃 סגת — חוזר לבסיס בעורף. גנרל עם פקודה יוצא מהמבצע עד שתבטל אותה.'),
+    h('li', {}, 'חילוץ כוח מכותר: ✈ באוויר משדה תעופה (מהיר, הטנקים והתותחים ננטשים) או ⚓ בים לנמל (הכול נכנס, אבל לאט וחשוף לצי האויב). עולה זהב ויש זמן המתנה.'),
     h('li', {}, 'כיס: שטח מנותק שמוקף אויבים ואין בו גנרל או מחנה עם אוגדה — נופל בבת אחת. כיס שמוחזק בכוח נאכל לאט מהשוליים.'),
     h('li', {}, `מד איום: כל כיבוש מעלה אותו, ובשלום הוא יורד. מעל ${CFG.THREAT_COAL} השכנים מתאחדים נגדך בקואליציה, ומעל ${CFG.THREAT_ALLY_LEAVE} גם בעלי הברית עוזבים. חל על כולם — גם עליך.`),
     h('li', {}, 'מוניטין: הפרת הסכם, ביטול ברית ומתקפת פתע פוגעים בו; הסכמים שנשמרים בונים אמון. במוניטין נמוך אף אחד לא יחתום איתך.'),

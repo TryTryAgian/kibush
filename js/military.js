@@ -538,7 +538,7 @@ function tileDefense(j, auras) {
   for (const g of S.fronts) if (g.n === o && g.kind === 'land' && hyp(g.pos[0] - x, g.pos[1] - y) <= 3) { d += Math.min(10, frontPower(g, 'def') * 0.05); break; }
   return d;
 }
-function fortBonus(f) { const [x, y] = f.pos; return fortressAuras(f.n).some(a => { const [ax, ay] = XY(a.i); return Math.max(Math.abs(ax - x), Math.abs(ay - y)) / G <= a.r; }) ? 1.5 * mod(S.nations[f.n], 'fort') : 1; }
+function fortBonus(f) { const [x, y] = f.pos, dig = f.order === 'hold' ? 1.25 : f.order === 'delay' ? 1.1 : 1; return dig * (fortressAuras(f.n).some(a => { const [ax, ay] = XY(a.i); return Math.max(Math.abs(ax - x), Math.abs(ay - y)) / G <= a.r; }) ? 1.5 * mod(S.nations[f.n], 'fort') : 1); }
 function frontPower(f, kind) {
   const n = S.nations[f.n], tr = TRAITS[f.gen.trait]; let p = 0;
   for (const t of UKEYS) if (f.units[t]) p += f.units[t] * UNITS[t][kind] * mod(n, t + '_' + kind);
@@ -644,12 +644,13 @@ function updateFront(f, dt) {
   if (f.org == null) f.org = 1;
   if (f.engaged) f.org = Math.max(0, f.org - CFG.ORG_LOSS * dt * enemyAtk / (frontPower(f, 'def') + enemyAtk + 1) * 2);
   else f.org = clamp(f.org + CFG.ORG_REGEN * mod(S.nations[nid], 'org') * dt * (f.supply === 'ok' ? 0.3 + 0.7 * (f.supLvl ?? 1) : f.supply === 'cut' ? -0.3 : 0.5), 0, 1);   // אספקה חלשה = התאוששות איטית
-  if (!f.retreating && cnt && f.org < CFG.RETREAT_ORG) {
+  if (!f.retreating && cnt && f.org < CFG.RETREAT_ORG * (f.order === 'hold' ? 0.5 : 1)) {
     f.retreating = true; f.target = null; f.zone = []; f.prog = {}; f.path = null; f.defend = retreatTile(f);
     if (nid === 0) toast(`↩ ${f.gen.name} נסוג להתארגנות (מורל ${Math.round(f.org * 100)}%)`, 'bad');
     if (typeof floatText === 'function') floatText(f.pos[0] + 0.5, f.pos[1] + 0.5, '↩ נסוג', '#ffb070');
   }
   if (f.retreating && f.org >= CFG.RESUME_ORG) { f.retreating = false; f.retarget = true; if (nid === 0) toast(`💪 ${f.gen.name} התארגן וחוזר לפעולה`, 'good'); }
+  if (f.order && !f.solo && handleOrder(f, dt)) return;
   let goal, near;
   if (f.target != null) {
     // היעד נכבש — ההתקדמות על שאר משבצות החזית נשמרת (computeZone מוחק רק משבצות שיצאו מהאזור)
@@ -737,6 +738,66 @@ function setAxis(f, i) {
   op.objectives = [op.main, ...op.subs].filter(Boolean);
   op.state = 'exec'; f.retarget = true; f.consol = null; f.planHold = false;
   return { ok: true, op };
+}
+// פקודות לגנרל (בהשראת Ebbtide): החזק / עכב / סגת. גנרל עם פקודה יוצא מהמבצע ומההגנה האוטומטית
+const ORDER_NAMES = { hold: '🛡 מחזיק עמדה', delay: '⏪ מעכב', withdraw: '🏃 נסוג לעורף' };
+function giveOrder(f, ord) {
+  if (!ord) { f.order = null; f.holdTile = null; f.wdDest = null; f.seaExtract = false; f.retarget = true; if (f.n === 0) planDefense(0); return; }
+  const op = S.ops.find(o => o.id === f.op); if (op) op.gens = op.gens.filter(id => id !== f.id);
+  const here = tileOf(...f.pos);
+  Object.assign(f, { order: ord, role: 'defend', op: null, opRole: null, target: null, zone: [], prog: {}, plan: null, planHold: false, path: null, orderT: S.time,
+    holdTile: S.owner[here] === f.n ? here : nearestOwn(f.n, ...f.pos, false) ?? here, wdDest: ord === 'withdraw' ? retreatTile(f) : null });
+}
+function handleOrder(f, dt) {
+  if (f.retreating) return false;
+  const nid = f.n; f.target = null; f.zone = [];
+  if (f.order === 'withdraw') {
+    const dest = f.wdDest ?? retreatTile(f), [dx, dy] = XY(dest);
+    if (hyp(dx - f.pos[0], dy - f.pos[1]) < 0.6) { f.order = null; f.seaExtract = false; f.defend = dest; f.retarget = true; if (nid === 0) toast(`🏃 ${f.gen.name} הגיע לעורף`, 'good'); return true; }
+    if (!moveAlong(f, dest, dt, { sea: true, hostile: true, embarkAny: true })) { f.status = '⛔ אין דרך חזרה — שקול חילוץ'; return true; }
+    f.status = f.seaExtract ? '⚓ חילוץ ימי' : ORDER_NAMES.withdraw; return true;
+  }
+  // עיכוב: כשהמורל יורד בקרב — נסוג צעד אחד לעומק ומגן שוב (מוכר שטח תמורת זמן, בלי להישבר)
+  if (f.order === 'delay' && f.engaged && f.org < 0.8 && S.time > (f.delayT || 0)) {
+    f.delayT = S.time + 3; const [rx, ry] = XY(retreatTile(f)), L = hyp(rx - f.pos[0], ry - f.pos[1]);
+    if (L > 1) { const k = Math.min(1, 2.5 / L), t = nearestOwn(nid, f.pos[0] + (rx - f.pos[0]) * k, f.pos[1] + (ry - f.pos[1]) * k, true); if (t != null) { f.holdTile = t; if (typeof floatText === 'function') floatText(f.pos[0] + 0.5, f.pos[1] - 0.5, '⏪ נסוג לקו הבא', '#ffd84a'); } }
+  }
+  const [hx, hy] = XY(f.holdTile ?? tileOf(...f.pos)), d = Math.hypot(hx - f.pos[0], hy - f.pos[1]);
+  f.defend = f.holdTile;
+  if (d > 0.3 * G) { if (!moveAlong(f, f.holdTile, dt, { sea: true, hostile: true })) f.status = 'אין דרך לעמדה'; else f.status = f.order === 'delay' ? '⏪ נע לקו העיכוב הבא' : '➡ נע לעמדה'; return true; }
+  f.path = null;
+  f.status = ORDER_NAMES[f.order] + (f.engaged ? ' — בקרב' : '');
+  return true;
+}
+// חילוץ כוח מכותר (בהשראת Ebbtide): באוויר — מהיר, אבל הכלים הכבדים ננטשים; בים — הכול נכנס, אבל לאט ומסוכן
+const pocketed = f => f.kind === 'land' && !f.flying && unitCount(f.units) > 0 && (inPocket(f) || f.supply === 'cut');
+function extractCheck(f, mode) {
+  const n = S.nations[f.n], m = mainComp(f.n), u = unitCount(f.units);
+  if (!pocketed(f)) return { ok: false, reason: 'חילוץ אפשרי רק לכוח מכותר' };
+  if ((n.extractReady || 0) > S.time) return { ok: false, reason: `החילוץ הבא אפשרי בעוד ${Math.ceil(n.extractReady - S.time)} ימים` };
+  const gold = mode === 'air' ? CFG.EXTRACT_AIR_GOLD + 2 * u : CFG.EXTRACT_SEA_GOLD + u;
+  let best = null, bd = Infinity;
+  eachBuilding((b, j) => { if (b.n === f.n && done(b) && b.type === (mode === 'air' ? 'airport' : 'port') && m[j]) { const d = hyp(f.pos[0] - j % W, f.pos[1] - ((j / W) | 0)); if (d < bd) { bd = d; best = j; } } });
+  if (best == null) return { ok: false, reason: mode === 'air' ? 'צריך שדה תעופה בשטח המרכזי' : 'צריך נמל בשטח המרכזי' };
+  if (mode === 'air' && bd > CFG.EXTRACT_RANGE) return { ok: false, reason: `שדה התעופה רחוק מדי (עד ${CFG.EXTRACT_RANGE})` };
+  if (mode === 'sea') { const [x0, y0] = f.pos.map(Math.round), R = Math.round(2.5 * G); let coast = false; for (let dy = -R; dy <= R && !coast; dy += 2) for (let dx = -R; dx <= R; dx += 2) { const x = x0 + dx, y = y0 + dy; if (x >= 0 && y >= 0 && x < W && y < H && isWater(idx(x, y))) { coast = true; break; } } if (!coast) return { ok: false, reason: 'הכוח לא ליד החוף' }; }
+  if (n.res.gold < gold) return { ok: false, reason: `צריך ${gold} זהב`, gold };
+  return { ok: true, dest: best, gold };
+}
+function extractFront(f, mode) {
+  const c = extractCheck(f, mode); if (!c.ok) return c;
+  const n = S.nations[f.n]; n.res.gold -= c.gold; n.extractReady = S.time + CFG.EXTRACT_CD;
+  const op = S.ops.find(o => o.id === f.op); if (op) op.gens = op.gens.filter(id => id !== f.id);
+  Object.assign(f, { op: null, opRole: null, role: 'defend', target: null, zone: [], prog: {}, retreating: false, plan: null });
+  if (mode === 'air') {
+    let lost = 0; for (const t of ['ltank', 'htank', 'art', 'aa']) { lost += f.units[t] || 0; f.units[t] = 0; }
+    Object.assign(f, { flying: true, extractFlight: true, order: null, path: straightPath(tileOf(...f.pos), c.dest), pathT: 0, dropTile: c.dest });
+    if (f.n === 0) toast(`✈ רכבת אווירית מחלצת את ${f.gen.name}${lost ? ` — ${lost} כלים כבדים ננטשו` : ''}`, 'good');
+  } else {
+    Object.assign(f, { order: 'withdraw', wdDest: c.dest, seaExtract: true, path: null });
+    if (f.n === 0) toast(`⚓ ספינות יוצאות לחלץ את ${f.gen.name} — היזהר מצי האויב`, 'good');
+  }
+  return { ok: true };
 }
 function cancelOp(op) { for (const id of op.gens) { const f = S.fronts.find(x => x.id === id); if (f) { f.role = 'defend'; f.op = null; f.target = null; f.plan = null; f.zone = []; f.opRole = null; f.consol = null; f.expGo = false; f.planHold = false; f.cellKey = null; } } S.ops = S.ops.filter(o => o !== op); }
 const OBJ_VAL = o => o.type === 'capital' ? 12 : o.type === 'encircle' ? 10 : KEY_VAL[o.type] || 0;
@@ -1138,6 +1199,12 @@ function updateFlight(f, dt) {
   if (!f.aaHit && aaThreat(f.n, ...f.pos, 3) >= 2) { f.aaHit = true; for (const t of UKEYS) f.units[t] = Math.floor(f.units[t] * 0.6); if (f.n === 0) toast('🪂 הגנה אווירית ירתה על המטוסים — חלק מהצנחנים אבדו', 'bad'); }
   if (f.pathT < f.path.total) return;
   f.flying = false; f.path = null;
+  if (f.extractFlight) {   // חילוץ אווירי הסתיים
+    f.extractFlight = false; f.defend = f.dropTile; f.target = null; f.retreating = false; f.org = Math.max(f.org ?? 0, 0.45);
+    if (f.n === 0) toast(`✈ ${f.gen.name} חולץ ונחת בשדה התעופה`, 'good');
+    if (typeof floatText === 'function') floatText(f.pos[0] + 0.5, f.pos[1] + 0.5, '✈ חולץ', '#7ad8ff');
+    return;
+  }
   const t = f.dropTile;
   if (validTarget(f.n, t) && unitCount(f.units)) captureTile(f.n, t);
   const tgt = nb4(t).find(k => validTarget(f.n, k) && S.buildings[k]) ?? null;

@@ -12,7 +12,7 @@ const MAPPAL = {
 };
 // רמות פירוט: סקירה (8 פיקסלים למשבצת, קנבס אחד) ופירוט (32 פיקסלים למשבצת, בחלקים של 8×8 משבצות שנוצרים לפי הצורך)
 // פיקסלים למשבצת: פירוט = 2 לכל יחידת עולם, סקירה = 0.5; חלק = 128 יחידות עולם
-const TP = { D: CFG.T * 2, O: CFG.T / 2, CH: 128 / CFG.T, MAX: 160, ZD: 2.2 };
+const TP = { D: CFG.T * 4, O: CFG.T / 2, CH: 128 / CFG.T, MAX: 110, ZD: 2.2 };
 const TERR = { chunks: new Map(), pal: null };
 // הכנה חד-פעמית לכל מפה: מרחק מהחוף, עיוות קווי חוף (חלק — אינטרפולציה בין פינות משבצות), גובה לקווי גובה, שדות
 function prepTerrain() {
@@ -86,7 +86,7 @@ function paintTerrain(tx0, ty0, tw, th, P) {
   const bil = (A, u, v) => { const x = clamp(Math.floor(u), 0, W - 1), y = clamp(Math.floor(v), 0, H - 1), fx = u - x, fy = v - y, k = y * CW + x; return (A[k] * (1 - fx) + A[k + 1] * fx) * (1 - fy) + (A[k + CW] * (1 - fx) + A[k + CW + 1] * fx) * fy; };
   const terAt = (gx, gy) => { const u = (gx + 0.5) / P, v = (gy + 0.5) / P; return clamp(Math.floor(u + bil(jx, u, v)), 0, W - 1) + clamp(Math.floor(v + bil(jy, u, v)), 0, H - 1) * W; };
   const isW = (gx, gy) => TER[S.terrain[terAt(gx, gy)]].water;
-  const FS = 12;   // גודל תא שדה (יחידות עולם)
+  const FS = 7;   // גודל תא שדה (יחידות עולם)
   for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) {
     const gx = OX + px, gy = OY + py, ti = terAt(gx, gy), t = farm[ti] ? GRASS : S.terrain[ti], r = hash01(gx, gy, seed + 7 + P), chk = (gx + gy) & 1;
     let col;
@@ -414,7 +414,7 @@ function drawBuilding(b, i, now) {
 // --- עיר: גוש בתים, רחובות, וכיכר בבירה. נשמר כתמונה לכל עיר ורמה ---
 const ROOFS = ['#c9b68c', '#b7a47c', '#a89670', '#d4c8a4', '#9c8c6c', '#bfae88', '#a07a60', '#8c6a54'];
 const TOWNC = new Map();
-const townRad = b => (5 + (b.lvl || 1) * 2.6) * 1.35 + (b.capital ? 3 : 0);
+const townRad = b => ((5 + (b.lvl || 1) * 2.6) * 1.35 + (b.capital ? 3 : 0)) * 1.3;
 function townArt(i, b) {
   const key = i + ':' + (b.lvl || 1) + ':' + (b.capital ? 1 : 0);
   if (TOWNC.has(key)) return TOWNC.get(key);

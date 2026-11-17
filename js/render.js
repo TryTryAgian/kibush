@@ -1,7 +1,7 @@
 'use strict';
 // ציור: מפה, ספרייטים, יחידות
 /* ---------- 12. RENDER ---------- */
-const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const cv = document.getElementById('cv'); let ctx = cv.getContext('2d');
 const terrainCv = document.createElement('canvas'), ownerCv = document.createElement('canvas'), railCv = document.createElement('canvas');
 const spriteCache = new Map();
 let iconURLs = null;
@@ -210,6 +210,7 @@ function draw() {
   const T = CFG.T, dpr = devicePixelRatio || 1, cam = view.cam, z = cam.zoom * dpr, now = performance.now();
   const fdt = Math.min(0.1, (now - (view.lastDraw || now)) / 1000); view.lastDraw = now;
   view.lk = clamp(2.6 / cam.zoom, 0.4, 1);   // תוויות לא גדלות בלי סוף בזום
+  if (g3Update()) { draw3D(now, fdt); drawOverlay3(now, fdt); return; }   // זום קרוב: תלת-ממד
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0b1018'; ctx.fillRect(0, 0, cv.width, cv.height);
   ctx.setTransform(z, 0, 0, z, -cam.x * z, -cam.y * z); ctx.imageSmoothingEnabled = false;
   // האזור הנראה (יחידות עולם) — מציירים רק מה שבתוכו
