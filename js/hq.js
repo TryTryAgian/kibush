@@ -6,7 +6,8 @@
 //         נסיגה מפני כיתור; מעבר למתקפת נגד כשהתוקף נעצר.
 /* ---------- HQ ---------- */
 const enemiesOf = nid => S.nations.filter(m => m.alive && atWar(nid, m.id)).map(m => m.id);
-const armiesNear = (pred, x, y, r) => S.fronts.filter(g => g.kind === 'land' && !g.flying && unitCount(g.units) && pred(g) && hyp(g.pos[0] - x, g.pos[1] - y) <= r);
+let HQV = null;   // מי מסתכל עכשיו (ערפל מלחמה): המטה רואה רק צבאות שבטווח הראייה שלו
+const armiesNear = (pred, x, y, r) => S.fronts.filter(g => g.kind === 'land' && !g.flying && unitCount(g.units) && pred(g) && hyp(g.pos[0] - x, g.pos[1] - y) <= r && (HQV == null || seesFront(HQV, g)));
 const powNear = (pred, x, y, r, kind) => armiesNear(pred, x, y, r).reduce((a, g) => a + frontPower(g, kind), 0);
 const persOf = nid => PERS[S.nations[nid].pers] || PERS.aggr;
 // מרחק BFS ביבשה בלבד ממקורות
@@ -25,6 +26,7 @@ function capitalOf(nid) { let c = null; eachBuilding((b, j) => { if (b.n === nid
 
 // --- סריקת גזרות: הגבול עם כל אויב מחולק לריבועים של SECTOR_W ---
 function sectorScan(nid) {
+  HQV = nid;
   const en = enemiesOf(nid); if (!en.length) return [];
   const SW = CFG.SECTOR_W, cells = new Map();
   for (let i = 0; i < S.owner.length; i++) {
@@ -130,7 +132,7 @@ function defenseZones(nid, en, sectors, defs) {
   const holders = new Set(defs), others = g => g.n === nid && !holders.has(g);
   const zones = sectors.map(s => { const [x, y] = XY(s.tile); return { ...s, kind: 'border', other: powNear(others, x, y, CFG.THREAT_R, 'def') + garrisonPow(nid, x, y, CFG.THREAT_R) }; });
   for (const e of S.fronts) {
-    if (e.kind !== 'land' || !en.includes(e.n) || !unitCount(e.units) || e.flying) continue;
+    if (e.kind !== 'land' || !en.includes(e.n) || !unitCount(e.units) || e.flying || !seesFront(nid, e)) continue;
     const et = tileOf(...e.pos); if (S.owner[et] !== nid && S.core[et] !== nid) continue;
     const near = zones.find(z => z.kind === 'incursion' && dist(z.tile, et) <= 4);
     if (near) { near.threat += frontPower(e, 'atk'); continue; }
@@ -196,6 +198,7 @@ function beltTile(nid, at, depth, ef) {
 }
 function ownShare(nid, x, y, r = 3 * G) { let o = 0, t = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const xx = Math.round(x) + dx, yy = Math.round(y) + dy; if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue; const j = idx(xx, yy); if (isWater(j)) continue; t++; if (S.owner[j] === nid) o++; } return t ? o / t : 1; }
 function planDefense(nid) {
+  HQV = nid;
   const n = S.nations[nid];
   const defs = S.fronts.filter(f => f.n === nid && f.kind === 'land' && f.role === 'defend' && !f.retreating && !f.solo && !f.airborne && !f.order); if (!defs.length) return;
   const en = enemiesOf(nid);
@@ -258,7 +261,7 @@ function strike(nid, reserve, k, ranked, en, ef, mobile) {
   const cores = {}, rp = frontPower(reserve, 'atk');
   let best = null, bs = -Infinity;
   if (unitCount(reserve.units) && reserve.org > 0.5) for (const e of S.fronts) {
-    if (e.kind !== 'land' || !en.includes(e.n) || !unitCount(e.units) || e.flying) continue;
+    if (e.kind !== 'land' || !en.includes(e.n) || !unitCount(e.units) || e.flying || !seesFront(nid, e)) continue;
     const et = tileOf(...e.pos); if (S.core[et] !== nid && S.owner[et] !== nid) continue;   // רק צבאות שחדרו לשטח שלנו
     const cf = cores[e.n] || (cores[e.n] = coreField(e.n)), depth = cf[et] < 0 ? 99 : cf[et] / G;
     const d = hyp(e.pos[0] - reserve.pos[0], e.pos[1] - reserve.pos[1]); if (d > CFG.RES_RANGE) continue;

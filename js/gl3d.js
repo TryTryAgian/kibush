@@ -439,7 +439,7 @@ function g3GroundTexture(now) {
     if (ui.pick?.kind === 'build' && view.hintCv) ctx.drawImage(view.hintCv, 0, 0, W * T, H * T);
     for (const f of S.fronts) if (f.kind === 'land' && f.zone?.length) { const col = S.nations[f.n].color; for (const j of f.zone) { const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K)); ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); } ctx.globalAlpha = 1; }
     for (const d of DECALS) { if (d.x < fp.x0 - 20 || d.x > fp.x1 + 20 || d.y < fp.y0 - 20 || d.y > fp.y1 + 20) continue; const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r); g.addColorStop(0, 'rgba(18,14,10,.6)'); g.addColorStop(0.6, 'rgba(30,24,16,.35)'); g.addColorStop(1, 'rgba(40,32,20,0)'); ctx.fillStyle = g; ctx.fillRect(d.x - d.r, d.y - d.r, d.r * 2, d.r * 2); }
-    drawPasses(ctx, null);
+    drawPasses(ctx, null); drawFog(ctx);
     for (const op of S.ops) if (op.n === 0) for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2, r = o.main ? 12 : 7; ctx.strokeStyle = o.main || o.custom ? '#ffd84a' : o.type === 'encircle' ? '#ff9a3c' : '#ff4f6a'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.stroke(); }
     if (ui.sel != null) { const [x, y] = XY(ui.sel); ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 1; ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   } finally { ctx = main; }
@@ -505,8 +505,8 @@ function g3Scene(now) {
   }
   for (const c of S.convoys) { const [x, y] = pathPos(c.path, c.t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [nx, ny] = pathPos(c.path, Math.min(c.path.total, c.t + 0.3)), a = Math.atan2(ny - y, nx - x);
     if (c.mode === 'air') add('plane', c.n, wx, wy, a, 1.4, 18); else if (isWater(tileOf(x, y))) add('ship', c.n, wx, wy, a, 0.9, 0.1, true); else add('truck', c.n, wx, wy, a, 0.8); }
-  for (const c of TRADE.caravans || []) for (let k = 0; k < c.cars; k++) { const t = clamp(c.t - c.dir * k * 1.1 * ROAD_COST, 0, c.path.total), [x, y] = pathPos(c.path, t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(c.path, clamp(t + c.dir * 0.5 * ROAD_COST, 0, c.path.total)), [x1, y1] = pathPos(c.path, clamp(t - c.dir * 0.5 * ROAD_COST, 0, c.path.total)); add('cargo', c.n, wx, wy, Math.atan2(y2 - y1, x2 - x1), 0.9); }
-  for (const s of TRADE.ships || []) { const [x, y] = pathPos(s.path, s.t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(s.path, clamp(s.t + s.dir * 0.4, 0, s.path.total)); add('ship', s.n, wx, wy, Math.atan2(y2 - y, x2 - x), s.len / 9, 0.1, true); }
+  for (const c of TRADE.caravans || []) for (let k = 0; k < c.cars; k++) { const t = clamp(c.t - c.dir * k * 1.1 * ROAD_COST, 0, c.path.total), [x, y] = pathPos(c.path, t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy) || fogHide(c.n, x, y)) continue; const [x2, y2] = pathPos(c.path, clamp(t + c.dir * 0.5 * ROAD_COST, 0, c.path.total)), [x1, y1] = pathPos(c.path, clamp(t - c.dir * 0.5 * ROAD_COST, 0, c.path.total)); add('cargo', c.n, wx, wy, Math.atan2(y2 - y1, x2 - x1), 0.9); }
+  for (const s of TRADE.ships || []) { const [x, y] = pathPos(s.path, s.t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy) || fogHide(s.n, x, y)) continue; const [x2, y2] = pathPos(s.path, clamp(s.t + s.dir * 0.4, 0, s.path.total)); add('ship', s.n, wx, wy, Math.atan2(y2 - y, x2 - x), s.len / 9, 0.1, true); }
   for (const r of S.rails) { for (let k = 0; k < 4; k++) { const t = clamp(r.t - r.dir * k * 0.6 * RAIL_COST, 0, r.path.total), [x, y] = pathPos(r.path, t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(r.path, clamp(t + r.dir * 0.3 * RAIL_COST, 0, r.path.total)), [x1, y1] = pathPos(r.path, clamp(t - r.dir * 0.3 * RAIL_COST, 0, r.path.total)); add(k ? 'wagon' : 'loco', r.n, wx, wy, Math.atan2(y2 - y1, x2 - x1), 1, 0.3); } }
   eachBuilding((b, i) => { if (b.type !== 'airport' || !done(b)) return; const [x, y] = XY(i), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) return; add('plane', b.n, wx - 1.8, wy + 7.4, -Math.PI / 2, 1, 0.9); add('plane', b.n, wx + 6, wy - 1.6, 0, 0.95, 0.9); });
   for (const w of WRECKS) if (w.tank) { const k = 'wreck:x'; let g = groups.get(k); if (!g) groups.set(k, g = { t: 'wreck', n: -1, a: [] }); g.a.push(w.x, w.y, g3H(w.x, w.y), w.ang || 0, 0.8, 1, 1, 1); }
@@ -519,7 +519,7 @@ function draw3D(now, fdt) {
   if (glCv.width !== Wd || glCv.height !== Hd) { glCv.width = Wd; glCv.height = Hd; }
   g3Footprint();
   const zs = S.fronts.reduce((a, f) => a + (f.zone?.length ? f.zone[0] + f.zone.length * 7 + Math.round(Object.values(f.prog || {}).reduce((x, y) => x + y, 0) * 3) : 0), 0);
-  const sig = [OWNV, DECALS.length, ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty].join('|');
+  const sig = [OWNV, DECALS.length, ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty, fogOn() ? FOG.ver : 0].join('|');
   if (G3.gT === 0 || (sig !== G3.gSig && now - G3.gT > 400) || now - G3.gT > 4000) { G3.gSig = sig; g3GroundTexture(now); }
   const sun = sunState(), VP = camMatrix(), LVP = lightMatrix(sun, G3.fp), sc = g3Scene(now), trees = g3Trees(), lines = g3Fx(fdt, now), PL = g3Lights(sun);
   const passes = [['sh', G3.sh], ['lit', G3.lit]];

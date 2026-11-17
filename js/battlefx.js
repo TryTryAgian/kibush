@@ -63,7 +63,7 @@ function updateUnits(f, cx, cy, dt, now) {
     let da = want - u.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); u.ang += clamp(da, -turn, turn);
   }
   // ירי
-  if (!f.engaged || dt <= 0) return;
+  if ((!f.engaged && !f.bombXY) || dt <= 0) return;
   let foes = null;
   // ארטילריה: מטחים מסונכרנים כל ~3.5 שניות — כל הסוללות יורות יחד לאותו אזור
   v.volT = (v.volT ?? Math.random() * 3) - dt;
@@ -72,10 +72,12 @@ function updateUnits(f, cx, cy, dt, now) {
     v.volT = 3.2 + Math.random() * 0.8;
     foes = enemyPlatoonsNear(f, cx, cy, 40);
     let ax, ay;
-    if (foes.length) { const e = foes[(Math.random() * foes.length) | 0]; ax = e.x; ay = e.y; }
+    if (!f.engaged && f.bombXY) { ax = (f.bombXY[0] + 0.5) * CFG.T + (Math.random() - 0.5) * 14; ay = (f.bombXY[1] + 0.5) * CFG.T + (Math.random() - 0.5) * 14; }   // הפגזה מטווח: לפני המגע
+    else if (foes.length) { const e = foes[(Math.random() * foes.length) | 0]; ax = e.x; ay = e.y; }
     else if (f.zone?.length) { const [zx, zy] = XY(f.zone[(Math.random() * f.zone.length) | 0]); ax = (zx + 0.5) * CFG.T; ay = (zy + 0.5) * CFG.T; }
     if (ax != null) arts.forEach((u, n) => { for (let r = 0; r < 2; r++) DELAY.push({ t: n * 0.12 + r * 0.35, fn: () => { u.flash = performance.now(); if (SHOTS.length < 220) SHOTS.push({ x1: u.x, y1: u.y, x2: ax + (Math.random() - 0.5) * 7, y2: ay + (Math.random() - 0.5) * 7, t: 0, life: 1.1, kind: 'shell' }); } }); });
   }
+  if (!f.engaged) return;   // רק הארטילריה יורה מטווח
   for (const u of v.units) {
     if (u.t === 'art') continue;
     u.cd -= dt * (FIRE[u.t] || 1) * (0.6 + Math.random() * 0.8); if (u.cd > 0) continue; u.cd = 1;

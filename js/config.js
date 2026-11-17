@@ -32,6 +32,9 @@ const CFG = {
   PARA_RANGE: 12, PARA_CAP: 8, PARA_COOLDOWN: 15,   // הצנחה: טווח משדה תעופה, חיילים לכל שדה, ימי המתנה
   TRAIN_SPD: 2.5 * G,
   CARAVAN_SPD: 1 * G,
+  FOG_BORDER: 2, FOG_GEN: 4, FOG_NAVY: 4, FOG_AIRPORT: 7,   // ערפל מלחמה: טווחי ראייה ביחידות
+  RECON_AIR_GOLD: 50, RECON_GND_GOLD: 25, RECON_DAYS: 12, RECON_CD: 8,
+  ART_RANGE: 8,                  // ארטילריה: טווח הפגזה ביחידות (פי 2 מטווח המגע)
   TRADE_SHIP_SPD: 1 * G,         // ספינת סחר: משבצות ליום            // שיירת סחר (קוסמטית): משבצות ליום            // רכבת: משבצות ליום
   // --- נגד כדור שלג ---
   OCC_GOLD: 0.05 / (G * G),    // זהב ליום לכל משבצת כבושה (שאינה ליבה)

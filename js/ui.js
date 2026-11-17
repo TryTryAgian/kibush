@@ -219,8 +219,14 @@ function frontsTab() {
           op.main ? h('div', { class: 'uline' }, h('b', { style: { color: '#ffd84a' } }, '🎯 מטרה עיקרית'), h('span', { class: 'nm' }, (op.main.custom ? OBJ_IC.custom + ' ' : (OBJ_IC[op.main.type] || '') + ' ') + objName(op.main))) : null,
           subs.length ? h('div', { class: 'uline' }, h('span', { class: 'dim' }, 'מטרות משנה'), h('span', { class: 'nm row wrap' }, ...subs.slice(0, 8).map(o => h('span', { class: 'pill' + (o.type === 'encircle' ? ' war' : '') }, o.type === 'encircle' ? '⭕ כיתור' : OBJ_IC[o.type] || '•')), subs.length > 8 ? h('span', { class: 'dim' }, `+${subs.length - 8}`) : null)) : null);
       }, 'div', { style: { display: 'flex', flexDirection: 'column', gap: '3px' } }),
+      op.target >= 0 && fogOn() ? live(el => {   // מודיעין מהסיור האחרון
+        const it = op.intel, age = it ? Math.floor(S.time - it.t) : null, g = it?.weakGen != null ? S.fronts.find(f => f.id === it.weakGen) : null;
+        el.textContent = it ? `🔭 מודיעין (לפני ${age} ימים): ${it.armies} צבאות אויב ברצועה, כוח הגנה ~${it.power}${g ? ` · הנתיב החלש: של ${g.gen.name}` : ''}` : '🔭 עוד לא נעשה סיור — לא ידוע מה מחכה בציר';
+      }, 'div', { class: 'dim' }) : null,
       ...opGenerals(op).map(genCard),
       h('div', { class: 'row wrap' },
+        op.target >= 0 && fogOn() ? h('button', { class: 'btn sm', live: el => { const c = canRecon(op); el.disabled = !c.ok; el.title = c.ok ? 'חושף את ציר המבצע לכמה ימים' : c.why; el.textContent = `🔭 סיור ${bCount(0, 'airport') ? 'אווירי' : 'קרקעי'} (${reconCost(0)}💰)`; },
+          onclick: () => { const r = doRecon(op); if (!r.ok) return toast(r.why, 'bad'); toast(r.air ? '✈ מטוסי סיור צילמו את ציר המבצע' : '🔭 סיירים יצאו לאורך ציר המבצע', 'good'); render(); } }, '🔭 סיור') : null,
         h('button', { class: 'btn sm pri', live: el => el.disabled = landGenerals(0).length >= maxGenerals(0), onclick: () => newGen('attack', op) }, '+ גנרל חדש'),
         defs.length ? h('button', { class: 'btn sm', onclick: () => { assignToOp(defs[defs.length - 1], op); render(); } }, '↪ גנרל מההגנה') : null,
         h('button', { class: 'btn sm', onclick: () => { ui.pick = { kind: 'objective', op: op.id }; ui.tab = null; render(); } }, '🎯 יעד מהמפה'),
@@ -351,6 +357,7 @@ function openMenu() {
     h('button', { class: 'btn', onclick: () => { save(); toast('נשמר', 'good'); closeModal(); } }, '💾 שמירה'),
     h('button', { class: 'btn', onclick: openHelp }, '❓ איך משחקים'),
     prefToggle(),
+    soundControls(),
     h('button', { class: 'btn', onclick: () => { save(); closeModal(); showHome(); } }, '🏠 תפריט ראשי'),
     h('div', { class: 'dim' }, S.settings.map ? `מפה: ${FIXED_MAPS[S.settings.map].name}` : `מפה אקראית ${SIZES[S.settings.size][2]} · זרע ${S.seed}`),
     h('button', { class: 'btn', onclick: closeModal }, 'חזרה למשחק'));
@@ -398,7 +405,7 @@ function showEnd() {
 // ===================== מסך הבית =====================
 // ברקע: משחק הדגמה שבו כל האומות הן מחשב, והמצלמה משייטת לאט מעל המפה
 const DIFFS = { easy: ['קל', 'המחשב מרוויח פחות'], normal: ['רגיל', ''], hard: ['קשה', 'המחשב מרוויח יותר'] };
-let NG = { map: '', size: 'medium', ai: 3, diff: 'normal', seed: '', quick: false };
+let NG = { map: '', size: 'medium', ai: 3, diff: 'normal', seed: '', quick: false, fog: true };
 const hasSave = () => { try { const r = localStorage.getItem(CFG.SAVE_KEY); return !!r && JSON.parse(r).v === 8; } catch (e) { return false; } };
 function prefToggle() {
   return h('button', { class: 'btn' + (PREFS.night ? ' on' : ''), onclick: e => { PREFS.night = !PREFS.night; savePrefs(); e.currentTarget.classList.toggle('on', PREFS.night); e.currentTarget.textContent = (PREFS.night ? '🌙 מחזור יום/לילה: פעיל' : '☀ מחזור יום/לילה: כבוי'); } }, PREFS.night ? '🌙 מחזור יום/לילה: פעיל' : '☀ מחזור יום/לילה: כבוי');
@@ -434,15 +441,16 @@ function homeScreen() {
       h('h2', {}, 'משחק חדש'),
       h('div', { class: 'field' }, 'אורך משחק', h('div', { class: 'seg' }, [[false, '🏰 רגיל'], [true, '⚡ מהיר · 20–30 דק׳']].map(([v, l]) => h('button', { class: 'btn' + (NG.quick === v ? ' on' : ''), onclick: () => { NG.quick = v; if (v) NG.ai = Math.min(NG.ai, 3); render(); } }, l))), NG.quick ? h('span', { class: 'dim' }, `מפה קטנה, עד 3 יריבים, ניצחון ב-${CFG.QUICK_WIN * 100}% · דירוג בכוכבים לפי מהירות`) : null),
       h('div', { class: 'field' }, 'מפה', seg('map', [['', '🎲 אקראית'], ...Object.entries(FIXED_MAPS).map(([k, m]) => [k, '🗺 ' + m.name])])),
+      h('div', { class: 'field' }, 'ערפל מלחמה', h('div', { class: 'seg' }, [[true, '🌫 פעיל'], [false, '👁 כבוי']].map(([v, l]) => h('button', { class: 'btn' + (NG.fog === v ? ' on' : ''), onclick: () => { NG.fog = v; render(); } }, l))), h('span', { class: 'dim' }, 'רואים רק ליד הגבול, הגנרלים, הערים ושדות התעופה — וסיור מקדים')),
       NG.map || NG.quick ? null : h('div', { class: 'field' }, 'גודל מפה', seg('size', Object.entries(SIZES).map(([k, v]) => [k, `${v[2]} · ${v[0]}×${v[1]}`]))),
       h('div', { class: 'field' }, 'מספר יריבים', seg('ai', Array.from({ length: maxAI }, (_, i) => [i + 1, String(i + 1)]))),
       h('div', { class: 'field' }, 'רמת קושי', seg('diff', Object.entries(DIFFS).map(([k, v]) => [k, v[0]])), DIFFS[NG.diff][1] ? h('span', { class: 'dim' }, DIFFS[NG.diff][1]) : null),
       NG.map ? null : h('div', { class: 'field' }, 'זרע מפה (ריק = אקראי — אותו מספר = אותה מפה)', h('input', { inputmode: 'numeric', value: NG.seed, oninput: e => NG.seed = e.target.value })),
       h('div', { class: 'row' },
         h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה'),
-        h('button', { class: 'btn pri grow', onclick: () => startGame({ map: NG.map, size: NG.size, ai: NG.ai, diff: NG.diff, seed: parseInt(NG.seed) || 0, quick: NG.quick }) }, '⚔ התחל משחק'))));
+        h('button', { class: 'btn pri grow', onclick: () => startGame({ map: NG.map, size: NG.size, ai: NG.ai, diff: NG.diff, seed: parseInt(NG.seed) || 0, quick: NG.quick, fog: NG.fog }) }, '⚔ התחל משחק'))));
   }
-  if (page === 'settings') return h('div', { class: 'home' }, title, box(h('h2', {}, 'הגדרות'), prefToggle(), h('div', { class: 'dim' }, 'בלילה המפה מקבלת גוון כחול והערים נדלקות. אפשר לשנות גם מתוך התפריט במשחק.'), h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה')));
+  if (page === 'settings') return h('div', { class: 'home' }, title, box(h('h2', {}, 'הגדרות'), prefToggle(), soundControls(), h('div', { class: 'dim' }, 'בלילה המפה מקבלת גוון כחול והערים נדלקות. אפשר לשנות גם מתוך התפריט במשחק.'), h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה')));
   return h('div', { class: 'home' }, title, box(
     hasSave() ? h('button', { class: 'btn pri big', onclick: () => { ui.home = null; if (load()) { S.speed = 1; render(); toast(`ממשיכים מיום ${fl(S.time)}`); if (S.over) showEnd(); } else showHome('new'); } }, '▶ המשך משחק') : null,
     h('button', { class: 'btn big' + (hasSave() ? '' : ' pri'), onclick: () => { ui.home = 'new'; render(); } }, '⚔ משחק חדש'),

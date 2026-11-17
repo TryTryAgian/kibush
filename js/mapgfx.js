@@ -114,7 +114,9 @@ function paintTerrain(tx0, ty0, tw, th, P) {
     else col = C.snow;
     if (!TER[t].water) {   // גובה רציף: צבע לפי גובה, הצללה וקווי גובה שלא נקטעים בגבולות סוגי השטח
       const u = (gx + 0.5) / P, v = (gy + 0.5) / P, e = bil(hg, u, v), lit = bil(sh, u, v), dz = (r - 0.5) * 0.35;
-      if (t === HILLS || t === MOUNT || t === SNOW) col = e + dz < 2.6 ? C.hills : e + dz < 5.6 ? (e + dz < 4.2 ? C.mount : C.mountL) : C.snow;
+      // שלג = רק על פסגות (שטח שאי אפשר לעבור) — כך רואים מיד איפה המחסום. הרים: סלע, בהיר יותר בגובה
+      if (t === SNOW) col = e + dz < 3.4 ? C.mountL : C.snow;
+      else if (t === HILLS || t === MOUNT) col = e + dz < 2.6 ? C.hills : e + dz < 4.6 ? C.mount : C.mountL;
       else if (t !== SAND && e > 1.7) { const k = Math.min(0.55, (e - 1.7) / 1.6); col = col.map((v2, q) => v2 + (C.hills[q] - v2) * k); }
       col = col.map(v2 => v2 * lit);
       const step = 0.5, f = e / step, fr = f - Math.floor(f), lw = 0.06 * (P >= 16 ? 1 : 2.2);
@@ -586,6 +588,7 @@ function drawCaravans(vis) {
   const T = CFG.T;
   for (const c of TRADE.caravans) for (let k = c.cars - 1; k >= 0; k--) {
     const t = clamp(c.t - c.dir * k * 1.1 * ROAD_COST, 0, c.path.total), [x, y] = pathPos(c.path, t), X = x * T + T / 2, Y = y * T + T / 2;
+    if (fogHide(c.n, x, y)) continue;
     if (X < vis.x0 - 10 || X > vis.x1 + 10 || Y < vis.y0 - 10 || Y > vis.y1 + 10) continue;
     const [x2, y2] = pathPos(c.path, clamp(t + c.dir * 0.5 * ROAD_COST, 0, c.path.total)), [x1, y1] = pathPos(c.path, clamp(t - c.dir * 0.5 * ROAD_COST, 0, c.path.total)), a = Math.atan2(y2 - y1, x2 - x1);
     ctx.save(); ctx.translate(X, Y); ctx.rotate(a);
@@ -598,6 +601,7 @@ function drawTradeShips(vis) {
   const T = CFG.T;
   for (const s of TRADE.ships) {
     const [x, y] = pathPos(s.path, s.t), X = x * T + T / 2, Y = y * T + T / 2;
+    if (fogHide(s.n, x, y)) continue;
     if (X < vis.x0 - 20 || X > vis.x1 + 20 || Y < vis.y0 - 20 || Y > vis.y1 + 20) continue;
     const [x2, y2] = pathPos(s.path, clamp(s.t + s.dir * 0.4, 0, s.path.total)), ang = Math.atan2(y2 - y, x2 - x);
     if (view.cam.zoom < 0.5) { ctx.fillStyle = '#3e3e3c'; ctx.fillRect(X - 3, Y - 1.5, 6, 3); ctx.fillStyle = S.nations[s.n].color; ctx.fillRect(X - 1, Y - 1, 2, 2); continue; }

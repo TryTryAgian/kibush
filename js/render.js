@@ -229,7 +229,7 @@ function draw() {
   // ספינות מסחר: זזות לפי זמן המשחק (עוצרות בהשהיה)
   if (TRADE.last != null && TRADE.s === S) updateTrade(vTime() - TRADE.last); else { TRADE.ships = []; TRADE.caravans = []; }
   TRADE.last = vTime(); TRADE.s = S;
-  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis);
+  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawFog(ctx);
   if (ui.pick?.kind === 'build' && ui.hint) {   // סימון משבצות לבנייה: תמונה אחת (פיקסל למשבצת), נבנית רק כשהסימון משתנה
     if (!view.hintCv || view.hintSrc !== ui.hint) {
       const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), im = x.createImageData(W, H);

@@ -548,9 +548,9 @@ function frontPower(f, kind) {
   for (const t of UKEYS) if (f.units[t]) p += f.units[t] * UNITS[t][kind] * mod(n, t + '_' + kind);
   return p * (kind === 'atk' ? tr.atk || 1 : tr.def || 1) * (0.3 + 0.7 * (f.org ?? 1));
 }
-function dealDamage(att, def, dt) {
+function dealDamage(att, def, dt, pow) {
   const total = unitCount(def.units); if (!total) return;
-  const dmg = frontPower(att, 'atk') * CFG.COMBAT_K * dt, aa = att.units.aa * (UNITS.aa.antiAir || 0) * mod(S.nations[att.n], 'anti_air') * CFG.COMBAT_K * dt;
+  const dmg = (pow ?? frontPower(att, 'atk')) * CFG.COMBAT_K * dt, aa = pow != null ? 0 : att.units.aa * (UNITS.aa.antiAir || 0) * mod(S.nations[att.n], 'anti_air') * CFG.COMBAT_K * dt;
   const defMul = (TRAITS[def.gen.trait].def || 1) * (def.kind === 'land' ? fortBonus(def) : 1) * (def.supply === 'cut' ? 0.7 : 1);
   for (const t of UKEYS) {
     const c = def.units[t]; if (!c) continue;
@@ -579,7 +579,7 @@ function captureTile(nid, j) {
     }
   };
   take(j);
-  if (tgt < 0) for (const k of nb4(j)) if (!isWater(k) && S.owner[k] === -1) take(k);
+  if (tgt < 0) for (const k of nb4(j)) if (!isWater(k) && S.owner[k] === -1 && TER_CAP[S.terrain[k]] < 1.5) take(k);   // התפשטות מהירה רק במישור וביער — לא בהרים ובגבעות
 }
 // אזור החזית: כמה משבצות גבול סמוכות שהצבא לוחץ עליהן במקביל — הקו מתקדם כגל.
 // משבצות שמוקפות יותר בשטח שלנו מקבלות עדיפות — הקו מתיישר ולא נשארים "שיניים".
@@ -644,6 +644,17 @@ function updateFront(f, dt) {
   if (cnt) for (const g of foes) { dealDamage(f, g, dt / nf); enemyPow += frontPower(g, 'def') * fortBonus(g); enemyAtk += frontPower(g, 'atk'); }
   for (const g of gar) { dealDamage(f, g, dt / nf); dealDamage(g, f, dt); enemyPow += frontPower(g, 'def') * fortBonus(g); enemyAtk += frontPower(g, 'atk'); }
   f.engaged = nf > 0 && cnt > 0;
+  // ארטילריה: מפגיזה צבא אויב בטווח עוד לפני המגע — רק כוח הארטילריה, והאויב לא מחזיר (חוץ מהארטילריה שלו, בתורו)
+  f.bombXY = null;
+  if (f.units.art && !f.retreating && !f.flying && cnt) {
+    let tg = null, td = Infinity;
+    for (const g of S.fronts) { if (g.kind !== 'land' || g.n === nid || !atWar(nid, g.n) || !unitCount(g.units) || g.flying) continue; const d = hyp(g.pos[0] - f.pos[0], g.pos[1] - f.pos[1]); if (d > CFG.ENGAGE_R && d <= CFG.ART_RANGE && d < td && seesFront(nid, g)) { td = d; tg = g; } }
+    if (tg && !f.engaged) {
+      const tr = TRAITS[f.gen.trait], ap = f.units.art * UNITS.art.atk * mod(S.nations[nid], 'art_atk') * (tr.atk || 1) * (0.3 + 0.7 * (f.org ?? 1)) * 0.7;
+      dealDamage(f, tg, dt, ap); tg.org = Math.max(0, (tg.org ?? 1) - CFG.ORG_LOSS * dt * 0.6 * ap / (frontPower(tg, 'def') + ap + 1));   // הפגזה מדכאת: מורל יורד
+      f.bombXY = [tg.pos[0], tg.pos[1]];
+    }
+  }
   // מורל: יורד בקרב (יותר מול אויב חזק), מתאושש עם אספקה; מתחת לסף — נסיגה להתארגנות במחנה
   if (f.org == null) f.org = 1;
   if (f.engaged) f.org = Math.max(0, f.org - CFG.ORG_LOSS * dt * enemyAtk / (frontPower(f, 'def') + enemyAtk + 1) * 2);
@@ -936,7 +947,7 @@ function planEncircle(op) {
   const gens = opGenerals(op).filter(f => unitCount(f.units) && !f.flying && !f.retreating && !f.consol); if (gens.length < 2) return;
   if (op.subs.some(o => o.type === 'encircle' && !objDone(op, o))) return;
   for (const e of S.fronts) {
-    if (e.n !== op.target || e.kind !== 'land' || e.flying || unitCount(e.units) < 4 || inPocket(e)) continue;
+    if (e.n !== op.target || e.kind !== 'land' || e.flying || unitCount(e.units) < 4 || inPocket(e) || !seesFront(op.n, e)) continue;
     const near = gens.slice().sort((a, b) => hyp(a.pos[0] - e.pos[0], a.pos[1] - e.pos[1]) - hyp(b.pos[0] - e.pos[0], b.pos[1] - e.pos[1]));
     if (hyp(near[0].pos[0] - e.pos[0], near[0].pos[1] - e.pos[1]) > 14) continue;
     const cut = findNeck(op, e); if (!cut || cut.length > 7 * G) continue;
@@ -961,7 +972,7 @@ function encircleTile(op, o, f) {
   const mineHalf = seq.slice(0, Math.ceil(seq.length / 2)).find(open_);
   return mineHalf ?? seq.find(open_) ?? null;
 }
-function enemyPowerNear(nid, tile, r) { const [x, y] = XY(tile); let p = 0; for (const g of S.fronts) if (g.kind === 'land' && atWar(nid, g.n) && hyp(g.pos[0] - x, g.pos[1] - y) <= r) p += frontPower(g, 'def'); return p; }
+function enemyPowerNear(nid, tile, r) { const [x, y] = XY(tile); let p = 0; for (const g of S.fronts) if (g.kind === 'land' && atWar(nid, g.n) && hyp(g.pos[0] - x, g.pos[1] - y) <= r && seesFront(nid, g)) p += frontPower(g, 'def'); return p; }
 // נתיבים ותפקידים: המאמץ העיקרי (החזק) על הציר עצמו, הקיבוע בנתיבים מקבילים משני הצדדים,
 // והדרג השני (מ-3 גנרלים) נוסע מאחורי המאמץ העיקרי עד שנפתחת פרצה
 function assignLanes(op, gens) {
@@ -1051,6 +1062,7 @@ function jumpOff(f) {
   return op?.laneJump?.[f.id] ?? op?.ax?.origin ?? tileOf(...f.pos);
 }
 function updateOp(op, dt) {
+  HQV = op.n;
   const nid = op.n;
   op.gens = op.gens.filter(id => S.fronts.some(f => f.id === id));
   if (op.target < 0) return updateExpand(op, dt);
@@ -1086,6 +1098,8 @@ function updateOp(op, dt) {
     if (had && nid === 0) toast(`✅ מבצע ${opName(op)}: המטרה העיקרית הושגה — ממשיכים אל ${objName(op.main)}`, 'good');
   }
   op.subT -= dt; if (op.subT <= 0) { op.subT = 2; refreshSubs(op); }
+  // המחשב מסייר: לפני היציאה, ואחר כך מדי פעם כשההתקפה נתקעת
+  if (S.nations[nid].isAI && fogOn() && op.ax && canRecon(op).ok && S.nations[nid].res.gold > 150 && (op.reconT == null || S.time - op.reconT > (S.time - (op.lastGain ?? S.time) > 6 ? 10 : 25))) doRecon(op);
   const exec_ = op.state === 'exec';
   op.encT -= dt; if (op.encT <= 0 && exec_) { planEncircle(op); op.encT = 2; }
   const act = gens.filter(f => !f.retreating);
@@ -1196,7 +1210,7 @@ function expandCells(op) {
     if (o[i] !== -1 || isWater(i) || S.terrain[i] === SNOW) continue;
     const [x, y] = XY(i), key = Math.floor(x / C) + ',' + Math.floor(y / C);
     let c = cells.get(key); if (!c) cells.set(key, c = { key, n: 0, front: [], tiles: [], cx: 0, cy: 0 });
-    c.n++; c.cx += x; c.cy += y; c.tiles.push(i);
+    c.n++; c.cx += x; c.cy += y; c.tiles.push(i); c.pen = (c.pen || 0) + Math.min(6, TER_PEN[S.terrain[i]]);
     if ((x > 0 && o[i - 1] === nid) || (x < W - 1 && o[i + 1] === nid) || o[i - W] === nid || o[i + W] === nid) c.front.push(i);
   }
   let out = [...cells.values()].filter(c => c.front.length);
@@ -1231,7 +1245,7 @@ function updateExpand(op, dt) {
       let best = null, bs = -1;
       for (const c of op.cells) {
         if ((f.badCells?.[c.key] || 0) > S.time) continue;
-        const d = hyp(c.cx - f.pos[0], c.cy - f.pos[1]), sc = Math.sqrt(c.n) / (1 + d / spd / 3) / (1 + (taken.get(c.key) || 0) * 2);
+        const d = hyp(c.cx - f.pos[0], c.cy - f.pos[1]), sc = Math.sqrt(c.n) / (1 + d / spd / 3) / (1 + (taken.get(c.key) || 0) * 2) / (1 + 1.5 * (c.pen || 0) / c.n);   // אזור הררי — בסוף התור
         if (sc > bs) { bs = sc; best = c; }
       }
       cell = best; f.cellKey = cell?.key ?? null; if (cell) taken.set(cell.key, (taken.get(cell.key) || 0) + 1);

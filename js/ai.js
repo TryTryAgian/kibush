@@ -9,6 +9,7 @@ function aiCampKind(n) {
   return ok.sort((a, b) => ((have[a] || 0) / (tot + 1) - w[a] / sw) - ((have[b] || 0) / (tot + 1) - w[b] / sw))[0] || 'inf';
 }
 function aiThink(n) {
+  HQV = typeof n === 'number' ? n : n.id;
   const nid = n.id, own = [];
   for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid) own.push(i);
   const wars = S.nations.filter(m => m.alive && atWar(nid, m.id));
@@ -82,7 +83,7 @@ function aiThink(n) {
   let nDef = !op ? all.length : wars.length ? Math.max(1, Math.round(all.length / 3), all.length >= 4 ? 2 : 1) : (all.length > 2 ? 1 : 0);
   if (op && wars.length && (n.hq?.risk || 0) > P.defFirst) nDef = Math.min(all.length - 1, Math.max(nDef, hot + 1));
   // לפחות חצי מהגנרלים תוקפים — בלי זה כולם מגינים ואף אחד לא מנצח (חוץ ממצב חירום: אויב חודר לשטח)
-  const breach = S.fronts.some(e => e.kind === 'land' && unitCount(e.units) && atWar(nid, e.n) && S.core[tileOf(...e.pos)] === nid && S.owner[tileOf(...e.pos)] !== nid);
+  const breach = S.fronts.some(e => e.kind === 'land' && unitCount(e.units) && atWar(nid, e.n) && seesFront(nid, e) && S.core[tileOf(...e.pos)] === nid && S.owner[tileOf(...e.pos)] !== nid);
   if (op && wars.length && !breach) nDef = Math.min(nDef, Math.ceil(all.length / 2));
   // התוקפים: הגנרלים הקרובים לנקודת המוצא של המבצע (עם העדפה קלה למי שכבר במבצע — שלא יתחלפו הלוך ושוב)
   const anchor = op?.ax?.origin, isAtk = new Set();
