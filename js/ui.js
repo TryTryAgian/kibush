@@ -13,7 +13,7 @@ function render() {
   if (ui.home) { liveFns = []; document.getElementById('ui').replaceChildren(homeScreen()); return; }
   const oldSheet = document.querySelector('.sheet'), sc = oldSheet && ui.lastTab === ui.tab ? oldSheet.scrollTop : 0;
   liveFns = [];
-  document.getElementById('ui').replaceChildren(topBar(), bottom());
+  document.getElementById('ui').replaceChildren(topBar(), bottom(), hudSide());
   const ns = document.querySelector('.sheet'); if (ns) ns.scrollTop = sc;
   ui.lastTab = ui.tab;
 }
@@ -147,7 +147,7 @@ function genCard(f) {
       live(el => { const u = unitCount(f.units), inT = S.convoys.filter(c => c.front === f.id).reduce((a, c) => a + c.cnt, 0); el.textContent = u + (inT ? `+${inT}` : ''); }, 'span', { class: 'gnum' }),
       f.kind === 'land' ? miniBar(() => f.org ?? 1, lvlCol) : null,
       f.kind === 'land' && !f.solo ? miniBar(() => f.supLvl ?? 1, lvlCol) : null,
-      live(el => { el.textContent = (f.supply && f.supply !== 'ok' ? '🔴 ' : '') + shortStatus(f); }, 'span', { class: 'gst dim' }),
+      live(el => { const e = genETA(f); el.textContent = (f.supply && f.supply !== 'ok' ? '🔴 ' : '') + shortStatus(f) + (e != null && e > 0.2 ? ` · ⏱ ${etaText(e)}` : ''); }, 'span', { class: 'gst dim' }),
       h('button', { class: 'btn xs', onclick: e => { e.stopPropagation(); centerOnXY(...f.pos); } }, '📍')),
     sel ? [
       f.kind === 'land' && !f.solo ? live(el => { el.textContent = f.order ? `פקודה ישירה · ${f.status}` + (f.order === 'withdraw' ? '' : ' · לחץ שוב כדי לבטל') : (f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (f.defRole !== 'reserve' && f.zoneKind === 'incursion' ? '🚨 הודף חדירה לשטח' : DEF_NAMES[f.defRole] || '') : '') + ' · ' + f.status + (f.op != null && f.planWhy && !f.planHold ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע למאמץ העיקרי', 'דחיפה': '➡ דוחף קדימה', 'ניצול': '⚡ ניצול לעומק', 'כיתור': '⭕ סוגר כיתור', 'התפשטות': '🌾 מתפשט' }[f.planWhy] || ''}` : ''); }, 'div', { class: 'role' }) : null,

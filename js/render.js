@@ -229,7 +229,7 @@ function draw() {
   // ספינות מסחר: זזות לפי זמן המשחק (עוצרות בהשהיה)
   if (TRADE.last != null && TRADE.s === S) updateTrade(vTime() - TRADE.last); else { TRADE.ships = []; TRADE.caravans = []; }
   TRADE.last = vTime(); TRADE.s = S;
-  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawFog(ctx);
+  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawMapMode(ctx); drawFog(ctx);
   if (ui.pick?.kind === 'build' && ui.hint) {   // סימון משבצות לבנייה: תמונה אחת (פיקסל למשבצת), נבנית רק כשהסימון משתנה
     if (!view.hintCv || view.hintSrc !== ui.hint) {
       const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), im = x.createImageData(W, H);
@@ -289,6 +289,7 @@ function draw() {
       ctx.moveTo(f.pos[0] * T + T / 2, f.pos[1] * T + T / 2);
       const c = f.path.cum; for (let k = 0; k < f.path.tiles.length; k++) if (c[k] > f.pathT) { const [x, y] = XY(f.path.tiles[k]); ctx.lineTo(x * T + T / 2, y * T + T / 2); }
       ctx.stroke(); ctx.setLineDash([]);
+      if (sel) drawETA(f);
     }
     if (sel && f.target != null) { const [tx, ty] = XY(f.target), cx = tx * T + T / 2, cy = ty * T + T / 2; ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.moveTo(cx - 7, cy); ctx.lineTo(cx - 3, cy); ctx.moveTo(cx + 3, cy); ctx.lineTo(cx + 7, cy); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx, cy - 3); ctx.moveTo(cx, cy + 3); ctx.lineTo(cx, cy + 7); ctx.stroke(); }
     const [px, py] = f.pos, X = px * T + T / 2 - 8, Y = py * T + T / 2 - 8;   // מסגרת 16×16 סביב מרכז המשבצת

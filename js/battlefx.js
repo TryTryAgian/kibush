@@ -238,15 +238,39 @@ function drawBattles(inVis, now) {
   }
 }
 // סימני מצב על סמל הגנרל: ! אדום = מנותק מאספקה, ! כתום = אספקה חלשה, ↩ = נסוג/חלש
+// סמלי מצב מעל הגנרל: פעילות (תוקף / מגן / בתנועה / מתארגן) ואזהרות (אספקה, נסיגה)
+function genActivity(f) {
+  if (f.kind !== 'land' || !unitCount(f.units)) return null;
+  if (f.engaged) return f.role === 'attack' || f.solo ? 'atk' : 'def';
+  if (f.retreating) return null;
+  if (f.path && f.pathT < f.path.total - 0.5) return 'mov';
+  if ((f.org ?? 1) < 0.35 || f.consol) return 'reorg';
+  return null;
+}
+const ACT_COL = { atk: '#ff6a4a', def: '#6ad08a', mov: '#5fe0ff', reorg: '#e8c83c' };
+function drawActGlyph(kind, f) {
+  ctx.strokeStyle = '#10141c'; ctx.fillStyle = '#10141c'; ctx.lineWidth = 0.55; ctx.lineCap = 'round'; ctx.beginPath();
+  if (kind === 'atk') { ctx.moveTo(-1.1, -1.1); ctx.lineTo(1.1, 1.1); ctx.moveTo(1.1, -1.1); ctx.lineTo(-1.1, 1.1); ctx.stroke(); }
+  else if (kind === 'def') { ctx.moveTo(-1.1, -1.2); ctx.lineTo(1.1, -1.2); ctx.lineTo(1.1, 0); ctx.quadraticCurveTo(1, 1, 0, 1.4); ctx.quadraticCurveTo(-1, 1, -1.1, 0); ctx.closePath(); ctx.fill(); }
+  else if (kind === 'mov') {
+    let dx = 1, dy = 0; const p = f.path; if (p) { const t = p.tiles[p.tiles.length - 1], [X, Y] = XY(t), l = Math.hypot(X - f.pos[0], Y - f.pos[1]); if (l > 0.01) { dx = (X - f.pos[0]) / l; dy = (Y - f.pos[1]) / l; } }
+    ctx.moveTo(-dx * 1.2, -dy * 1.2); ctx.lineTo(dx * 1.2, dy * 1.2); ctx.moveTo(dx * 1.2, dy * 1.2); ctx.lineTo(dx * 0.2 - dy * 0.8, dy * 0.2 + dx * 0.8); ctx.moveTo(dx * 1.2, dy * 1.2); ctx.lineTo(dx * 0.2 + dy * 0.8, dy * 0.2 - dx * 0.8); ctx.stroke();
+  }
+  else if (kind === 'reorg') { ctx.moveTo(-1, -1); ctx.lineTo(1, -1); ctx.lineTo(-1, 1); ctx.lineTo(1, 1); ctx.stroke(); }
+  ctx.lineCap = 'butt';
+}
 function drawStatusMarks(f, x, y, k) {
-  const marks = [];
+  const marks = [], act = genActivity(f);
+  if (act) marks.push([act, ACT_COL[act]]);
   if (f.kind === 'land' && f.supply === 'cut') marks.push(['!', '#ff4060']);
   else if (f.kind === 'land' && (f.supLvl ?? 1) < 0.6) marks.push(['!', '#ffa030']);
   if (f.retreating) marks.push(['↩', '#b0b8c8']);
   marks.forEach(([t, c], n) => {
     ctx.save(); ctx.translate(x - n * 4.2 * k, y); ctx.scale(k, k);
     ctx.fillStyle = c; ctx.beginPath(); ctx.arc(0, 0, 2.1, 0, 7); ctx.fill(); ctx.strokeStyle = 'rgba(10,12,18,.9)'; ctx.lineWidth = 0.5; ctx.stroke();
-    ctx.fillStyle = '#10141c'; ctx.font = 'bold 3.4px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 0, 0.2); ctx.restore();
+    if (ACT_COL[t]) drawActGlyph(t, f);
+    else { ctx.fillStyle = '#10141c'; ctx.font = 'bold 3.4px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(t, 0, 0.2); }
+    ctx.restore();
   });
 }
 

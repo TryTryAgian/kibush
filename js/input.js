@@ -127,6 +127,8 @@ addEventListener('keydown', e => {
   if (k === '+' || k === '=') { zoomAt(innerWidth / 2, innerHeight / 2, view.cam.zoom * 1.25); return; }
   if (k === '-' || k === '_') { zoomAt(innerWidth / 2, innerHeight / 2, view.cam.zoom / 1.25); return; }
   if (k === 'escape') { ui.pick = null; ui.sel = null; ui.selFront = null; ui.tab = null; AXDRAG = null; render(); return; }
+  if (k === 'm' || k === 'צ') { cycleMapMode(); return; }
+  if (k === 'o' || k === 'ם') { ui.outl = !ui.outl; PREFS.outl = ui.outl; savePrefs(); render(); return; }
   keys.add(k);
 });
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));

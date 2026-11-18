@@ -95,3 +95,32 @@ input{font:inherit;background:#0b121e;color:var(--txt);border:1px solid var(--li
   .sheet .grid{grid-template-columns:repeat(2,1fr)}
   .hud-bot>.row{max-width:900px;margin-inline:auto;width:100%}
 }
+
+/* ===== צד שמאל: מצבי מפה, מקרא, התראות, סקירת כוחות ===== */
+.hud-side{position:fixed;top:92px;inset-inline-end:6px;display:flex;flex-direction:column;gap:4px;align-items:flex-end;z-index:4;max-height:calc(100vh - 160px);pointer-events:none}
+.hud-side>*{pointer-events:auto}
+.mmbar{display:flex;gap:3px}
+.mmbar .btn{padding:3px 6px;font-size:14px;line-height:18px}
+.legend{padding:5px 8px;font-size:11px;display:flex;flex-direction:column;gap:2px;min-width:120px}
+.legend b{color:var(--acc);font-size:11px}
+.legend i{display:inline-block;width:10px;height:10px;margin-inline-end:5px;vertical-align:middle;border:1px solid rgba(0,0,0,.5)}
+.alerts{display:flex;gap:3px;flex-wrap:wrap;justify-content:flex-end;max-width:240px}
+.alerts:empty{display:none}
+.btn.alert{position:relative;width:32px;height:32px;font-size:16px;display:flex;align-items:center;justify-content:center;padding:0;clip-path:none}
+.btn.alert b{position:absolute;bottom:-1px;inset-inline-start:-1px;min-width:13px;height:13px;padding:0 2px;font-size:9px;line-height:13px;background:#10141c;border:1px solid var(--line);color:#fff;text-align:center}
+.btn.alert.bad{border-color:var(--red);background:linear-gradient(#5a1a2e,#3a1020);animation:apulse 1.2s ease-in-out infinite}
+.btn.alert.warn{border-color:#e8b820;background:linear-gradient(#4a3a14,#30260c)}
+@keyframes apulse{50%{box-shadow:0 0 10px rgba(224,72,88,.8)}}
+.outl{width:240px;padding:6px;overflow-y:auto;display:flex;flex-direction:column;gap:1px;font-size:12px;min-height:0}
+.ohead{display:flex;justify-content:space-between;align-items:center;color:var(--acc);font-weight:700;font-size:12px;letter-spacing:.05em;border-bottom:1px solid var(--line);padding-bottom:3px;margin-bottom:2px}
+.osub{display:flex;justify-content:space-between;gap:6px;margin-top:5px;padding:1px 2px;font-weight:700;font-size:11px;color:#cfe6f2;cursor:pointer;border-bottom:1px dashed #24364f}
+.osub .nm{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.oline{display:flex;align-items:center;gap:5px;padding:2px 4px;cursor:pointer;border:1px solid transparent}
+.oline:hover{background:rgba(95,224,255,.08)}
+.oline.sel{border-color:var(--acc);background:rgba(95,224,255,.1)}
+.oline .gic{width:16px;text-align:center;flex:none}
+.oline .nm{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.oline .gnum{flex:none;font-variant-numeric:tabular-nums;color:#cfe6f2;min-width:22px;text-align:end}
+.logl{font-size:12px;padding:2px 0;border-bottom:1px solid #1c2a40}
+.logl.bad{color:#ff9aa8}.logl.good{color:#9af0b0}
+@media (max-width: 899px){.hud-side{top:96px}.outl{width:190px;max-height:40vh}}

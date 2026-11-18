@@ -439,7 +439,7 @@ function g3GroundTexture(now) {
     if (ui.pick?.kind === 'build' && view.hintCv) ctx.drawImage(view.hintCv, 0, 0, W * T, H * T);
     for (const f of S.fronts) if (f.kind === 'land' && f.zone?.length) { const col = S.nations[f.n].color; for (const j of f.zone) { const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K)); ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); } ctx.globalAlpha = 1; }
     for (const d of DECALS) { if (d.x < fp.x0 - 20 || d.x > fp.x1 + 20 || d.y < fp.y0 - 20 || d.y > fp.y1 + 20) continue; const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r); g.addColorStop(0, 'rgba(18,14,10,.6)'); g.addColorStop(0.6, 'rgba(30,24,16,.35)'); g.addColorStop(1, 'rgba(40,32,20,0)'); ctx.fillStyle = g; ctx.fillRect(d.x - d.r, d.y - d.r, d.r * 2, d.r * 2); }
-    drawPasses(ctx, null); drawFog(ctx);
+    drawPasses(ctx, null); drawMapMode(ctx); drawFog(ctx);
     for (const op of S.ops) if (op.n === 0) for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2, r = o.main ? 12 : 7; ctx.strokeStyle = o.main || o.custom ? '#ffd84a' : o.type === 'encircle' ? '#ff9a3c' : '#ff4f6a'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.stroke(); }
     if (ui.sel != null) { const [x, y] = XY(ui.sel); ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 1; ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   } finally { ctx = main; }
@@ -519,7 +519,7 @@ function draw3D(now, fdt) {
   if (glCv.width !== Wd || glCv.height !== Hd) { glCv.width = Wd; glCv.height = Hd; }
   g3Footprint();
   const zs = S.fronts.reduce((a, f) => a + (f.zone?.length ? f.zone[0] + f.zone.length * 7 + Math.round(Object.values(f.prog || {}).reduce((x, y) => x + y, 0) * 3) : 0), 0);
-  const sig = [OWNV, DECALS.length, ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty, fogOn() ? FOG.ver : 0].join('|');
+  const sig = [OWNV, DECALS.length, ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty, fogOn() ? FOG.ver : 0, MM.mode, MM.ver].join('|');
   if (G3.gT === 0 || (sig !== G3.gSig && now - G3.gT > 400) || now - G3.gT > 4000) { G3.gSig = sig; g3GroundTexture(now); }
   const sun = sunState(), VP = camMatrix(), LVP = lightMatrix(sun, G3.fp), sc = g3Scene(now), trees = g3Trees(), lines = g3Fx(fdt, now), PL = g3Lights(sun);
   const passes = [['sh', G3.sh], ['lit', G3.lit]];
@@ -575,6 +575,7 @@ function drawOverlay3(now, fdt) {
     if (f.n !== 0 || !f.path || !(f.id === ui.selFront || cam.zoom > 1)) continue;
     ctx.strokeStyle = f.id === ui.selFront ? 'rgba(95,224,255,.9)' : 'rgba(95,224,255,.45)'; ctx.lineWidth = 0.8; ctx.setLineDash([2, 1.5]); ctx.beginPath(); ctx.moveTo(f.pos[0] * T + T / 2, f.pos[1] * T + T / 2);
     const c = f.path.cum; for (let k = 0; k < f.path.tiles.length; k++) if (c[k] > f.pathT) { const [x, y] = XY(f.path.tiles[k]); ctx.lineTo(x * T + T / 2, y * T + T / 2); } ctx.stroke(); ctx.setLineDash([]);
+    if (f.id === ui.selFront) { const t = f.path.tiles[f.path.tiles.length - 1], [x, y] = XY(t); g3Upright(x * T + T / 2, y * T + T / 2, 3); drawETA(f); g3GroundXf(); }
   }
   runDelayed(fdt);
   drawEncirclements(now, inVis); drawAxes(now);
