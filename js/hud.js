@@ -7,13 +7,13 @@ const MAP_MODES = [
   ['diplo', '🤝', 'יחסים', 'כל אומה בצבע היחסים שלה איתך'],
   ['terrain', '⛰', 'שטח', 'כמה קשה לנוע ולתקוף בכל משבצת'],
   ['supply', '📦', 'אספקה', 'רמת האספקה בשטח שלך'],
-  ['threat', '🎯', 'איום', 'הכוח שלך מול כוח האויב שאתה רואה'],
+  ['threat', '🎯', 'איום', 'הכוח שלך מול כוח האויב שאתה רואה או זוכר'],
 ];
 const MM_LEGEND = {
   diplo: [['#5fe0ff', 'אתה'], ['#5ad07a', 'בעלי ברית'], ['#e04858', 'מלחמה'], ['#e8c83c', 'אי-התקפה'], ['#508ce6', 'סחר'], ['#9696a0', 'שלום']],
   terrain: [['#5ab45a', 'מישור — קל'], ['#c8c84a', 'יער'], ['#e8963c', 'גבעות'], ['#d23c3c', 'הרים — קשה מאוד'], ['#f0f0fa', 'שלג — חוסם']],
   supply: [['#46c85a', 'אספקה מלאה'], ['#e8c83c', 'חלקית'], ['#e04040', 'כמעט אין']],
-  threat: [['#3c8cff', 'הכוח שלך'], ['#b45ab4', 'מגע'], ['#ff3c3c', 'כוח אויב נראה']],
+  threat: [['#3c8cff', 'הכוח שלך'], ['#b45ab4', 'מגע'], ['#ff3c3c', 'כוח אויב נראה'], ['#f0a0a0', 'אויב שנראה קודם (זיכרון)']],
 };
 const MM = { mode: 'normal', cv: null, sig: '', ver: 0, t: 0, cell: false };
 function setMapMode(m) { MM.mode = m; MM.sig = ''; MM.cv = null; MM.ver++; render(); }
@@ -53,15 +53,17 @@ function mmCanvas() {
     for (let i = 0; i < W * H; i++) {
       const o = S.owner[i], t = S.terrain[i]; if (TER[t].water || t === SNOW) continue;
       const k = ((i / W | 0) / G | 0) * cw + ((i % W) / G | 0); if (o !== 0 && !near[k]) continue;
-      let v = sup[k]; if (v < 0) { const cx = k % cw, cy = k / cw | 0; v = sup[k] = supplyAt(0, Math.min(H - 1, cy * G + (G >> 1)) * W + Math.min(W - 1, cx * G + (G >> 1))); }
+      let v = sup[k]; if (v < 0) { const cx = k % cw, cy = k / cw | 0; v = sup[k] = wsSupply(0, cx * G + G / 2, cy * G + G / 2); }
       put(i, v < 0.5 ? [224, Math.round(64 + v * 272), 60] : [Math.round(232 - (v - 0.5) * 324), 200, Math.round(60 + (v - 0.5) * 60)], o === 0 ? 150 : 95);
     }
   } else if (MM.mode === 'threat') {
-    const dd = WS.n[0]; if (dd) {
+    const dd = wsView(0); if (dd) {
       let mx = 1; for (let k = 0; k < dd.own.length; k++) mx = Math.max(mx, dd.own[k], dd.en[k]);
       for (let k = 0; k < dd.own.length; k++) {
         const o = dd.own[k], e = dd.en[k]; if (o + e < mx * 0.02) continue;
-        const r = e / (o + e); put(k, [Math.round(60 + 195 * r), Math.round(140 - 80 * r), Math.round(255 - 195 * r)], Math.round(40 + 150 * Math.min(1, (o + e) / (mx * 0.6))));
+        // אויב שרק זוכרים (לא רואים עכשיו) — אותו צבע, חיוור יותר
+        const r = e / (o + e), seen = e > 0 ? Math.min(1, dd.seen[k] / e) : 1, fade = 1 - r * (1 - seen) * 0.55;
+        put(k, [Math.round(60 + 195 * r), Math.round(140 - 80 * r), Math.round(255 - 195 * r)], Math.round((40 + 150 * Math.min(1, (o + e) / (mx * 0.6))) * fade));
       }
     }
   }

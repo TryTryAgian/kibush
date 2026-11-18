@@ -224,10 +224,13 @@ function neighborsOf(nid) {
 // ===================== נתיבי סחר =====================
 // סחר לא דורש נמל: שכנים עם גבול משותף סוחרים הכי הרבה (ככל שהגבול ארוך יותר), אומות רחוקות — בדרך יבשתית
 // דרך שטחים של אחרים (ככל שרחוק יותר — פחות), ובים — בין נמלים. דרך יבשתית שעוברת באומה שנלחמת באחד הצדדים — חסומה.
-const _tr = { s: null, day: -1, border: null, land: new Map() };
+const _tr = { s: null, day: -1, border: null, land: new Map(), landDay: -99, warSig: '' };
 function borderLens() {
   if (_tr.s === S && _tr.day === S.day && _tr.border) return _tr.border;
-  _tr.s = S; _tr.day = S.day; _tr.land.clear();
+  // המרחק היבשתי יקר (BFS על כל המפה לכל זוג): מחשבים מחדש כל 5 ימים, או מיד כשמשתנה מצב מלחמה
+  const ws = S.nations.map(a => S.nations.map(b => a.id < b.id && atWar(a.id, b.id) ? 1 : 0).join('')).join('');
+  if (_tr.s !== S || S.day - _tr.landDay >= 5 || ws !== _tr.warSig) { _tr.land.clear(); _tr.landDay = S.day; _tr.warSig = ws; }
+  _tr.s = S; _tr.day = S.day;
   const n = S.nations.length, B = new Float32Array(n * n), O = S.owner, N = O.length;
   for (let i = 0; i < N; i++) { const a = O[i]; if (a < 0) continue; let b;
     if (i % W < W - 1 && (b = O[i + 1]) >= 0 && b !== a) { B[a * n + b]++; B[b * n + a]++; }

@@ -18,6 +18,7 @@ function step(dt) {
     return false;
   });
   moveTrains(dt);
+  wsUpdate();   // תמונת המצב המשותפת (מתעדכנת כל רבע יום) — לפני שהמטה והגנרלים מחליטים
   for (const op of S.ops) updateOp(op, dt);
   for (const f of S.fronts) { f.dispT -= dt; if (f.dispT <= 0) { f.dispT = 1; sendReplacements(f); } updateFront(f, dt); }
   for (const f of S.fronts.slice()) { syncFront(f); if ((f.solo || f.airborne) && !f.flying && !frontDivs(f).length && !S.convoys.some(c => c.front === f.id)) S.fronts.splice(S.fronts.indexOf(f), 1); }

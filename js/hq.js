@@ -48,8 +48,8 @@ function sectorScan(nid) {
     let fort = 0; const au = auras[s.e] || (auras[s.e] = fortressAuras(s.e));
     for (const t of s.tiles) for (const k of nb4(t)) if (S.owner[k] === s.e) fort = Math.max(fort, tileDefense(k, au));
     const stalled = armiesNear(isE, cx, cy, R).filter(g => g.retreating || g.consol || g.org < 0.4).length;
-    out.push({ e: s.e, tile: c, n: s.tiles.length, threat: powNear(isE, cx, cy, R, 'atk'), enemyDef: powNear(isE, cx, cy, R, 'def') + garrisonPow(s.e, cx, cy, R),
-      ourAtk: powNear(isMe, cx, cy, R, 'atk'), ourDef: powNear(isMe, cx, cy, R, 'def') + garrisonPow(nid, cx, cy, R), value, gain, fort, stalled });
+    out.push({ e: s.e, tile: c, n: s.tiles.length, threat: wsPow(nid, s.e, 'atk', cx, cy, R), enemyDef: wsPow(nid, s.e, 'def', cx, cy, R) + garrisonPow(s.e, cx, cy, R),
+      ourAtk: wsPow(nid, nid, 'atk', cx, cy, R), ourDef: wsPow(nid, nid, 'def', cx, cy, R) + garrisonPow(nid, cx, cy, R), value, gain, fort, stalled });
   }
   return out;
 }
@@ -232,7 +232,7 @@ function planDefense(nid) {
       if (strong) { const t = nearEnemyTile(nid, e.pos, f.pos); if (t != null) { f.target = t; f.defend = null; continue; } }
       f.target = null; f.zone = []; f.defend = s.guard ?? s.tile; continue;
     }
-    const [fx, fy] = f.pos, local = powNear(g => en.includes(g.n), fx, fy, 6, 'atk');
+    const [fx, fy] = f.pos, local = wsEnemy(nid, fx, fy, 6, 'atk');
     // השהיה: מחזיקים עד שהיחס נשבר, ואז נסוגים צעד אחד — לא יותר עמוק מהמבנה החשוב הקרוב
     if (s.posture === 'delay') { if (f.engaged && frontPower(f, 'def') < local * CFG.DELAY_BREAK) f.delayD = Math.min(14, (f.delayD || 0) + CFG.DELAY_STEP); }
     else f.delayD = 0;

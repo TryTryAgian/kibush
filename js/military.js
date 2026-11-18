@@ -972,7 +972,8 @@ function encircleTile(op, o, f) {
   const mineHalf = seq.slice(0, Math.ceil(seq.length / 2)).find(open_);
   return mineHalf ?? seq.find(open_) ?? null;
 }
-function enemyPowerNear(nid, tile, r) { const [x, y] = XY(tile); let p = 0; for (const g of S.fronts) if (g.kind === 'land' && atWar(nid, g.n) && hyp(g.pos[0] - x, g.pos[1] - y) <= r && seesFront(nid, g)) p += frontPower(g, 'def'); return p; }
+// כוח האויב סביב משבצת, כפי שהאומה מכירה אותו: מה שהיא רואה עכשיו + זיכרון של מה שראתה (תמונת המצב, world.js)
+function enemyPowerNear(nid, tile, r) { const [x, y] = XY(tile); return wsEnemy(nid, x + 0.5, y + 0.5, r); }
 // נתיבים ותפקידים: המאמץ העיקרי (החזק) על הציר עצמו, הקיבוע בנתיבים מקבילים משני הצדדים,
 // והדרג השני (מ-3 גנרלים) נוסע מאחורי המאמץ העיקרי עד שנפתחת פרצה
 function assignLanes(op, gens) {
@@ -1205,12 +1206,12 @@ function updateOp(op, dt) {
 // ===================== התפשטות לשטח ניטרלי =====================
 // אין אויב: הגבול הניטרלי מחולק לאזורים, כל גנרל לוקח את האזור ששווה הכי הרבה ביחס למרחק ומתפשט בו ברצף.
 function expandCells(op) {
-  const nid = op.n, C = CFG.EXPAND_CELL * G, cells = new Map(), o = S.owner;
+  const nid = op.n, C = CFG.EXPAND_CELL * G, cells = new Map(), o = S.owner, ter = S.terrain, ccw = Math.ceil(W / C), arr = [];
   for (let i = 0; i < o.length; i++) {
-    if (o[i] !== -1 || isWater(i) || S.terrain[i] === SNOW) continue;
-    const [x, y] = XY(i), key = Math.floor(x / C) + ',' + Math.floor(y / C);
-    let c = cells.get(key); if (!c) cells.set(key, c = { key, n: 0, front: [], tiles: [], cx: 0, cy: 0 });
-    c.n++; c.cx += x; c.cy += y; c.tiles.push(i); c.pen = (c.pen || 0) + Math.min(6, TER_PEN[S.terrain[i]]);
+    if (o[i] !== -1) continue; const t = ter[i]; if (t === SNOW || TER[t].water) continue;
+    const x = i % W, y = (i / W) | 0, k = ((y / C) | 0) * ccw + ((x / C) | 0);
+    let c = arr[k]; if (!c) { arr[k] = c = { key: ((x / C) | 0) + ',' + ((y / C) | 0), n: 0, front: [], tiles: [], cx: 0, cy: 0, pen: 0 }; cells.set(c.key, c); }
+    c.n++; c.cx += x; c.cy += y; c.tiles.push(i); c.pen += Math.min(6, TER_PEN[t]);
     if ((x > 0 && o[i - 1] === nid) || (x < W - 1 && o[i + 1] === nid) || o[i - W] === nid || o[i + W] === nid) c.front.push(i);
   }
   let out = [...cells.values()].filter(c => c.front.length);
