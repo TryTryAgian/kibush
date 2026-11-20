@@ -13,36 +13,61 @@ const MAX_PLT = 36;
 function visOf(f) { let v = VIS.get(f.id); if (!v) VIS.set(f.id, v = { units: [], slotT: 0, n: f.n }); return v; }
 // מספר המחלקות לפי היחידות של הגנרל; מחלקה שאבדה בקרב — הריסה במקום
 function syncPlatoons(f, v, cx, cy) {
-  const want = {}; let tot = 0;
-  for (const t of PLT_ORDER) { want[t] = Math.ceil((f.units[t] || 0) / PLT[t]); tot += want[t]; }
-  if (tot > MAX_PLT) for (const t of PLT_ORDER) want[t] = f.units[t] ? Math.max(1, Math.round(want[t] * MAX_PLT / tot)) : 0;
-  for (const t of PLT_ORDER) {
-    const have = v.units.filter(u => u.t === t);
-    while (have.length > want[t]) {
-      const u = have.pop(); v.units.splice(v.units.indexOf(u), 1);
-      if (f.engaged) { WRECKS.push({ x: u.x, y: u.y, t: 0, tank: t === 'ltank' || t === 'htank' || t === 'art' || t === 'aa', ang: u.ang }); spawnBoom(u.x, u.y, t !== 'inf' && t !== 'cmdo'); if (WRECKS.length > 140) WRECKS.shift(); }
-    }
-    while (have.length < want[t]) { const u = { t, x: cx + (Math.random() - 0.5) * 6, y: cy + (Math.random() - 0.5) * 6, ang: 0, sx: cx, sy: cy, cd: Math.random(), j: Math.random() }; have.push(u); v.units.push(u); }
+  // כל מחלקה שייכת לאוגדה (u.dv) — כך היא נפרסת ליד האוגדה שלה ונלחמת רק כשהאוגדה במגע. בלי פריסה: לפי הגנרל כולו
+  const T = CFG.T, groups = [];
+  if (f.dep) for (const d of S.divs) { if (d.front === f.id && d.loc === 'front' && d.depF === f.id && d.pos && divTotal(d)) groups.push([d.id, d.units, d.pos[0] * T + T / 2, d.pos[1] * T + T / 2]); }
+  if (!groups.length) groups.push([null, f.units, cx, cy]);
+  const want = new Map(); let tot = 0;
+  for (const [dv, U] of groups) for (const t of PLT_ORDER) { const k = Math.ceil((U[t] || 0) / PLT[t]); if (k) { want.set(dv + ':' + t, k); tot += k; } }
+  if (tot > MAX_PLT) for (const [key, k] of want) want.set(key, Math.max(1, Math.round(k * MAX_PLT / tot)));
+  const lost = (u) => { v.units.splice(v.units.indexOf(u), 1); if (f.engaged) { WRECKS.push({ x: u.x, y: u.y, t: 0, tank: u.t === 'ltank' || u.t === 'htank' || u.t === 'art' || u.t === 'aa', ang: u.ang }); spawnBoom(u.x, u.y, u.t !== 'inf' && u.t !== 'cmdo'); if (WRECKS.length > 140) WRECKS.shift(); } };
+  // מחלקות של אוגדה שכבר לא כאן (עזבה / הושמדה) — יוצאות; מחלקות "יתומות" משויכות מחדש בלי הריסה
+  for (const u of v.units.slice()) if (!want.has(u.dv + ':' + u.t)) { const alt = [...want.keys()].find(k => k.endsWith(':' + u.t) && v.units.filter(o => o.dv + ':' + o.t === k).length < want.get(k)); if (alt) u.dv = alt.split(':')[0] === 'null' ? null : +alt.split(':')[0]; else v.units.splice(v.units.indexOf(u), 1); }
+  for (const [dv, U, gx, gy] of groups) for (const t of PLT_ORDER) {
+    const key = dv + ':' + t, k = want.get(key) || 0, have = v.units.filter(u => u.dv === dv && u.t === t);
+    while (have.length > k) lost(have.pop());
+    while (have.length < k) { const u = { t, dv, x: gx + (Math.random() - 0.5) * 6, y: gy + (Math.random() - 0.5) * 6, ang: 0, sx: gx, sy: gy, cd: Math.random(), j: Math.random() }; have.push(u); v.units.push(u); }
   }
 }
 // עמדות: מול משבצות החזית (תוקפים), שורה מול האויב (מגינים), טור (בתנועה); ארטילריה ונ״מ מאחור
 function placeSlots(f, v, cx, cy) {
   const T = CFG.T, hd = frontHeading(f), fx = Math.cos(hd), fy = Math.sin(hd), px = -fy, py = fx;
-  const front = v.units.filter(u => !REAR[u.t]), back = v.units.filter(u => REAR[u.t]);
   const moving = f.path && !f.engaged && (!f.zone || !f.zone.length);
   if (moving) { v.units.forEach((u, k) => { u.sx = cx - fx * k * 3.2 + px * ((k % 2) - 0.5) * 1.2; u.sy = cy - fy * k * 3.2 + py * ((k % 2) - 0.5) * 1.2; }); return; }
-  const near = f.zone?.length ? f.zone.filter(j => { const [zx, zy] = XY(j); return Math.abs(zx * T + T / 2 - cx) < 22 && Math.abs(zy * T + T / 2 - cy) < 22; }) : [];
-  const zone = f.target != null && near.length ? near : null;
+  // כל אוגדה פורסת את המחלקות שלה סביב העמדה שלה, מול הקטע שלה בחזית
+  const byDiv = new Map(); for (const u of v.units) { if (!byDiv.has(u.dv)) byDiv.set(u.dv, []); byDiv.get(u.dv).push(u); }
+  for (const [dv, us] of byDiv) {
+    const d = dv != null ? divById(dv) : null, gx = d?.pos ? d.pos[0] * T + T / 2 : cx, gy = d?.pos ? d.pos[1] * T + T / 2 : cy;
+    const tiles = f.zone?.length && f.target != null ? (d && f.sectors ? f.zone.filter(j => f.sectors[j] === d.id) : f.zone) : [];
+    placeGroup(f, us, gx, gy, tiles, fx, fy, px, py, d);
+  }
+}
+// תרגולות קרב (שלב 3ד, תצוגה בלבד): אוגדה תוקפת במגע מתקדמת "בדילוגים" — חצי מהמחלקות נעות קדימה וחצי נעצרות ויורות לחפות,
+// ומתחלפות כל ~2.4 שניות. אוגדה שמרתקת עומדת ויורה. בנסיגה תחת אש — אותו דבר לאחור (ניתוק מגע). מחלקה שנפגעת נשכבת לרגע.
+function drillOf(f, d) {
+  if (!d || !d.contact) return f.retreating && f.engaged ? 'break' : null;
+  if (f.retreating) return 'break';
+  const k = d.task?.k; return k === 'fix' || k === 'hold' || k === 'support' ? 'hold' : k === 'seize' || k === 'flank' || k === 'hill' ? 'bound' : null;
+}
+function placeGroup(f, units, cx, cy, ztiles, fx, fy, px, py, d) {
+  const T = CFG.T, front = units.filter(u => !REAR[u.t]), back = units.filter(u => REAR[u.t]);
+  const drill = drillOf(f, d), phase = ((performance.now() / 2400 + (d?.id || 0) * 0.37) | 0) % 2;
+  for (const u of units) u.bound = false;
+  const near = ztiles.filter(j => { const [zx, zy] = XY(j); return Math.abs(zx * T + T / 2 - cx) < 26 && Math.abs(zy * T + T / 2 - cy) < 26; });
+  const zone = near.length ? near : null;
   front.forEach((u, k) => {
     const jx = (u.j - 0.5) * 3, jy = ((u.j * 7) % 1 - 0.5) * 3;
     if (zone) {   // משבצת קבועה ליחידה כל עוד היא עדיין באזור — בלי ריקוד בין משבצות
       if (u.zt == null || !zone.includes(u.zt)) { const used = new Set(front.map(o => o.zt)); let best = zone[k % zone.length], bd = Infinity; for (const z of zone) { const [zx, zy] = XY(z), dd = Math.hypot(zx * T - u.x, zy * T - u.y) + (used.has(z) ? 20 : 0); if (dd < bd) { bd = dd; best = z; } } u.zt = best; }
-      const [zx, zy] = XY(u.zt), nx = zx * T + T / 2 - fx * 5 + jx, ny = zy * T + T / 2 - fy * 5 + jy;
+      let [zx, zy] = XY(u.zt), nx = zx * T + T / 2 - fx * 5 + jx, ny = zy * T + T / 2 - fy * 5 + jy;
+      if (drill === 'bound') { const mv = (k % 2) === phase; u.bound = mv; const s = mv ? 2.5 : -2.5; nx += fx * s; ny += fy * s; }   // דילוג: נעים / מחפים
+      else if (drill === 'hold') { nx -= fx * 2; ny -= fy * 2; }
+      else if (drill === 'break') { const mv = (k % 2) === phase; u.bound = mv; const s = mv ? -6 : -1; nx += fx * s; ny += fy * s; }
       if (Math.hypot(nx - u.sx, ny - u.sy) > 1.5) { u.sx = nx; u.sy = ny; }
     }
-    else { u.zt = null; const row = (k / 6) | 0, inRow = Math.min(6, front.length - row * 6), off = ((k % 6) - (inRow - 1) / 2) * 3.4 + (row % 2) * 1.7; const nx = cx + px * off + fx * (3 - row * 3.4) + jx * 0.4, ny = cy + py * off + fy * (3 - row * 3.4) + jy * 0.4; if (u.sx == null || Math.hypot(nx - u.sx, ny - u.sy) > 1.2) { u.sx = nx; u.sy = ny; } }
+    else { u.zt = null; const row = (k / 4) | 0, inRow = Math.min(4, front.length - row * 4), off = ((k % 4) - (inRow - 1) / 2) * 3.4 + (row % 2) * 1.7; const nx = cx + px * off + fx * (2 - row * 3.4) + jx * 0.4, ny = cy + py * off + fy * (2 - row * 3.4) + jy * 0.4; if (u.sx == null || Math.hypot(nx - u.sx, ny - u.sy) > 1.2) { u.sx = nx; u.sy = ny; } }
   });
-  back.forEach((u, k) => { const off = (k - (back.length - 1) / 2) * 5.5; u.sx = cx - fx * 11 + px * off; u.sy = cy - fy * 11 + py * off; });
+  back.forEach((u, k) => { const off = (k - (back.length - 1) / 2) * 5.5; u.sx = cx - fx * 9 + px * off; u.sy = cy - fy * 9 + py * off; });
 }
 // מחלקות של אויבים קרובים (לבחירת מטרה לירי)
 function enemyPlatoonsNear(f, x, y, r) {
@@ -57,7 +82,8 @@ function updateUnits(f, cx, cy, dt, now) {
   for (const u of v.units) {
     const dx = u.sx - u.x, dy = u.sy - u.y, d = Math.hypot(dx, dy);
     // תזוזה קצרה (תיקון עמדה): זזים בלי להסתובב, הפנים לאויב. רק מעבר אמיתי מסובב את היחידה לכיוון הנסיעה. הסיבוב מוגבל במהירות
-    u.mv = d > 0.3; if (u.mv) { const s = Math.min(d, (4 + d * 2.2) * dt); u.x += dx / d * s; u.y += dy / d * s; }
+    const duck = u.hit && now - u.hit < 700 ? 0.25 : 1;   // נפגע — נשכב לרגע ומתקדם לאט
+    u.mv = d > 0.3; if (u.mv) { const s = Math.min(d, (4 + d * 2.2) * dt * duck); u.x += dx / d * s; u.y += dy / d * s; }
     if (d > 0.3 && !u.reloc && d > 4) u.reloc = true; else if (d < 1.2) u.reloc = false;
     const want = u.reloc ? Math.atan2(dy, dx) : hd, turn = (u.t === 'inf' || u.t === 'cmdo' ? 5 : 1.8) * dt;
     let da = want - u.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); u.ang += clamp(da, -turn, turn);
@@ -78,8 +104,12 @@ function updateUnits(f, cx, cy, dt, now) {
     if (ax != null) arts.forEach((u, n) => { for (let r = 0; r < 2; r++) DELAY.push({ t: n * 0.12 + r * 0.35, fn: () => { u.flash = performance.now(); if (SHOTS.length < 220) SHOTS.push({ x1: u.x, y1: u.y, x2: ax + (Math.random() - 0.5) * 7, y2: ay + (Math.random() - 0.5) * 7, t: 0, life: 1.1, kind: 'shell' }); } }); });
   }
   if (!f.engaged) return;   // רק הארטילריה יורה מטווח
+  const quiet = new Set();
+  if (f.dep) { const mine = S.divs.filter(d => d.front === f.id && d.depF === f.id), any = mine.some(d => d.contact); for (const d of mine) if (d.line === false || (any && !d.contact)) quiet.add(d.id); }
   for (const u of v.units) {
     if (u.t === 'art') continue;
+    if (u.dv != null && quiet.has(u.dv)) continue;   // רק אוגדות במגע יורות
+    if (u.bound && u.mv) continue;                    // בדילוג: מי שנע לא יורה — מי שעומד מחפה
     u.cd -= dt * (FIRE[u.t] || 1) * (0.6 + Math.random() * 0.8); if (u.cd > 0) continue; u.cd = 1;
     foes = foes || enemyPlatoonsNear(f, cx, cy, 40);
     let tx, ty;

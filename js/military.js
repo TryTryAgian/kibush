@@ -321,9 +321,10 @@ function syncFront(f) {
   for (const d of ds) for (const t of UKEYS) tot[t] += d.units[t] || 0;
   if (f.synced) for (const t of UKEYS) {
     let loss = Math.max(0, f.synced[t] - f.units[t]);
-    while (loss > 0) { const d = ds.filter(x => x.units[t] > 0).sort((a, b) => b.units[t] - a.units[t])[0]; if (!d) break; const k = Math.min(loss, d.units[t]); d.units[t] -= k; tot[t] -= k; loss -= k; }
+    while (loss > 0) { const d = lossOrder(f, ds, t); if (!d) break; const k = Math.min(f.hitXY ? 1 : loss, d.units[t]); d.units[t] -= k; tot[t] -= k; loss -= k; }
   }
   for (const d of ds) if (!divTotal(d)) {   // אוגדה שהושמדה: חוזרת כשלד למחנה שלה (אם עדיין שלנו) ומתאמנת מחדש
+    d.cmd = null; d.task = null; d.line = undefined; if (d.n === 0 && !S.demo) { S.stats = S.stats || {}; S.stats.divLost = (S.stats.divLost || 0) + 1; }   // המפקד אבד עם האוגדה — השלד יקבל מפקד חדש
     const b = S.buildings[d.home];
     if (b && b.n === d.n && b.div === d.id) { d.front = null; d.loc = 'camp'; absorbStock(d); }
     else S.divs.splice(S.divs.indexOf(d), 1);
@@ -550,8 +551,10 @@ function frontPower(f, kind) {
 }
 function dealDamage(att, def, dt, pow) {
   const total = unitCount(def.units); if (!total) return;
-  const dmg = (pow ?? frontPower(att, 'atk')) * CFG.COMBAT_K * dt, aa = pow != null ? 0 : att.units.aa * (UNITS.aa.antiAir || 0) * mod(S.nations[att.n], 'anti_air') * CFG.COMBAT_K * dt;
-  const defMul = (TRAITS[def.gen.trait].def || 1) * (def.kind === 'land' ? fortBonus(def) : 1) * (def.supply === 'cut' ? 0.7 : 1);
+  const cA = att.garrison ? null : cmdCombat(att), cD = def.garrison ? null : cmdCombat(def);   // מפקדי האוגדות (divisions.js)
+  const dmg = (pow ?? frontPower(att, 'atk')) * (cA?.atk ?? 1) * CFG.COMBAT_K * dt, aa = pow != null ? 0 : att.units.aa * (UNITS.aa.antiAir || 0) * mod(S.nations[att.n], 'anti_air') * CFG.COMBAT_K * dt;
+  if (att.pos) def.hitXY = [att.pos[0], att.pos[1]];   // מאיפה הגיעה האש — האבדות נופלות על האוגדה הקרובה
+  const defMul = (TRAITS[def.gen.trait].def || 1) * (cD?.def ?? 1) * (def.kind === 'land' ? fortBonus(def) : 1) * (def.supply === 'cut' ? 0.7 : 1);
   for (const t of UKEYS) {
     const c = def.units[t]; if (!c) continue;
     const U = UNITS[t]; let d = dmg * c / total; if (U.air) d += aa;
@@ -609,6 +612,7 @@ function computeZone(f) {
   cands.sort((a, b) => a[0] - b[0]);
   const best = cands[0][1];
   f.zone = cands.filter(c => cheb(c[1], best) <= 3).slice(0, f.landing ? 2 : N).map(c => c[1]);
+  for (const h of f.xtra || []) if (!f.zone.includes(h) && validTarget(nid, h)) f.zone.push(h);   // משימות אוגדה (גבעה) — divisions.js
   for (const k in f.prog) if (!f.zone.includes(+k)) delete f.prog[k];
 }
 function retreatTile(f) {
@@ -637,7 +641,7 @@ function updateFront(f, dt) {
   const here = tileOf(...f.pos);
   if (isWater(here)) { if (!f.seaHit && mod(S.nations[nid], 'landing') <= 1 && seaThreat(nid, ...f.pos)) { f.seaHit = true; for (const t of UKEYS) f.units[t] = Math.floor(f.units[t] * 0.7); if (nid === 0) toast(`⚓ ${f.gen.name}: ספינות אויב תקפו את כוח הנחיתה`, 'bad'); } }
   else f.seaHit = false;
-  const foes = S.fronts.filter(g => g.kind === 'land' && g.n !== nid && unitCount(g.units) && atWar(nid, g.n) && hyp(g.pos[0] - f.pos[0], g.pos[1] - f.pos[1]) <= CFG.ENGAGE_R);
+  const foes = S.fronts.filter(g => g.kind === 'land' && g.n !== nid && unitCount(g.units) && atWar(nid, g.n) && frontGap(f, g) <= CFG.ENGAGE_R);   // מגע: גם דרך האוגדות הפרוסות
   let enemyPow = 0, enemyAtk = 0;
   // חיל מצב במחנות אויב קרובים נלחם בנו (ואנחנו בו) — מגן על המבנים סביב המחנה
   const gar = cnt && !f.garrison ? garrisons(-1, f.pos[0], f.pos[1], CFG.GARRISON_R, nid) : [], nf = foes.length + gar.length;
@@ -695,17 +699,19 @@ function updateFront(f, dt) {
   // קומנדו מכבשים מהר; ארטילריה שוברת שטח מבוצר
   let capW = 0, capP = 0; for (const t of UKEYS) if (f.units[t] && !UNITS[t].air) { const w = f.units[t] * UNITS[t].atk; capP += w; capW += w * (UNITS[t].capture || 1); }
   const capMul = capP ? capW / capP : 1, artShare = (f.units.art * UNITS.art.atk) / (capP || 1);
-  let P = frontPower(f, 'atk') * CFG.PRESSURE_K * capMul * (TRAITS[f.gen.trait].capture || 1) * mod(S.nations[nid], 'capture') * (f.supply === 'cut' ? 0.5 : 0.7 + 0.3 * (f.supLvl ?? 1)) * dt;   // רחוק מהרשת = כיבוש איטי
+  let P = frontPower(f, 'atk') * CFG.PRESSURE_K * capMul * (TRAITS[f.gen.trait].capture || 1) * mod(S.nations[nid], 'capture') * (f.supply === 'cut' ? 0.5 : 0.7 + 0.3 * (f.supLvl ?? 1)) * obsMul(f) * dt;   // רחוק מהרשת = כיבוש איטי
   if (enemyPow) { const my = frontPower(f, 'atk'); P *= my / (my + enemyPow); }
   if (f.zone.some(j => S.owner[j] >= 0)) f.org = Math.max(0, f.org - 0.01 * dt);   // תקיפת שטח מוגן שוחקת מעט
   const rough = f.zone.reduce((a, j) => a + (S.terrain[j] === MOUNT ? 1 : S.terrain[j] === HILLS ? 0.4 : 0), 0) / f.zone.length;
   if (rough) f.org = Math.max(0, f.org - 0.03 * rough * dt);   // טיפוס בהרים שוחק את הכוח
-  const w = f.zone.map((_, k) => 1 / (1 + k * 0.5)), ws = w.reduce((a, b) => a + b, 0), auraCache = {};
+  // גזרות אוגדה: כל משבצת מקבלת לחץ לפי כוח האוגדה שאחראית עליה (divisions.js); בלי פריסה — הקרובות קודם
+  const sw = f.secW, swAvg = sw ? Object.values(sw).reduce((a, b) => a + b, 0) / (Object.keys(sw).length || 1) : 0;
+  const w = f.zone.map((j, k) => sw ? (sw[j] ?? swAvg) / (1 + k * 0.15) : 1 / (1 + k * 0.5)), ws = w.reduce((a, b) => a + b, 0) || 1, auraCache = {};
   for (let k = 0; k < f.zone.length; k++) {
     const j = f.zone[k], o = S.owner[j];
     const siege = 1 + artShare * Math.min(2, Math.max(0, tileDefense(j) - 5) / 5) * mod(S.nations[nid], 'art_atk');
     f.prog[j] = (f.prog[j] || 0) + P * w[k] / ws * siege;
-    if (f.prog[j] >= tileDefense(j, auraCache[o] || (auraCache[o] = fortressAuras(o))) * CFG.TILE_DEF_K) { captureTile(nid, j); delete f.prog[j]; f.zoneT = 0; }
+    if (f.prog[j] >= tileDefense(j, auraCache[o] || (auraCache[o] = fortressAuras(o))) * CFG.TILE_DEF_K) { const sd = f.sectors?.[j] != null && divById(f.sectors[j]); if (sd) sd.capN = (sd.capN || 0) + 1; captureTile(nid, j); delete f.prog[j]; f.zoneT = 0; }
   }
   f.stuck = 0;
   f.status = f.engaged ? 'מתקדם — בקרב' : 'מתקדם';

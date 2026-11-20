@@ -308,13 +308,14 @@ function draw() {
     const type = f.kind === 'navy' ? 'ship' : f.flying ? 'plane' : mainType(f.units), strip = f.kind === 'navy' ? '#5fe0ff' : f.role === 'defend' ? (f.defRole === 'reserve' ? '#3fb8a0' : '#7ad07a') : f.solo ? '#ff7ad8' : f.opRole === 'ME' ? '#ff9a3c' : f.opRole === 'EXP' ? '#ff5ab4' : '#ffd84a';
     if (cam.zoom >= CFG.UNIT_ZOOM && cnt && !f.flying) {   // זום קרוב: היחידות עצמן, ומעליהן סמל קטן ושם
       if (sel) { ctx.strokeStyle = 'rgba(95,224,255,.5)'; ctx.lineWidth = 0.6; ctx.setLineDash([1.5, 1]); ctx.beginPath(); ctx.arc(X + 8, Y + 8, 13, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
-      updateUnits(f, X + 8, Y + 8, fdt, now); drawUnits(f, X + 8, Y + 8, now);
+      updateUnits(f, X + 8, Y + 8, fdt, now); drawUnits(f, X + 8, Y + 8, now); drawDivMarks(f, X + 8, Y + 8, view.lk * 0.8);
       const k = view.lk; ctx.save(); ctx.translate(X + 8, Y - 2); ctx.scale(k, k);
       drawCounter(-7, -9, 14, 8, col, type, cnt, { sel, hot: f.engaged, strip });
       if (f.kind === 'land') { const o = f.org ?? 1; ctx.fillStyle = 'rgba(12,16,24,.85)'; ctx.fillRect(-7, -0.6, 14, 1.2); ctx.fillStyle = o > 0.6 ? '#5ad07a' : o > 0.3 ? '#e8b820' : '#e04848'; ctx.fillRect(-7, -0.6, 14 * o, 1.2); }
       drawLabel_(0, -16, f.gen.name, null, col); ctx.restore();
       drawStatusMarks(f, X + 8 + 7 * k, Y - 2 - 9 * k, k);
     } else {
+      if (cam.zoom >= 0.9 && cnt && !f.flying) drawDivMarks(f, X + 8, Y + 8, 1);
       if (sel) { ctx.strokeStyle = 'rgba(95,224,255,.35)'; ctx.lineWidth = 2; ctx.strokeRect(X + 0.5, Y + 3, 15, 10); }
       drawCounter(X + 1, Y + 4, 14, 8, col, type, cnt || null, { sel, dim: !cnt, hot: f.engaged, strip });
       if (f.kind === 'land' && cnt) { const o = f.org ?? 1; ctx.fillStyle = 'rgba(12,16,24,.85)'; ctx.fillRect(X + 1, Y + 12.6, 14, 1.4); ctx.fillStyle = o > 0.6 ? '#5ad07a' : o > 0.3 ? '#e8b820' : '#e04848'; ctx.fillRect(X + 1, Y + 12.6, 14 * o, 1.4); }

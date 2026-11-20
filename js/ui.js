@@ -160,8 +160,12 @@ function genCard(f) {
       f.solo ? h('button', { class: 'btn sm warn', onclick: e => { e.stopPropagation(); const d = frontDivs(f)[0]; if (d) { ui.pick = { kind: 'order', div: d.id }; ui.tab = null; render(); } } }, '🎯 פקודה חדשה') : null,
       f.airborne || f.solo ? null : h('button', { class: 'btn sm' + (f.auto ? ' on' : ''), onclick: e => { e.stopPropagation(); f.auto = !f.auto; if (f.auto) allocateDivisions(0); render(); } }, f.auto ? '🤖 מבקש אוגדות לפי הצורך' : '✋ הקצאת אוגדות ידנית'),
       ...frontDivs(f).map(d => h('div', { class: 'uline' }, h('img', { src: iconURL(divIcon(d)), alt: '' }), h('span', { class: 'nm' }, divName(d)),
+        live(el => { const c = ensureCmd(d); el.textContent = d.loc === 'moving' ? '' : DIV_ROLE(d); el.title = `${cmdTitle(c)} ${cmdStars(c)} · ${cmdTraits(c)}` + (d.task?.why ? `\n${d.task.why}` : ''); el.style.color = d.contact ? '#ff8a6a' : TASKS[d.task?.k]?.col || ''; }, 'span', { class: 'dim' }),
         live(el => { el.textContent = d.loc === 'moving' ? '🚚 בדרך' : `${Math.round(divStrength(d) * 100)}%`; el.style.color = divStrength(d) < 0.5 ? '#ff7060' : ''; }, 'b'),
         f.auto ? null : h('button', { class: 'btn sm', onclick: e => { e.stopPropagation(); if (d.loc === 'front') { returnDivision(d, tileOf(...f.pos)); syncFront(f); } render(); } }, '↩'))),
+      // למה כל אוגדה עושה מה שהיא עושה (שלב 3ב)
+      f.kind === 'land' ? live(el => { const ds = frontDivs(f).filter(d => d.loc === 'front' && d.task && !['move', 'reserve', 'hold'].includes(d.task.k)); el.style.display = ds.length ? '' : 'none'; el.textContent = ds.map(d => `${TASKS[d.task.k].ic} ${d.num}: ${d.task.why}`).join('\n'); }, 'div', { class: 'dim tasks' }) : null,
+      f.kind === 'land' ? live(el => { const ds = frontDivs(f).filter(d => d.loc === 'front'); el.style.display = ds.length ? '' : 'none'; el.textContent = '🎖 ' + ds.map(d => { const c = ensureCmd(d); return `${d.num}: ${cmdTitle(c)} ${cmdStars(c)} (${cmdTraits(c)})${d.taskSince != null && S.time - d.taskSince < 0.6 - 0.12 * cmdLvl(c) ? ' ⏳ מתארגן' : ''}`; }).join('\n🎖 '); }, 'div', { class: 'dim tasks' }) : null,
       f.auto || f.solo ? null : h('div', { class: 'row wrap' }, Object.keys(DIV_TYPES).filter(k => (f.kind === 'navy') === (k === 'navy')).map(k => {
         const free = divsOf(0).filter(d => d.type === k && d.loc === 'camp' && d.front == null);
         if (!free.length) return null;
@@ -315,7 +319,15 @@ function diploTab() {
           nap ? h('span', { class: 'pill nap' }, `🤚 אי-תקיפה · ${daysLeft(r.nap)} י׳`) : null,
           hasTrade(0, n.id) ? (tr => tr ? h('span', { class: 'pill trade', title: TRADE_KIND[tr.kind][1] }, `${TRADE_KIND[tr.kind][0]} סחר ${TRADE_KIND[tr.kind][1]} +${(tr.gold * mod(player(), 'trade')).toFixed(1)}💰 +${(tr.mat * mod(player(), 'trade')).toFixed(1)}⚙ · ${daysLeft(r.trade)} י׳`) : h('span', { class: 'pill war' }, `⛔ סחר חסום · ${daysLeft(r.trade)} י׳`))(tradeRoute(0, n.id)) : (tr => !atWar(0, n.id) && tr ? h('span', { class: 'dim' }, `נתיב סחר אפשרי: ${TRADE_KIND[tr.kind][0]} ${TRADE_KIND[tr.kind][1]} (~${tr.gold.toFixed(1)}💰 ביום)`) : null)(tradeRoute(0, n.id)),
           truceActive(0, n.id) ? h('span', { class: 'pill' }, `🏳 שביתת נשק · ${daysLeft(r.truce)} י׳`) : null),
-        h('div', { class: 'kv' }, h('span', {}, 'יחס: ', h('b', {}, String(fl(r.op)))), h('span', {}, 'כוח: ', h('b', {}, String(fl(militaryPower(n.id))))),
+        // אופי (nation.js): מנהיג, אישיות, גישה כלפיך, ושאיפה ומוקד — רק כשיש מספיק מודיעין
+        n.ruler ? h('div', { class: 'dim' }, `👑 ${n.ruler} · ${axesText(n)}`) : null,
+        n.isAI ? (() => { const known = intelAcc(0, n.id) >= 0.35, ap = APPROACH[approach(n.id, 0)], f = focusOf(n);
+          return h('div', { class: 'row wrap', style: { gap: '6px', alignItems: 'center' } },
+            h('span', { class: 'pill', style: { borderColor: ap[1], color: ap[1] }, title: 'הגישה שלהם כלפיך — לפי הדעה עליך והכוח היחסי' }, `גישה: ${ap[0]}`),
+            h('span', { class: 'dim', title: known ? '' : 'צריך יותר מודיעין (סיור, גבול משותף, לראות את הצבאות שלהם)' }, known && n.amb ? `${AMB[n.amb.k].ic} שואפת ${AMB[n.amb.k].txt(n, n.amb)}` : '❔ שאיפה: לא ידוע'),
+            known && f ? h('span', { class: 'dim' }, `· מוקד: ${WANT_TXT[f]}`) : null); })() : null,
+        h('div', { class: 'kv' }, (() => { const parts = n.isAI ? opinionParts(n.id, 0) : [], o = n.isAI ? opinion(n.id, 0) : r.op;
+          return h('span', { title: parts.length ? 'הדעה שלהם עליך:\n' + parts.map(([t, v]) => `${v > 0 ? '+' : ''}${v}  ${t}`).join('\n') : '' }, 'דעה: ', h('b', { style: { color: o > 15 ? '#7ad07a' : o < -15 ? '#ff7a6a' : '' } }, String(Math.round(o))), parts.length ? ' ⓘ' : ''); })(), (il => h('span', { title: `הערכת מודיעין, טעות אפשרית עד ±${il.err}%. רואים את הצבאות שלהם, סיור מעל השטח שלהם וגבול משותף משפרים את ההערכה. בעלי ברית — מדויק.` }, 'כוח: ', h('b', {}, (il.acc >= 0.97 ? '' : '~') + fl(powerEst(0, n.id))), h('span', { class: 'dim' }, ` (מודיעין ${il.txt}${il.err >= 3 ? ` ±${il.err}%` : ''})`)))(intelLabel(0, n.id)),
           h('span', {}, 'יבשה: ', h('b', {}, Math.round(shareOf(n.id) * 100) + '%')),
           h('span', {}, 'איום: ', h('b', { style: { color: thr(n.id) >= CFG.THREAT_COAL ? '#ff5050' : thr(n.id) >= CFG.THREAT_WARN ? '#ffb040' : '' } }, String(Math.round(thr(n.id))))),
           h('span', {}, 'מוניטין: ', h('b', { style: { color: repName(n.id)[2] } }, repName(n.id)[1])),
@@ -388,6 +400,10 @@ function openHelp() {
       h('li', {}, 'רכבות: מפעלים מחוברים במסילה לעיר ולנמל — כל משלוח מכניס זהב. מסילה גם מאיצה צבא ותגבורת.'),
       h('li', {}, 'דיפלומטיה: הסכמים פגים אחרי זמן; אחרי שלום — שביתת נשק. המחשב דורש זהב לשלום לפי מי שמנצח. תקיפה, ובמיוחד הפרת הסכם, עלולה להוביל לקואליציה נגד התוקף.'),
       h('li', {}, 'שטח כבוש (מסומן בנקודות): עולה זהב, מפיק פחות, ובערים יש סכנת מרד אם אין גנרל קרוב. אחרי 150 יום הוא הופך לליבה. אומה גדולה מאוד מפיקה פחות לכל משבצת.'),
+      h('li', {}, 'אוגדות ומפקדים: האוגדות של כל גנרל נפרסות בשטח — עד 4 בקו והשאר בעתודה. בהתקפה הגנרל נותן לכל אוגדה משימה (תפוס, תפוס גבעה, אגף, רתק, סייר, חפה), והחצים במפה מראים מי עושה מה. לכל אוגדה מפקד עם אופי וניסיון שמצטבר; הדיווחים שלהם ביומן 📜.'),
+      h('li', {}, 'מודיעין: הכוח של אומות אחרות הוא הערכה. ראייה של הצבאות שלהם, סיור מעל השטח שלהם וגבול משותף משפרים אותה. גם המחשב מחליט לפי הערכה.'),
+      h('li', {}, 'אופי: לכל אומה מנהיג, אישיות ושאיפה ארוכת טווח. הדעה שלהם עליך מורכבת מגורמים שאפשר לראות (ריחוף על "דעה" בלשונית דיפלומטיה).'),
+      h('li', {}, 'מצבי מפה (M), התראות, סקירת כוחות (O), יומן 📜 וגרף מהלך המשחק 📈 — בצד שמאל של המסך.'),
       h('li', {}, 'גרירה = הזזה · צביטה/גלגלת = זום · הקשה על הצבא שלך = בחירת הגנרל · הקשה על אוגדה עצמאית ואז על המפה = פקודה.')),
     h('button', { class: 'btn', onclick: closeModal }, 'הבנתי'));
 }

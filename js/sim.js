@@ -22,17 +22,19 @@ function step(dt) {
   for (const op of S.ops) updateOp(op, dt);
   for (const f of S.fronts) { f.dispT -= dt; if (f.dispT <= 0) { f.dispT = 1; sendReplacements(f); } updateFront(f, dt); }
   for (const f of S.fronts.slice()) { syncFront(f); if ((f.solo || f.airborne) && !f.flying && !frontDivs(f).length && !S.convoys.some(c => c.front === f.id)) S.fronts.splice(S.fronts.indexOf(f), 1); }
+  for (const f of S.fronts) deployFront(f, dt);   // פריסת האוגדות סביב כל גנרל (divisions.js)
   for (const n of S.nations) {
     if (!n.alive) continue;
     // מפוזר בין האומות כדי שלא כולן יחשבו באותו צעד
     n.defT = (n.defT ?? n.id * 0.13) - dt; if (n.defT <= 0) { n.defT = 1; planDefense(n.id); }
-    n.hqT = (n.hqT ?? 0.5 + n.id * 0.7) - dt; if (n.hqT <= 0) { n.hqT = CFG.HQ_TICK; hqPlan(n.id); }
+    n.hqT = (n.hqT ?? 0.5 + n.id * 0.7) - dt; if (n.hqT <= 0) { n.hqT = CFG.HQ_TICK * aiThinkMul(n.id); hqPlan(n.id); }   // רמת קושי: קצב מחשבת המטה
     n.railT = (n.railT || 0) - dt; if (n.railT <= 0) { n.railT = 5; planRails(n.id); }
     if (n.isAI) { n.aiT += dt; if (n.aiT >= CFG.AI_THINK) { n.aiT = 0; aiThink(n); } }
   }
   if (Math.floor(S.time) > S.day) { S.day = Math.floor(S.time); daily(); }
 }
 function daily() {
+  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily();
   const c = counts();
   for (const n of S.nations) {
     if (!n.alive) continue;
@@ -58,11 +60,8 @@ function daily() {
   const lead = leaderThreat();
   for (const k in S.diplo) {
     const r = S.diplo[k], [a, b] = k.split('-').map(Number);
-    if (hasTrade(a, b)) r.op += 0.2; if (allied(a, b)) r.op += 0.3;
-    if (r.state === 'peace' && !allied(a, b) && nbsOf[a]?.has(b)) r.op -= 0.25;
-    if (a === lead || b === lead) r.op -= 0.4;   // חשש ממעצמה   // יריבות על גבול משותף
-    if (r.state === 'peace' && S.nations.some(m => m.alive && atWar(m.id, a) && atWar(m.id, b))) r.op += 0.3;
-    r.op = clamp(r.op, -100, 100);
+    // הדעה = זיכרון (r.op, דועך לאט) + גורמים נוכחיים שמחושבים בכל רגע (opinionParts ב-nation.js): סחר, ברית, גבול, איום...
+    r.op = clamp(r.op * 0.993, -100, 100);
   }
   threatDaily();
   pocketEffects(); occupationEffects(); snowFlip();

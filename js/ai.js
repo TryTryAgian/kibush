@@ -14,7 +14,7 @@ function aiThink(n) {
   for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid) own.push(i);
   const wars = S.nations.filter(m => m.alive && atWar(nid, m.id));
   const P = PERS[n.pers];
-  n.mob = P.mob[wars.length ? 1 : 0];
+  n.mob = clamp(P.mob[wars.length ? 1 : 0] + 0.15 * ((n.wants?.mil ?? 0.5) - 0.5), 0.15, 0.85);
   if (n.res.mat < 80 && n.res.gold > 300) importMat(nid, 60);
   if (!n.tech.cur) { const av = availableTechs(n); n.tech.cur = P.tech.find(t => av.includes(t)) || av[0] || null; }
   // בנייה לפי אישיות: משקל יורד עם כל מבנה קיים מאותו סוג (חוסך כסף לבחירה הראשונה)
@@ -24,6 +24,7 @@ function aiThink(n) {
   let built = false;
     const w = {};
     for (const k in P.build) w[k] = P.build[k] / (1 + (k === 'upgrade' ? 1 : countBuilding(nid, k) * (k === 'camp' ? 0.25 : 0.5))) * (k === 'camp' && wars.length ? 1.6 : 1);
+    if (round === 0) nationWants(n); applyWants(n, w);   // תקציב לפי רצונות (nation.js)
     if (!countBuilding(nid, 'camp')) w.camp = 10;
     if (!countBuilding(nid, 'factory')) w.factory = Math.max(w.factory, 8);
     if (!countBuilding(nid, 'port') && own.some(isCoastal)) w.port = Math.max(w.port, n.pers === 'naval' ? 10 : 5);
@@ -67,7 +68,7 @@ function aiThink(n) {
     // יעד המלחמה: אויב חלש וקרוב — עם גבול משותף ארוך. לא מחליפים יעד בלי סיבה טובה (כדי שהגנרלים לא יחצו את המפה הלוך ושוב)
     const cmap = {}; for (let j = 0; j < S.owner.length; j++) { const o = S.owner[j]; if (o >= 0 && o !== nid && nb4(j).some(k => S.owner[k] === nid)) cmap[o] = (cmap[o] || 0) + 1; }
     const contact = m => cmap[m.id] || 0;
-    const score = m => allianceBloc(m.id) / (1 + contact(m) * 0.15);
+    const score = m => allianceBloc(m.id, nid) / (1 + contact(m) * 0.15) * (n.amb?.k === 'conquer' && n.amb.t === m.id ? 0.6 : 1);   // שאיפה: מעדיפים את היעד שלה
     const cur = ops.find(o => o.target >= 0 && cands.some(m => m.id === o.target));
     if (cands.length) {
       const best = cands.sort((a, b) => score(a) - score(b))[0];
@@ -119,7 +120,7 @@ function aiThink(n) {
   for (const m of wars) {
     const r = rel(nid, m.id); if (r.cool > S.time) continue;
     const lost = warGain(r, m.id) - warGain(r, nid), age = S.time - r.since;
-    const bad = finalWar() ? lost > 40 && myBloc < allianceBloc(m.id) * 0.5 : (lost > 15 && myBloc < allianceBloc(m.id) * 0.8) || (age > CFG.WAR_TIRED_DAYS && Math.abs(lost) < 20);
+    const bad = finalWar() ? lost > 40 && myBloc < allianceBloc(m.id, nid) * 0.5 : (lost > 15 && myBloc < allianceBloc(m.id, nid) * 0.8) || (age > CFG.WAR_TIRED_DAYS && Math.abs(lost) < 20);
     if (!bad || Math.random() > P.peaceTh * 0.4) continue;
     if (m.isAI) { const ev = aiAccepts('peace', m.id, nid, 0); if (ev.ok) propose(nid, m.id, 'peace'); else if (ev.demand && lost > 0 && n.res.gold > ev.demand) propose(nid, m.id, 'peace', ev.demand); }
     else propose(nid, m.id, 'peace', lost > 0 ? Math.floor(Math.min(n.res.gold * 0.3, 300)) : 0);
@@ -129,10 +130,11 @@ function aiThink(n) {
     if (m.id === nid || !m.alive || atWar(nid, m.id)) continue;
     const r = rel(nid, m.id); if (r.cool > S.time) continue;
     const roll = Math.random();
-    if (roll < P.tradeP && !dealInvalid('trade', nid, m.id) && r.op > -10) propose(nid, m.id, 'trade');
-    else if (roll < 0.2 && nbs.has(m.id) && (n.pers === 'turtle' || militaryPower(m.id) > myPow * 1.2) && !dealInvalid('nap', nid, m.id)) propose(nid, m.id, 'nap');
-    else if (roll < 0.28 && lead >= 0 && lead !== m.id && lead !== nid && r.op > -20 && !dealInvalid('alliance', nid, m.id)) propose(nid, m.id, 'alliance');
-    else if (roll < 0.3 && r.op > 40 && !dealInvalid('alliance', nid, m.id)) propose(nid, m.id, 'alliance');
+    const op = opinion(nid, m.id), tradeP = P.tradeP * (n.amb?.k === 'trade' ? 2.5 : 1);
+    if (roll < tradeP && !dealInvalid('trade', nid, m.id) && op > -10) propose(nid, m.id, 'trade');
+    else if (roll < 0.2 && nbs.has(m.id) && (n.pers === 'turtle' || powerEst(nid, m.id) > myPow * 1.2) && !dealInvalid('nap', nid, m.id)) propose(nid, m.id, 'nap');
+    else if (roll < 0.28 && lead >= 0 && lead !== m.id && lead !== nid && op > -20 && !dealInvalid('alliance', nid, m.id)) propose(nid, m.id, 'alliance');
+    else if (roll < 0.3 && op > 40 && !dealInvalid('alliance', nid, m.id)) propose(nid, m.id, 'alliance');
   }
   // מלחמה: שיקול של החזק — כוח מול ההתנגדות הצפויה, כולל מי שעלול להצטרף לקואליציה.
   // הפרת הסכם אי-תקיפה מגדילה מאוד את הסיכוי לקואליציה, ולכן דורשת יתרון גדול יותר.
@@ -146,14 +148,17 @@ function aiThink(n) {
     if (m.id === nid || !m.alive || warBlock(nid, m.id)) continue;
     if (!nbs.has(m.id) && !(ports.length && ownPorts(m.id).length)) continue;
     const betrayal = napActive(nid, m.id), opp = expectedOpposition(nid, m.id, betrayal);
-    let score = myBloc / Math.max(1, opp) - rel(nid, m.id).op / 200 + (m.id === lead ? 0.4 : 0) + thr(m.id) / 100 * 0.6 + (S.nations.some(x => atWar(m.id, x.id)) ? 0.15 : 0) + pressure - (nbs.has(m.id) ? 0 : 0.2);
+    // אישיות ושאיפה (nation.js): עוינות, שאיפה לכבוש דווקא אותה, ושאיפת התפשטות
+    const ap = approach(nid, m.id), amb = n.amb, ax = n.axes || {};
+    let score = myBloc / Math.max(1, opp) - opinion(nid, m.id) / 200 + (ap === 'hostile' ? 0.2 : ap === 'friend' ? -0.3 : 0) + (amb?.k === 'conquer' && amb.t === m.id ? 0.4 : 0) + (amb?.k === 'expand' && nbs.has(m.id) ? 0.12 : 0) + ((ax.aggr ?? 0.5) - 0.5) * 0.3 + (m.id === lead ? 0.4 : 0) + thr(m.id) / 100 * 0.6 + (S.nations.some(x => atWar(m.id, x.id)) ? 0.15 : 0) + pressure - (nbs.has(m.id) ? 0 : 0.2);
     score /= P.warTh * (betrayal ? 1.3 : 1) / P.risk;
+    score *= 1 + (Math.random() - 0.5) * 2 * aiErr(nid);   // רמת קושי: טעות בהערכת המצב
     if (score > bs) { bs = score; best = { m, betrayal, opp }; }
   }
   if (best && bs > 1) { declareWar(nid, best.m.id); return; }
   // קיפאון ארוך מול בעלי ברית בלבד: החזק שוקל לבטל ברית עם שכן חלש (בגידה — תיספר אם יתקוף ב-30 הימים הקרובים)
   if (stalemate && n.idleDays > 60 && !best) {
-    const ally = S.nations.find(m => m.alive && allied(nid, m.id) && nbs.has(m.id) && militaryPower(m.id) < myPow * 0.7);
+    const ally = S.nations.find(m => m.alive && allied(nid, m.id) && nbs.has(m.id) && powerEst(nid, m.id) < myPow * 0.7);
     if (ally && Math.random() < 0.15 * P.risk && myBloc / expectedOpposition(nid, ally.id, true) > 1.2) breakAlliance(nid, ally.id);
   }
 }

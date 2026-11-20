@@ -180,7 +180,8 @@ function hudSide() {
   return h('div', { class: 'hud-side' },
     h('div', { class: 'mmbar' },
       ...MAP_MODES.map(([k, ic, name, tip]) => h('button', { class: 'btn sm' + (MM.mode === k ? ' on' : ''), title: `${name}: ${tip} (M)`, onclick: () => setMapMode(k) }, ic)),
-      h('button', { class: 'btn sm', title: 'יומן אירועים', onclick: openLog }, '📜')),
+      h('button', { class: 'btn sm', title: 'יומן אירועים', onclick: openLog }, '📜'),
+      h('button', { class: 'btn sm', title: 'מהלך המשחק: גרף שטח ונתונים', onclick: openSummary }, '📈')),
     leg ? h('div', { class: 'legend px' }, h('b', {}, MAP_MODES.find(m => m[0] === MM.mode)[2]), ...leg.map(([c, t]) => h('span', {}, h('i', { style: { background: c } }), t))) : null,
     alertsBar(),
     outliner());

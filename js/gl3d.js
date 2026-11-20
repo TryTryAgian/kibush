@@ -594,6 +594,7 @@ function drawOverlay3(now, fdt) {
     const col = S.nations[f.n].color, cnt = unitCount(f.units), sel = f.n === 0 && f.id === ui.selFront, X = f.pos[0] * T + T / 2, Y = f.pos[1] * T + T / 2;
     if (!inVis(X, Y, 60)) continue;
     const type = f.kind === 'navy' ? 'ship' : f.flying ? 'plane' : mainType(f.units), strip = f.kind === 'navy' ? '#5fe0ff' : f.role === 'defend' ? (f.defRole === 'reserve' ? '#3fb8a0' : '#7ad07a') : f.solo ? '#ff7ad8' : f.opRole === 'ME' ? '#ff9a3c' : f.opRole === 'EXP' ? '#ff5ab4' : '#ffd84a';
+    if (cam.zoom >= 0.9 && cnt && !f.flying) drawDivMarks(f, X, Y, view.lk * 0.8, (wx, wy) => g3Upright(wx, wy, 6));
     g3Upright(X, Y, f.flying ? 14 : 9); const k = view.lk; ctx.save(); ctx.translate(X, Y); ctx.scale(k, k);
     drawCounter(-7, -9, 14, 8, col, type, cnt || null, { sel, hot: f.engaged, strip, dim: !cnt });
     if (f.kind === 'land' && cnt) { const o = f.org ?? 1; ctx.fillStyle = 'rgba(12,16,24,.85)'; ctx.fillRect(-7, -0.6, 14, 1.2); ctx.fillStyle = o > 0.6 ? '#5ad07a' : o > 0.3 ? '#e8b820' : '#e04848'; ctx.fillRect(-7, -0.6, 14 * o, 1.2); }

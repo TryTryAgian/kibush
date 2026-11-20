@@ -106,7 +106,8 @@ function shortages(n) {
 }
 function stockOf(nid) { const u = zeroUnits(); eachBuilding(b => { if (b.n === nid && b.stock) for (const t of UKEYS) u[t] += b.stock[t] || 0; }); return u; }
 function militaryPower(nid) { const u = unitsOf(nid); let p = 0; for (const t of UKEYS) p += u[t] * (UNITS[t].atk + UNITS[t].def); return p + counts()[nid] * 0.2 / (G * G); }
-function allianceBloc(nid) { let p = militaryPower(nid); for (const m of S.nations) if (m.alive && allied(nid, m.id)) p += militaryPower(m.id) * 0.7; return p; }
+// כוח הגוש (אומה + 70% מבעלי בריתה) כפי ש-by מעריך אותו (ברירת מחדל: האומה עצמה — יודעת את הכוח שלה ושל בעלי בריתה)
+function allianceBloc(nid, by = nid) { let p = powerEst(by, nid); for (const m of S.nations) if (m.alive && allied(nid, m.id)) p += powerEst(by, m.id) * 0.7; return p; }
 
 // מאיפה מאחסנים יחידה חדשה: מחנה (או שדה תעופה למטוסים) הקרוב
 function storageFor(nid, t, near) {

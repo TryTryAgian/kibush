@@ -53,7 +53,7 @@ function threatDaily() {
       // בעלי ברית של מעצמה מאיימת מאוד עוזבים את הברית
       if (allied(c.id, x.id)) { if (thr(x.id) >= CFG.THREAT_ALLY_LEAVE && Math.random() < 0.15 + k * 0.3) breakAlliance(c.id, x.id); continue; }
       if (warBlock(c.id, x.id) || S.time < graceDays()) continue;
-      const p = (0.08 + k * 0.35) * PERS[c.pers].join * (militaryPower(c.id) > militaryPower(x.id) ? 0.6 : 1);
+      const p = (0.08 + k * 0.35) * PERS[c.pers].join * (militaryPower(c.id) > powerEst(c.id, x.id) ? 0.6 : 1);
       if (Math.random() < p) {
         declareWar(c.id, x.id, { joining: true, coalition: true });
         toast(x.id === 0 ? `🤝⚔ ${c.name} מצטרפת לקואליציה נגדך (מד איום ${Math.round(thr(0))})` : `🤝 ${c.name} מצטרפת לקואליציה נגד ${x.name}`, x.id === 0 ? 'bad' : '');
@@ -68,19 +68,19 @@ function joinChance(c, a, b, betrayal) {
   const sa = shareOf(a);
   let p = betrayal ? 0.3 : 0.05;
   p += Math.max(0, sa - 0.2) * 1.4;                  // פחד מגודל התוקף
-  p += clamp(-rel(c, a).op / 200, 0, 0.3);           // עוינות קיימת
-  p += clamp(rel(c, b).op / 300, 0, 0.15);           // אהדה לקורבן
+  p += clamp(-opinion(c, a) / 200, 0, 0.3);          // עוינות קיימת (דעה — nation.js)
+  p += clamp(opinion(c, b) / 300, 0, 0.15);          // אהדה לקורבן
   if (leaderThreat() === a) p += 0.2;
   p += thr(a) / 100 * 0.5 + Math.max(0, -repOf(a)) / 250;   // מד איום ומוניטין של התוקף
-  if (militaryPower(c) > militaryPower(a)) p *= 0.5; // מי שחזק מהתוקף פחות מרגיש מאוים
+  if (militaryPower(c) > powerEst(c, a)) p *= 0.5; // מי שחזק מהתוקף פחות מרגיש מאוים
   if (napActive(c, a)) p *= 0.4;
   if (S.nations[c].isAI) p *= PERS[S.nations[c].pers].join;
   return clamp(p, 0, 0.9);
 }
 // הערכת התוקף: כמה כוח צפוי לעמוד מולו אם יתקוף את b
 function expectedOpposition(a, b, betrayal) {
-  let opp = allianceBloc(b);
-  for (const c of S.nations) { const p = joinChance(c.id, a, b, betrayal); if (p > 0 && p < 1) opp += p * militaryPower(c.id); }
+  let opp = allianceBloc(b, a);   // כפי שהתוקף מעריך
+  for (const c of S.nations) { const p = joinChance(c.id, a, b, betrayal); if (p > 0 && p < 1) opp += p * powerEst(a, c.id); }
   return opp;
 }
 function declareWar(a, b, opt = {}) {
@@ -147,7 +147,7 @@ function dealInvalid(kind, a, b) {
 const warGain = (r, nid) => (r.g && r.g[nid]) || 0;
 // האם המחשב (ai) מקבל הצעה מ-other. מחזיר {ok, why}
 function aiAccepts(kind, ai, other, gold) {
-  const r = rel(ai, other), P = PERS[S.nations[ai].pers], my = allianceBloc(ai), th = allianceBloc(other);
+  const r = rel(ai, other), P = PERS[S.nations[ai].pers], my = allianceBloc(ai), th = allianceBloc(other, ai);
   if (kind === 'peace') {
     const age = S.time - r.since; if (age < 15) return { ok: false, why: 'המלחמה רק התחילה' };
     const winning = warGain(r, ai) - warGain(r, other), pr = my / Math.max(1, th);
@@ -162,11 +162,12 @@ function aiAccepts(kind, ai, other, gold) {
   if (thr(other) >= CFG.THREAT_COAL) return { ok: false, why: `מד האיום שלכם גבוה מדי (${Math.round(thr(other))})` };
   const rp = repOf(other), need = { trade: -50, nap: -25, alliance: -10 }[kind];
   if (need != null && rp < need) return { ok: false, why: `לא סומכים עליכם — מוניטין: ${repName(other)[1]}` };
-  if (kind === 'trade') return r.op > -25 ? { ok: true } : { ok: false, why: 'יחסים גרועים' };
-  if (kind === 'nap') return (r.op > 5 || th > my * 1.25 || (S.nations[ai].pers === 'turtle' && r.op > -20)) ? { ok: true } : { ok: false, why: 'אין אמון' };
+  const op = opinion(ai, other);   // דעה: זיכרון + גורמים נוכחיים (nation.js)
+  if (kind === 'trade') return op > -25 ? { ok: true } : { ok: false, why: 'יחסים גרועים' };
+  if (kind === 'nap') return (op > 5 || th > my * 1.25 || (S.nations[ai].pers === 'turtle' && op > -20)) ? { ok: true } : { ok: false, why: 'אין אמון' };
   if (kind === 'alliance') {
     const common = S.nations.some(m => m.alive && atWar(m.id, ai) && atWar(m.id, other)) || (leaderThreat() >= 0 && leaderThreat() !== ai && leaderThreat() !== other);
-    return (r.op > 30 || (r.op > 0 && common)) ? { ok: true } : { ok: false, why: 'אין אינטרס משותף' };
+    return (op > 30 || (op > 0 && common)) ? { ok: true } : { ok: false, why: 'אין אינטרס משותף' };
   }
   return { ok: false, why: '' };
 }

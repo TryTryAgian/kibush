@@ -45,7 +45,7 @@ function load() {
 /* ---------- 16. BOOT & LOOP ---------- */
 let last = performance.now(), acc = 0, lastUi = 0;
 // החלקת תנועה: הסימולציה מתקדמת בצעדים (כל 0.3 שניות במהירות ×1); בציור משלבים בין המיקום הקודם לנוכחי לפי הזמן שעבר מאז הצעד
-function snapPrev() { if (!S) return; for (const f of S.fronts) f.pp = [f.pos[0], f.pos[1]]; for (const c of S.convoys) { c.pt = c.t; c.pPath = c.path; } for (const r of S.rails) { r.pt = r.t; r.pPath = r.path; } }
+function snapPrev() { if (!S) return; for (const f of S.fronts) f.pp = [f.pos[0], f.pos[1]]; for (const d of S.divs) if (d.pos) d.pp = [d.pos[0], d.pos[1]]; for (const c of S.convoys) { c.pt = c.t; c.pPath = c.path; } for (const r of S.rails) { r.pt = r.t; r.pPath = r.path; } }
 const IP = [];
 const FOGSW = { on: false };
 function interpBegin() {
@@ -58,6 +58,7 @@ function interpBegin() {
   }
   if (!S || a >= 1) return;
   for (const f of S.fronts) if (f.pp && Math.abs(f.pp[0] - f.pos[0]) + Math.abs(f.pp[1] - f.pos[1]) < 3 * G) { IP.push([f, 'pos', f.pos]); f.pos = [f.pp[0] + (f.pos[0] - f.pp[0]) * a, f.pp[1] + (f.pos[1] - f.pp[1]) * a]; }
+  for (const d of S.divs) if (d.pp && d.pos && Math.abs(d.pp[0] - d.pos[0]) + Math.abs(d.pp[1] - d.pos[1]) < 3 * G) { IP.push([d, 'pos', d.pos]); d.pos = [d.pp[0] + (d.pos[0] - d.pp[0]) * a, d.pp[1] + (d.pos[1] - d.pp[1]) * a]; }
   for (const c of [...S.convoys, ...S.rails]) if (c.pt != null && c.pPath === c.path) { IP.push([c, 't', c.t]); c.t = c.pt + (c.t - c.pt) * a; }
 }
 function interpEnd() { if (FOGSW.on) { S.fronts = FOGSW.f; S.convoys = FOGSW.c; S.rails = FOGSW.r; FOGSW.on = false; } for (const [o, k, v] of IP) o[k] = v; IP.length = 0; }

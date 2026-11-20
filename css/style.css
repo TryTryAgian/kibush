@@ -124,3 +124,15 @@ input{font:inherit;background:#0b121e;color:var(--txt);border:1px solid var(--li
 .logl{font-size:12px;padding:2px 0;border-bottom:1px solid #1c2a40}
 .logl.bad{color:#ff9aa8}.logl.good{color:#9af0b0}
 @media (max-width: 899px){.hud-side{top:96px}.outl{width:190px;max-height:40vh}}
+.tasks{white-space:pre-line;font-size:11px;line-height:1.45;border-inline-start:2px solid var(--line);padding-inline-start:6px;margin:2px 0}
+/* רגעים גדולים */
+#moment{position:fixed;top:30%;left:50%;transform:translate(-50%,-50%) scale(.92);opacity:0;pointer-events:none;z-index:60;text-align:center;padding:18px 40px;background:linear-gradient(90deg,transparent,rgba(8,12,20,.88) 18%,rgba(8,12,20,.88) 82%,transparent);transition:opacity .45s,transform .45s}
+#moment.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+#moment .mt{font-size:34px;font-weight:800;letter-spacing:.04em;text-shadow:0 0 18px currentColor}
+#moment .ms{font-size:16px;color:#dfe8f2;margin-top:4px}
+/* נגישות */
+:root{--uis:1}
+#ui,#modal .box{zoom:var(--uis)}
+body.calm *{animation:none!important;transition:none!important}
+body.calm #moment{transition:none}
+.access{display:flex;flex-direction:column;gap:4px;margin-top:6px;border-top:1px solid var(--line);padding-top:6px}

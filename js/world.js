@@ -126,3 +126,39 @@ function wsSupply(n, x, y) {
   if (v == null) { v = supplyAt(n, Math.min(H - 1, cy * G + (G >> 1)) * W + Math.min(W - 1, cx * G + (G >> 1))); M.v.set(k, v); }
   return v;
 }
+
+/* ---------- מודיעין: הערכת כוח של אומות אחרות ---------- */
+// אף אחד (גם לא השחקן) לא יודע את הכוח האמיתי של אומה אחרת — רק הערכה. איכות המודיעין (acc, 0..1) עולה מהר כשרואים
+// את הצבאות שלה, כשיש סיור מעל השטח שלה וכשיש גבול משותף, ודועכת לאט כשלא רואים. הטעות (bias) קבועה לתקופה ומתחלפת
+// מדי פעם — כמו הערכת מודיעין שמתיישנת. בעלי ברית חולקים מודיעין מלא זה על זה.
+const INTEL_MIN = 0.12, INTEL_ERR = 0.6;
+function intelUpdate() {
+  S.intel = S.intel || {}; const nn = S.nations.length, B = borderLens();
+  const tot = new Float64Array(nn), parts = [];
+  for (const f of S.fronts) if (f.kind === 'land' && !f.flying && unitCount(f.units)) { const p = frontPower(f, 'def'); tot[f.n] += p; parts.push([f, p]); }
+  for (const n of S.nations) {
+    if (!n.alive) continue;
+    for (const m of S.nations) {
+      if (!m.alive || m.id === n.id || allied(n.id, m.id)) continue;
+      const k = n.id + ':' + m.id, I = S.intel[k] || (S.intel[k] = { acc: INTEL_MIN, bias: (Math.random() * 2 - 1), bt: S.time + 15 + Math.random() * 20 });
+      let vis = 0; for (const [f, p] of parts) if (f.n === m.id && seesFront(n.id, f)) vis += p;
+      const vf = tot[m.id] > 0 ? vis / tot[m.id] : 0;
+      const recon = (S.recon || []).some(z => (z.n === n.id || allied(n.id, z.n)) && z.until > S.time && S.owner[tileOf(z.x, z.y)] === m.id);
+      const target = clamp(INTEL_MIN + 0.55 * vf + (recon ? 0.35 : 0) + (B[n.id * nn + m.id] > 0 ? 0.08 : 0), INTEL_MIN, 0.97);
+      I.acc += (target - I.acc) * (target > I.acc ? 0.4 : 0.035);   // לומדים מהר, שוכחים לאט
+      if (S.time > I.bt) { I.bias = Math.random() * 2 - 1; I.bt = S.time + 20 + Math.random() * 25; }
+    }
+  }
+}
+const intelAcc = (by, m) => by === m || allied(by, m) ? 1 : S.intel?.[by + ':' + m]?.acc ?? INTEL_MIN;
+// הכוח של m כפי ש-by מעריך אותו
+function powerEst(by, m) {
+  const p = militaryPower(m); if (by == null || by === m || allied(by, m)) return p;
+  const I = S.intel?.[by + ':' + m], acc = I?.acc ?? INTEL_MIN, bias = I?.bias ?? 0;
+  return p * Math.max(0.35, 1 + bias * INTEL_ERR * (1 - acc));
+}
+// טווח הטעות (באחוזים) ותיאור מילולי — לממשק
+function intelLabel(by, m) {
+  const a = intelAcc(by, m), err = Math.round(INTEL_ERR * (1 - a) * 100);
+  return { acc: a, err, txt: a >= 0.85 ? 'מדויק' : a >= 0.6 ? 'טוב' : a >= 0.35 ? 'חלקי' : 'דל' };
+}
