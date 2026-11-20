@@ -128,7 +128,7 @@ function hatchFor(col, c) {
 }
 function drawOwnerTile(c, i, P) {
   const [x, y] = XY(i), X = x * P, Y = y * P, o = S.owner[i];
-  c.clearRect(X, Y, P, P); if (o < 0) return;
+  c.clearRect(X, Y, P, P); if (o < 0) { drawMinorTile(c, i, P, X, Y, x, y); return; }
   const col = S.nations[o].color, b = Math.max(1, P / 8);
   c.globalAlpha = 0.06; c.fillStyle = col; c.fillRect(X, Y, P, P);
   const L = x === 0 || S.owner[i - 1] !== o, Rr = x === W - 1 || S.owner[i + 1] !== o, U = y === 0 || S.owner[i - W] !== o, D = y === H - 1 || S.owner[i + W] !== o;
@@ -145,7 +145,7 @@ const ownerPx = () => ownerCv.width / W;
 function rebuildOwner() {
   const c = ownerCv.getContext('2d'), P = ownerPx();
   c.clearRect(0, 0, ownerCv.width, ownerCv.height);
-  for (let i = 0; i < S.owner.length; i++) if (S.owner[i] >= 0) drawOwnerTile(c, i, P);
+  for (let i = 0; i < S.owner.length; i++) if (S.owner[i] >= 0 || (S.mnr && S.mnr[i] >= 0)) drawOwnerTile(c, i, P);
   view.ownerDirty = false; view.ownDirty.clear();
 }
 function updateOwnerTiles() {
@@ -229,7 +229,7 @@ function draw() {
   // ספינות מסחר: זזות לפי זמן המשחק (עוצרות בהשהיה)
   if (TRADE.last != null && TRADE.s === S) updateTrade(vTime() - TRADE.last); else { TRADE.ships = []; TRADE.caravans = []; }
   TRADE.last = vTime(); TRADE.s = S;
-  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawMapMode(ctx); drawFog(ctx);
+  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawMinors(ctx, vis); drawMapMode(ctx); drawFog(ctx);
   if (ui.pick?.kind === 'build' && ui.hint) {   // סימון משבצות לבנייה: תמונה אחת (פיקסל למשבצת), נבנית רק כשהסימון משתנה
     if (!view.hintCv || view.hintSrc !== ui.hint) {
       const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), im = x.createImageData(W, H);
@@ -279,6 +279,7 @@ function draw() {
     const [x, y] = XY(i); if (!b.capital && cam.zoom < 0.9) return; if (!inVis(x * T, y * T, 60)) return;
     drawLabel(x * T + T / 2, y * T + T / 2 + townRad(b) * 0.85, cityName(i, b), b.capital ? 'בירה' : (cam.zoom >= 2 ? 'רמה ' + (b.lvl || 1) : null), S.nations[b.n].color);
   });
+  ctx.textAlign = 'center'; minorLabels((wx, wy) => inVis(wx, wy, 60));   // כפרים וערים ניטרליים
   // גנרלים וציים: סמלי יחידה (קרב: הבזקים, קווי ירי ופיצוצים)
   ctx.textAlign = 'center';
   drawContact(inVis, now, fdt);   // עשן ואש מתחת ליחידות

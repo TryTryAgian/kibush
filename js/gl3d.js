@@ -439,7 +439,7 @@ function g3GroundTexture(now) {
     if (ui.pick?.kind === 'build' && view.hintCv) ctx.drawImage(view.hintCv, 0, 0, W * T, H * T);
     for (const f of S.fronts) if (f.kind === 'land' && f.zone?.length) { const col = S.nations[f.n].color; for (const j of f.zone) { const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K)); ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); } ctx.globalAlpha = 1; }
     for (const d of DECALS) { if (d.x < fp.x0 - 20 || d.x > fp.x1 + 20 || d.y < fp.y0 - 20 || d.y > fp.y1 + 20) continue; const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r); g.addColorStop(0, 'rgba(18,14,10,.6)'); g.addColorStop(0.6, 'rgba(30,24,16,.35)'); g.addColorStop(1, 'rgba(40,32,20,0)'); ctx.fillStyle = g; ctx.fillRect(d.x - d.r, d.y - d.r, d.r * 2, d.r * 2); }
-    drawPasses(ctx, null); drawMapMode(ctx); drawFog(ctx);
+    drawPasses(ctx, null); drawMinors(ctx, null); drawMapMode(ctx); drawFog(ctx);
     for (const op of S.ops) if (op.n === 0) for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2, r = o.main ? 12 : 7; ctx.strokeStyle = o.main || o.custom ? '#ffd84a' : o.type === 'encircle' ? '#ff9a3c' : '#ff4f6a'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.stroke(); }
     if (ui.sel != null) { const [x, y] = XY(ui.sel); ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 1; ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   } finally { ctx = main; }
@@ -580,6 +580,7 @@ function drawOverlay3(now, fdt) {
   runDelayed(fdt);
   drawEncirclements(now, inVis); drawAxes(now);
   // מעברי הרים: תווית זקופה
+  minorLabels((wx, wy) => { if (!inVis(wx, wy, 40)) return false; g3Upright(wx, wy, 5); return true; });
   if (cam.zoom >= 1.4) for (const p of passes()) { const [x, y] = XY(p.tile), wx = x * T + T / 2, wy = y * T + T / 2; if (!inVis(wx, wy, 30)) continue; g3Upright(wx, wy, 4); drawLabel(wx, wy, '⛰ מעבר', null, '#e8d8a0'); }
   // זקוף: סמלי מבנים ותוויות ערים
   eachBuilding((b, i) => {

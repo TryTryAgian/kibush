@@ -89,7 +89,7 @@ function updateUnits(f, cx, cy, dt, now) {
     let da = want - u.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); u.ang += clamp(da, -turn, turn);
   }
   // ירי
-  if ((!f.engaged && !f.bombXY) || dt <= 0) return;
+  if ((!f.engaged && f.mEng == null && !f.bombXY) || dt <= 0) return;   // mEng: קרב מול חיל מצב של כפר
   let foes = null;
   // ארטילריה: מטחים מסונכרנים כל ~3.5 שניות — כל הסוללות יורות יחד לאותו אזור
   v.volT = (v.volT ?? Math.random() * 3) - dt;
@@ -103,7 +103,7 @@ function updateUnits(f, cx, cy, dt, now) {
     else if (f.zone?.length) { const [zx, zy] = XY(f.zone[(Math.random() * f.zone.length) | 0]); ax = (zx + 0.5) * CFG.T; ay = (zy + 0.5) * CFG.T; }
     if (ax != null) arts.forEach((u, n) => { for (let r = 0; r < 2; r++) DELAY.push({ t: n * 0.12 + r * 0.35, fn: () => { u.flash = performance.now(); if (SHOTS.length < 220) SHOTS.push({ x1: u.x, y1: u.y, x2: ax + (Math.random() - 0.5) * 7, y2: ay + (Math.random() - 0.5) * 7, t: 0, life: 1.1, kind: 'shell' }); } }); });
   }
-  if (!f.engaged) return;   // רק הארטילריה יורה מטווח
+  if (!f.engaged && f.mEng == null) return;   // רק הארטילריה יורה מטווח
   const quiet = new Set();
   if (f.dep) { const mine = S.divs.filter(d => d.front === f.id && d.depF === f.id), any = mine.some(d => d.contact); for (const d of mine) if (d.line === false || (any && !d.contact)) quiet.add(d.id); }
   for (const u of v.units) {

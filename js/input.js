@@ -76,6 +76,7 @@ function centerOn(i) { view.cam.zoom = clamp(innerWidth / (36 * 16), 0.5, 4); ce
 
 const ptrs = new Map(); let gesture = null;
 cv.addEventListener('pointerdown', e => {
+  if (e.button === 2) return;   // קליק ימני — תפריט (ctxmenu.js)
   cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (ptrs.size === 1) {
     gesture = { type: 'pan', sx: e.clientX, sy: e.clientY, moved: false };

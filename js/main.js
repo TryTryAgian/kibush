@@ -16,12 +16,12 @@ const unpackArr = (str, Type, n) => new Type(unpackBytes(str, n * Type.BYTES_PER
 function save() {
   if (S?.demo) return;   // משחק הרקע של מסך הבית לא נשמר
   try {
-    const { terrain, owner, lastOwner, railMap, core, capDay, ...rest } = S;
+    const { terrain, owner, lastOwner, railMap, core, capDay, mnr, ...rest } = S;
     const cap = Uint16Array.from(capDay, v => clamp(Math.round(v), 0, 65535));
     // מפות זמני ההגעה של המבצעים (landF) — חישוב זמני ענק; לא שומרים, מחושבים מחדש בטעינה
     const ops = rest.ops.map(({ landF, ...o }) => o);
     const divs = rest.divs.map(({ gf, ...d }) => d);
-    localStorage.setItem(CFG.SAVE_KEY, JSON.stringify({ ...rest, ops, divs, packed: 1, owner: packArr(owner), lastOwner: packArr(lastOwner), railMap: packArr(railMap), core: packArr(core), capDay: packArr(cap) }));
+    localStorage.setItem(CFG.SAVE_KEY, JSON.stringify({ ...rest, ops, divs, packed: 1, owner: packArr(owner), lastOwner: packArr(lastOwner), railMap: packArr(railMap), core: packArr(core), capDay: packArr(cap), mnr: mnr ? packArr(mnr) : null }));
   } catch (e) { if (!S.saveWarned) { S.saveWarned = true; toast('⚠ השמירה נכשלה — אין מספיק מקום באחסון של הדפדפן', 'bad'); } }
 }
 function load() {
@@ -31,7 +31,7 @@ function load() {
     const m = loadTerrain(d.settings, d.seed);
     const N = m.terrain.length, P = d.packed;
     S = { ...d, terrain: m.terrain, owner: P ? unpackArr(d.owner, Int8Array, N) : Int8Array.from(d.owner), lastOwner: P ? unpackArr(d.lastOwner, Int8Array, N) : Int8Array.from(d.lastOwner), railMap: P ? unpackArr(d.railMap, Uint8Array, N) : Uint8Array.from(d.railMap), core: P ? unpackArr(d.core, Int8Array, N) : Int8Array.from(d.core), capDay: P ? Float32Array.from(unpackArr(d.capDay, Uint16Array, N)) : Float32Array.from(d.capDay) };
-    delete S.packed;
+    delete S.packed; S.mnr = d.mnr ? unpackArr(d.mnr, Int16Array, N) : null;
     view.railDirty = true;
     for (const k in compCache) delete compCache[k];
     for (const op of S.ops) planOp(op);   // מחשבים מחדש את הציר ומפת ההגעה

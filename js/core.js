@@ -141,6 +141,7 @@ function newGame(settings) {
     S.buildings[j] = { type: 'camp', dt: 'inf', n: id, prog: 1, lvl: 1 }; claim(id, j, BUILD.camp.claim);
     const d = ensureDiv(j); d.units = { ...DIV_TYPES.inf.comp, ...zeroUnits(), inf: 12 };
   });
+  genMinors();   // כפרים וערים ניטרליים על כל השטח הפנוי (minors.js)
   const c0 = counts(); S.nations.forEach(n => { n.startTiles = c0[n.id]; });
   Object.assign(ui, { tab: null, pick: null, sel: null, selFront: null });
   for (const k in compCache) delete compCache[k];

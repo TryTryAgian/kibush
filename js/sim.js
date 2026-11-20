@@ -23,6 +23,7 @@ function step(dt) {
   for (const f of S.fronts) { f.dispT -= dt; if (f.dispT <= 0) { f.dispT = 1; sendReplacements(f); } updateFront(f, dt); }
   for (const f of S.fronts.slice()) { syncFront(f); if ((f.solo || f.airborne) && !f.flying && !frontDivs(f).length && !S.convoys.some(c => c.front === f.id)) S.fronts.splice(S.fronts.indexOf(f), 1); }
   for (const f of S.fronts) deployFront(f, dt);   // פריסת האוגדות סביב כל גנרל (divisions.js)
+  minorsStep(dt);   // קרבות מול חילות מצב של כפרים (minors.js)
   for (const n of S.nations) {
     if (!n.alive) continue;
     // מפוזר בין האומות כדי שלא כולן יחשבו באותו צעד
@@ -34,7 +35,7 @@ function step(dt) {
   if (Math.floor(S.time) > S.day) { S.day = Math.floor(S.time); daily(); }
 }
 function daily() {
-  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily();
+  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily();
   const c = counts();
   for (const n of S.nations) {
     if (!n.alive) continue;

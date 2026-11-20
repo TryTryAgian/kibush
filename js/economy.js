@@ -6,7 +6,7 @@ function claim(nid, i, r) {
   for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
     if (dx * dx + dy * dy > r * r + r) continue;
     const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= W || y >= H) continue;
-    const j = idx(x, y); if (!isWater(j) && S.owner[j] === -1) { S.owner[j] = nid; S.core[j] = nid; markTile(j); }
+    const j = idx(x, y); if (!isWater(j) && S.owner[j] === -1 && !(S.mnr && S.mnr[j] >= 0)) { /* לא על שטח של כפר */ S.owner[j] = nid; S.core[j] = nid; markTile(j); }
   }
 }
 const SCALE = { city: 0.2, university: 0.5, factory: 0.1, airport: 0.3, camp: 0.12 };   // עלות עולה עם כל מבנה נוסף

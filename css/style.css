@@ -136,3 +136,19 @@ input{font:inherit;background:#0b121e;color:var(--txt);border:1px solid var(--li
 body.calm *{animation:none!important;transition:none!important}
 body.calm #moment{transition:none}
 .access{display:flex;flex-direction:column;gap:4px;margin-top:6px;border-top:1px solid var(--line);padding-top:6px}
+/* קליק ימני: גלגל בנייה וחלונית */
+.cx-wheel{position:fixed;width:0;height:0;z-index:40}
+.cx-center{position:absolute;transform:translate(-50%,-50%);display:flex;gap:4px;padding:6px;border-radius:50%;background:radial-gradient(rgba(10,16,26,.92),rgba(10,16,26,.6));width:74px;height:74px;align-items:center;justify-content:center;box-shadow:0 0 0 1px var(--line)}
+.cx-center .btn{padding:4px 7px;font-size:16px}
+.cx-item{position:absolute;transform:translate(-50%,-50%);width:76px;padding:4px 2px 3px;display:flex;flex-direction:column;align-items:center;gap:1px;background:linear-gradient(#1a2a40,#101a2a);border:1px solid var(--line);color:#e8f0f8;font:inherit;font-size:11px;cursor:pointer;border-radius:10px;animation:cxin .16s ease-out backwards;box-shadow:0 3px 10px rgba(0,0,0,.45)}
+.cx-item:hover{border-color:var(--acc);background:linear-gradient(#20365a,#132036);transform:translate(-50%,-50%) scale(1.08)}
+.cx-item.na{opacity:.45}
+.cx-item img{width:26px;height:26px;image-rendering:pixelated}
+.cx-item .cx-nm{font-weight:700;white-space:nowrap}
+.cx-item .cost{font-size:9.5px;color:#aac0d4;white-space:nowrap}
+@keyframes cxin{from{opacity:0;transform:translate(-50%,-50%) scale(.4)}}
+.cx-panel{position:fixed;z-index:40;min-width:240px;max-width:330px;padding:8px 10px;display:flex;flex-direction:column;gap:5px;font-size:12.5px}
+.cx-h{font-weight:800;font-size:14px;border-inline-start:3px solid var(--acc);padding-inline-start:6px}
+.cx-row{display:flex;flex-wrap:wrap;gap:4px}
+.cx-bar{height:5px;background:#1a2638;border-radius:3px;overflow:hidden;margin:2px 0 3px}
+.cx-bar i{display:block;height:100%}

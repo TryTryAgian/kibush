@@ -75,7 +75,8 @@ function aiThink(n) {
       desired = cur && score(S.nations[cur.target]) <= score(best) * 1.6 ? cur.target : best.id;
     }
   }
-  if (desired == null && S.owner.some((o, j) => o === -1 && !isWater(j) && S.terrain[j] !== SNOW)) desired = -1;
+  // התפשטות: שטח הפקר (לא הרים) או כפרים שהכרזנו עליהם כיריבים (minors.js)
+  if (desired == null && S.owner.some((o, j) => o === -1 && !isWater(j) && S.terrain[j] !== SNOW && (S.mnr?.[j] >= 0 ? minorHostile(S.minors[S.mnr[j]], nid) : S.terrain[j] !== MOUNT))) desired = -1;
   if (desired != null && !ops.some(o => o.target === desired)) { ops.forEach(cancelOp); createOp(nid, desired); }
   const op = S.ops.find(o => o.n === nid);
   const all = landGenerals(nid);

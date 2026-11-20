@@ -26,7 +26,7 @@ function frontSpeed(f) {
   const base = ds.length ? Math.min(...ds.map(d => DIV_TYPES[d.type].spd)) * 0.75 : 2.2 * G;
   return base * mod(S.nations[f.n], 'reinforce');   // (מהירויות האוגדות כבר בקנה מידה של הרשת)
 }
-function validTarget(nid, j) { if (isWater(j) || S.owner[j] === nid || S.terrain[j] === SNOW) return false; const o = S.owner[j]; return o < 0 || atWar(nid, o); }
+function validTarget(nid, j) { if (isWater(j) || S.owner[j] === nid || S.terrain[j] === SNOW) return false; const o = S.owner[j]; return o < 0 ? minorAllows(nid, j) : atWar(nid, o); }
 // האם יש לאומה חוף של m בטווח נחיתה מנמל שלנו — סורקים רק את החלון סביב הנמלים
 function navalReach(nid, m, ports) {
   const R = Math.ceil(CFG.PORT_RANGE * G);
@@ -535,7 +535,7 @@ function fortressAuras(o) {
 }
 function tileDefense(j, auras) {
   const o = S.owner[j]; let d = (1 + TER[S.terrain[j]].def) * TER_CAP[S.terrain[j]];
-  if (o < 0) return d;
+  if (o < 0) return d + minorTileDef(j);   // כפר: חיל מצב ועיר (minors.js)
   d += 2 * TER_CAP[S.terrain[j]];
   const b = S.buildings[j]; if (b && done(b)) d += BUILD[b.type].def * (b.type === 'fortress' ? mod(S.nations[o], 'fort') : 1) + (b.capital ? 6 : 0);
   if ((auras || fortressAuras(o)).some(a => cheb(a.i, j) <= a.r)) d += 4 * mod(S.nations[o], 'fort');
@@ -570,6 +570,7 @@ function captureTile(nid, j) {
     if (prev >= 0 && prev !== nid) { const bk = S.buildings[k]; addThreat(nid, bk?.capital ? CFG.THREAT_CAP : bk && KEY_TYPES.includes(bk.type) ? CFG.THREAT_KEY : CFG.THREAT_TILE * 16 / (G * G)); }
     if (prev >= 0) { S.lastOwner[k] = prev; const r = rel(nid, prev); r.g = r.g || {}; r.g[nid] = (r.g[nid] || 0) + 1; }
     if (prev < 0 && S.core[k] < 0) S.core[k] = nid;     // שטח ניטרלי — הופך לליבה מיד
+    if (prev < 0) minorOnCapture(nid, k);               // שטח של כפר (minors.js) — נפילת העיר שלו = כניעה
     S.capDay[k] = S.time;
     S.owner[k] = nid; markTile(k); const b = S.buildings[k];
     if (b) {
@@ -582,7 +583,7 @@ function captureTile(nid, j) {
     }
   };
   take(j);
-  if (tgt < 0) for (const k of nb4(j)) if (!isWater(k) && S.owner[k] === -1 && TER_CAP[S.terrain[k]] < 1.5) take(k);   // התפשטות מהירה רק במישור וביער — לא בהרים ובגבעות
+  if (tgt < 0) for (const k of nb4(j)) if (!isWater(k) && S.owner[k] === -1 && TER_CAP[S.terrain[k]] < 1.5 && minorAllows(nid, k)) take(k);   // התפשטות מהירה רק במישור וביער — לא בהרים ובגבעות
 }
 // אזור החזית: כמה משבצות גבול סמוכות שהצבא לוחץ עליהן במקביל — הקו מתקדם כגל.
 // משבצות שמוקפות יותר בשטח שלנו מקבלות עדיפות — הקו מתיישר ולא נשארים "שיניים".
@@ -1215,6 +1216,7 @@ function expandCells(op) {
   const nid = op.n, C = CFG.EXPAND_CELL * G, cells = new Map(), o = S.owner, ter = S.terrain, ccw = Math.ceil(W / C), arr = [];
   for (let i = 0; i < o.length; i++) {
     if (o[i] !== -1) continue; const t = ter[i]; if (t === SNOW || TER[t].water) continue;
+    if (S.mnr && S.mnr[i] >= 0 && !minorHostile(S.minors[S.mnr[i]], nid)) continue;   // כפר שלא הכרזת עליו — לא שטח להתפשטות
     const x = i % W, y = (i / W) | 0, k = ((y / C) | 0) * ccw + ((x / C) | 0);
     let c = arr[k]; if (!c) { arr[k] = c = { key: ((x / C) | 0) + ',' + ((y / C) | 0), n: 0, front: [], tiles: [], cx: 0, cy: 0, pen: 0 }; cells.set(c.key, c); }
     c.n++; c.cx += x; c.cy += y; c.tiles.push(i); c.pen += Math.min(6, TER_PEN[t]);
@@ -1227,7 +1229,7 @@ function expandCells(op) {
     out = [...cells.values()].map(c => { const coast = []; return c; });
     const ports = ownPorts(nid), sea = [];
     for (const c of cells.values()) { c.front = []; c.sea = true; }
-    for (let i = 0; i < o.length; i++) if (o[i] === -1 && isCoastal(i) && ports.some(p => dist(p, i) <= CFG.PORT_RANGE * 2)) { const [x, y] = XY(i), c = cells.get(Math.floor(x / C) + ',' + Math.floor(y / C)); if (c) c.front.push(i); }
+    for (let i = 0; i < o.length; i++) if (o[i] === -1 && minorAllows(nid, i) && isCoastal(i) && ports.some(p => dist(p, i) <= CFG.PORT_RANGE * 2)) { const [x, y] = XY(i), c = cells.get(Math.floor(x / C) + ',' + Math.floor(y / C)); if (c) c.front.push(i); }
     out = [...cells.values()].filter(c => c.front.length); for (const c of out) { c.cx /= c.n || 1; c.cy /= c.n || 1; }
   }
   op.cells = out;
