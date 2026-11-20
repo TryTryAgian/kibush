@@ -101,7 +101,7 @@ function hqPlan(nid) {
 }
 
 // --- תפקידים במבצע ---
-const ROLE_NAMES = { ME: '⭐ מאמץ עיקרי', PIN: '📌 קיבוע', EXP: '⚡ דרג שני' };
+const ROLE_NAMES = { ME: '⭐ מאמץ עיקרי', PIN: '📌 קיבוע', EXP: '⚡ דרג שני', SEC: '🗺 חזית משנית' };
 const DEF_NAMES = { reserve: '🛡 עתודה ניידת', depth: '🧱 הגנה בעומק', screen: '👁 מסך', delay: '⏳ השהיה' };
 function localRatio(f, tile, r = 6) { return frontPower(f, 'atk') / (enemyPowerNear(f.n, tile, r) + (S.owner[tile] >= 0 && S.owner[tile] !== f.n ? tileDefense(tile) * 2 : 2) + 1); }
 // משבצת התבססות: שלנו, קרובה, מחוץ לטווח הקרב עם האויב
@@ -163,7 +163,7 @@ function assignHolders(nid, holders, zones) {
         if (sc > bs) { bs = sc; best = [f, z]; }
       }
     }
-    const [f, z] = best; plan.set(f, z); left.splice(left.indexOf(f), 1);
+    if (!best) break; const [f, z] = best; plan.set(f, z); left.splice(left.indexOf(f), 1);
     z.need -= hp(f); z.p = z.need > 0 ? z.weight * (z.need + 2) : z.weight * 0.3;
   }
   return plan;
@@ -293,7 +293,8 @@ function highGround(nid, t, r) {
   const [x0, y0] = XY(t); let best = t, bs = TER_DEF[S.terrain[t]] * 10;
   for (let y = Math.max(0, y0 - r); y <= Math.min(H - 1, y0 + r); y++) for (let x = Math.max(0, x0 - r); x <= Math.min(W - 1, x0 + r); x++) {
     const j = y * W + x; if (S.owner[j] !== nid || isWater(j) || S.terrain[j] === SNOW) continue;
-    const sc = TER_DEF[S.terrain[j]] * 10 - Math.hypot(x - x0, y - y0) / G * 0.8; if (sc > bs + 0.5) { bs = sc; best = j; }
+    const fi = featNear()[j], ft = fi >= 0 ? FEAT.list[fi] : null, fb = ft && ft.t !== 'valley' && ft.t !== 'bay' ? (FT[ft.t].def - 1) * 20 + (ft.tile === j ? 1 : 0) : 0;   // צווארי בקבוק וגבעות שולטות
+    const sc = TER_DEF[S.terrain[j]] * 10 + fb - Math.hypot(x - x0, y - y0) / G * 0.8; if (sc > bs + 0.5) { bs = sc; best = j; }
   }
   return best;
 }

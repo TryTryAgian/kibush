@@ -96,7 +96,7 @@ function drawConvoyClose(c) {
 }
 // --- אפקטים: פיצוצים בדיתור, עשן, קווי ירי ---
 const FX = [];
-function spawnBoom(x, y, big) { if (FX.length < 80) FX.push({ x, y, t: 0, life: big ? 1.4 : 0.8, r: big ? 9 : 4.5, seed: Math.random() * 1000 }); }
+function spawnBoom(x, y, big) { if (FX.length < 80) FX.push({ x, y, t: 0, life: big ? 1.4 : 0.8, r: big ? 9 : 4.5, seed: Math.random() * 1000 }); if (big || Math.random() < 0.35) { DECALS.push({ x, y, r: (big ? 8 : 4) * (0.8 + Math.random() * 0.5), a: Math.random() * 6.28 }); if (DECALS.length > 500) DECALS.shift(); } }
 function drawFx(dt) {
   for (let k = FX.length - 1; k >= 0; k--) {
     const f = FX[k]; f.t += dt; if (f.t >= f.life) { FX.splice(k, 1); continue; }
@@ -229,7 +229,7 @@ function draw() {
   // ספינות מסחר: זזות לפי זמן המשחק (עוצרות בהשהיה)
   if (TRADE.last != null && TRADE.s === S) updateTrade(vTime() - TRADE.last); else { TRADE.ships = []; TRADE.caravans = []; }
   TRADE.last = vTime(); TRADE.s = S;
-  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawMinors(ctx, vis); drawMapMode(ctx); drawFog(ctx);
+  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawBridges(ctx, vis); drawTrenches(ctx, vis); if (cam.zoom >= 0.9) { drawTracks(ctx, vis); for (const d of DECALS) if (inVis(d.x, d.y, 12)) drawCrater(ctx, d); } drawMinors(ctx, vis); drawMapMode(ctx); drawFog(ctx);
   if (ui.pick?.kind === 'build' && ui.hint) {   // סימון משבצות לבנייה: תמונה אחת (פיקסל למשבצת), נבנית רק כשהסימון משתנה
     if (!view.hintCv || view.hintSrc !== ui.hint) {
       const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), im = x.createImageData(W, H);
@@ -259,6 +259,7 @@ function draw() {
       ctx.beginPath(); ctx.moveTo(ax0, ay0); ctx.lineTo(ax1, ay1); ctx.moveTo(ax1, ay1); ctx.lineTo(ax1 - hx - hy * 0.6, ay1 - hy + hx * 0.6); ctx.moveTo(ax1, ay1); ctx.lineTo(ax1 - hx + hy * 0.6, ay1 - hy - hx * 0.6); ctx.stroke();
       ctx.restore();
     }
+    if (op.route?.length > 1) { ctx.save(); ctx.strokeStyle = sel?.op === op.id ? 'rgba(255,170,60,.85)' : 'rgba(255,170,60,.4)'; ctx.lineWidth = Math.max(1, 2.2 / cam.zoom); ctx.setLineDash([5, 4]); ctx.lineDashOffset = -now / 60; ctx.beginPath(); op.route.forEach((j, k) => { const [x, y] = XY(j); k ? ctx.lineTo(x * T + T / 2, y * T + T / 2) : ctx.moveTo(x * T + T / 2, y * T + T / 2); }); ctx.stroke(); ctx.restore(); }   // ציר ההתקדמות
     for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2; if (o.main) { ctx.save(); ctx.translate(cx, cy); ctx.scale(1.8, 1.8); ctx.translate(-cx, -cy); } ctx.strokeStyle = o.main || o.custom ? '#ffd84a' : o.type === 'encircle' ? '#ff9a3c' : '#ff4f6a'; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx + 7, cy); ctx.lineTo(cx, cy + 7); ctx.lineTo(cx - 7, cy); ctx.closePath(); ctx.stroke(); ctx.fillStyle = ctx.strokeStyle; ctx.fillRect(cx - 1, cy - 9.5, 2, 2); if (o.main) ctx.restore(); }
   }
   // שיירות: סמל קטן בצבע האומה לאורך המסלול
@@ -279,10 +280,11 @@ function draw() {
     const [x, y] = XY(i); if (!b.capital && cam.zoom < 0.9) return; if (!inVis(x * T, y * T, 60)) return;
     drawLabel(x * T + T / 2, y * T + T / 2 + townRad(b) * 0.85, cityName(i, b), b.capital ? 'בירה' : (cam.zoom >= 2 ? 'רמה ' + (b.lvl || 1) : null), S.nations[b.n].color);
   });
-  ctx.textAlign = 'center'; minorLabels((wx, wy) => inVis(wx, wy, 60));   // כפרים וערים ניטרליים
+  ctx.textAlign = 'center'; featLabels((wx, wy) => inVis(wx, wy, 60)); minorLabels((wx, wy) => inVis(wx, wy, 60));   // כפרים וערים ניטרליים
   // גנרלים וציים: סמלי יחידה (קרב: הבזקים, קווי ירי ופיצוצים)
   ctx.textAlign = 'center';
   drawContact(inVis, now, fdt);   // עשן ואש מתחת ליחידות
+  if (cam.zoom >= CFG.UNIT_ZOOM) drawBodies2D(fdt);
   for (const f of S.fronts) {
     const col = S.nations[f.n].color, mine = f.n === 0, cnt = unitCount(f.units), sel = mine && f.id === ui.selFront;
     if (mine && f.path && (sel || cam.zoom > 1)) {

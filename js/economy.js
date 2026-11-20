@@ -13,14 +13,17 @@ const SCALE = { city: 0.2, university: 0.5, factory: 0.1, airport: 0.3, camp: 0.
 function buildCost(nid, type, dt) { const k = (1 + (SCALE[type] || 0) * countBuilding(nid, type)) * (type === 'camp' ? DIV_TYPES[dt || 'inf'].cost : 1); return Object.fromEntries(Object.entries(BUILD[type].cost).map(([r, v]) => [r, Math.round(v * k)])); }
 const canAfford = (n, cost) => Object.entries(cost).every(([k, v]) => n.res[k] >= v);
 const pay = (n, cost) => { for (const k in cost) n.res[k] -= cost[k]; };
+// יער שעיר פינתה לשדות נחשב מישור לבנייה
+const effTer = i => S.terrain[i] === FOREST && typeof TERR !== 'undefined' && TERR.s === S && TERR.farm?.[i] ? GRASS : S.terrain[i];
 function canBuild(nid, type, i, ignoreCost, dt) {
   const B = BUILD[type], n = S.nations[nid], t = S.terrain[i];
   const no = reason => ({ ok: false, reason });
   if (!unlocked(n, B)) return no(`דורש מחקר: ${TECH[B.req].name}`);
   if (TER[t].water) return no('אי אפשר לבנות על מים');
+  if (S.river && S.river[i]) return no('אי אפשר לבנות על נהר');
   if (S.owner[i] !== nid) return no('אפשר לבנות רק בשטח שלך');
   if (S.buildings[i]) return no('יש כבר מבנה במשבצת');
-  if (!B.terrain.includes(t)) return no(`${B.name} לא נבנה על ${TER[t].name}`);
+  if (!B.terrain.includes(effTer(i))) return no(`${B.name} לא נבנה על ${TER[t].name}`);
   if (B.coastal && !isCoastal(i)) return no(`${B.name} חייב להיות צמוד לים`);
   // מבנה מאותו סוג קרוב מדי: בודקים רק את החלון סביב המשבצת (ולא את כל המבנים במפה)
   let close = false; const [ix, iy] = XY(i), sp = Math.ceil(B.spacing * G) - 1;
@@ -37,7 +40,7 @@ function buildableTiles(nid, type, dt) {
   if (!unlocked(n, B) || (type === 'camp' && dt && !kindReady(n, dt))) return out;
   const sp = Math.ceil(B.spacing * G) - 1, blocked = new Uint8Array(W * H);
   eachBuilding((b, j) => { if (b.type !== type) return; const [bx, by] = XY(j); for (let y = Math.max(0, by - sp); y <= Math.min(H - 1, by + sp); y++) blocked.fill(1, y * W + Math.max(0, bx - sp), y * W + Math.min(W - 1, bx + sp) + 1); });
-  for (let i = 0; i < S.owner.length; i++) { if (S.owner[i] !== nid || blocked[i] || S.buildings[i]) continue; const t = S.terrain[i]; if (TER[t].water || !B.terrain.includes(t) || (B.coastal && !isCoastal(i))) continue; out.add(i); }
+  for (let i = 0; i < S.owner.length; i++) { if (S.owner[i] !== nid || blocked[i] || S.buildings[i]) continue; const t = S.terrain[i]; if (TER[t].water || !B.terrain.includes(effTer(i)) || (B.coastal && !isCoastal(i))) continue; out.add(i); }
   return out;
 }
 function build(nid, type, i, dt) {
@@ -122,7 +125,9 @@ function addStock(j, t, k) { const b = S.buildings[j]; if (!b) return; b.stock =
 // --- רכבות: כל מפעל מחובר במסילה לעיר ולנמל הקרובים שלו. רכבת מובילה סחורה ומכניסה זהב בכל הגעה ---
 const RAIL_VALUE = { city: 3, port: 3 };
 function planRails(nid) {
+  const before = S.rails.length;
   S.rails = S.rails.filter(r => r.n !== nid || (r.path.tiles.every(t => S.owner[t] === nid) && S.buildings[r.a]?.n === nid && S.buildings[r.b]?.n === nid));
+  if (S.rails.length !== before) { S.railMap.fill(0); for (const r of S.rails) for (const t of r.path.tiles) S.railMap[t] = 1; view.railDirty = true; }   // מסילה שנקטעה — לא נשארת "רוח רפאים" מהירה
   const facs = [], cities = [], ports = [];
   eachBuilding((b, j) => { if (b.n !== nid || !done(b)) return; if (b.type === 'factory') facs.push(j); else if (b.type === 'city') cities.push(j); else if (b.type === 'port') ports.push(j); });
   for (const f of facs) for (const [kind, list] of [['city', cities], ['port', ports]]) {
@@ -130,7 +135,7 @@ function planRails(nid) {
     const dest = list.slice().sort((a, b) => dist(a, f) - dist(b, f))[0]; if (dest == null || dist(dest, f) > 25) continue;
     const p = findPath(nid, f, dest, { own: true }); if (!p) continue;
     for (const t of p.tiles) S.railMap[t] = 1;
-    S.rails.push({ n: nid, a: f, b: dest, kind, path: findPath(nid, f, dest, { own: true }) || p, t: 0, dir: 1 });
+    S.rails.push({ n: nid, a: f, b: dest, kind, path: p, t: 0, dir: 1 });
     view.railDirty = true;
   }
 }

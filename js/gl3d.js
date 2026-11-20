@@ -194,7 +194,8 @@ function windowsOn(m, x0, x1, y, z0, z1, side) {   // שורת חלונות על
 // בניין: קירות + גג (gable/flat) + חלונות לחזית הדרומית והצפונית
 function house(m, x0, y0, x1, y1, h, wall, roof, kind = 'gable', win = true) {
   m.box(x0, y0, 0, x1, y1, h, wall, kind === 'flat' ? roof : wall);
-  if (kind === 'gable') m.gable(x0 - 0.2, y0 - 0.2, x1 + 0.2, y1 + 0.2, h, h + Math.min(x1 - x0, y1 - y0) * 0.45, roof);
+  if (kind === 'gable' || kind === 'steep') m.gable(x0 - 0.2, y0 - 0.2, x1 + 0.2, y1 + 0.2, h, h + Math.min(x1 - x0, y1 - y0) * (kind === 'steep' ? 0.85 : 0.45), roof);
+  if (kind === 'flat') m.box(x0 - 0.05, y0 - 0.05, h, x1 + 0.05, y1 + 0.05, h + 0.25, wall);   // מעקה גג
   if (win && h > 1.4) { const zs = []; for (let z = 0.8; z < h - 0.6; z += 1.6) zs.push(z); for (const z of zs) { windowsOn(m, x0, x1, y1, z, z + 0.7, 1); windowsOn(m, x0, x1, y0, z, z + 0.7, -1); } }
   return m;
 }
@@ -267,9 +268,49 @@ function buildingModel(b) {
   });
 }
 function treeInto(m, x, y, r, c) { m.cyl(x, y, r * 0.18, 0, r * 1.2, rgb('#5a4630'), 5); m.cone(x, y, r * 1.2, r * 0.9, r * 3.4, c || rgb('#3c4f2c'), 7); m.cone(x, y, r * 0.9, r * 2.1, r * 4.2, (c || rgb('#3c4f2c')).map((v, i) => i < 3 ? v * 1.15 : v), 7); }
+// ===== סגנון בנייה לפי אקלים (סבב גרפיקה 2) =====
+// מוערך מהשטח סביב המקום ומקו הרוחב (צפון קר, דרום חם): הרים/שלג → אבן וגגות תלולים; יער → עץ כהה; חוף/דרום → קירות לבנים או חוליים וגגות שטוחים
+const CLIM = new Map();
+function climateAt(j) {
+  if (CLIM.s !== S) { CLIM.clear(); CLIM.s = S; } const key = j; if (CLIM.has(key)) return CLIM.get(key);
+  const [x, y] = XY(j), R = 4 * G; let n = 0, mt = 0, fo = 0, sa = 0, wa = 0;
+  for (let yy = Math.max(0, y - R); yy <= Math.min(H - 1, y + R); yy += 2) for (let xx = Math.max(0, x - R); xx <= Math.min(W - 1, x + R); xx += 2) { const t = S.terrain[yy * W + xx]; n++; if (t === MOUNT || t === SNOW) mt++; else if (t === FOREST) fo++; else if (t === SAND) sa++; else if (TER[t].water) wa++; }
+  const lat = y / H, c = mt / n > 0.22 || (lat < 0.15 && mt / n > 0.08) ? 'alpine' : (lat > 0.72 && fo / n < 0.3) || sa / n > 0.12 ? 'arid' : wa / n > 0.28 ? 'med' : fo / n > 0.35 ? 'wood' : 'temperate';
+  CLIM.set(key, c); return c;
+}
+const STYLE = {
+  temperate: { wall: WALL2, roof: ROOF2, kind: 'gable', flat: 0.15 },
+  med:       { wall: ['#efebe2', '#e6e0d2', '#f3f0e8', '#ddd6c4'], roof: ['#c0603a', '#b5583a', '#c87048'], kind: 'gable', flat: 0.45 },
+  arid:      { wall: ['#d8bf8c', '#cdb07a', '#e0c99a', '#c9a874'], roof: ['#e6d2a6', '#dcc492'], kind: 'flat', flat: 1, court: true },
+  wood:      { wall: ['#6e5238', '#7a5a3c', '#5e4632', '#866446'], roof: ['#4a4038', '#5a4a3c', '#3e3a34'], kind: 'steep', flat: 0 },
+  alpine:    { wall: ['#9a968c', '#8a867c', '#a8a498', '#7e7a70'], roof: ['#5c6268', '#4e545a', '#d8dce2'], kind: 'steep', flat: 0 },
+};
+// בית בסגנון: גג לפי האקלים, ובאקלים צחיח — חומת חצר נמוכה עם פתח
+function styledHouse(m, st, x0, y0, x1, y1, h, k, i, big) {
+  const wall = rgb(st.wall[(hash01(k, i, 18) * st.wall.length) | 0]), roof = rgb(st.roof[(hash01(i, k, 15) * st.roof.length) | 0]);
+  const kind = hash01(k, i, 19) < st.flat || (big && hash01(k, 1, 1) < 0.5 && st.flat > 0) ? 'flat' : st.kind;
+  house(m, x0, y0, x1, y1, h, wall, kind === 'flat' ? wall.map(v => v * 0.92) : roof, kind);
+  if (st.court && hash01(k, i, 23) < 0.6) { const p = 0.9, hw = 0.8, cw = wall.map(v => v * 0.95);
+    m.box(x0 - p, y1 + p - 0.25, 0, x1 + p, y1 + p, hw, cw); m.box(x0 - p, y0 - p, 0, x0 - p + 0.25, y1 + p, hw, cw); m.box(x1 + p - 0.25, y0 - p, 0, x1 + p, y1 + p, hw, cw);
+    m.box(x0 - p, y0 - p, 0, (x0 + x1) / 2 - 0.6, y0 - p + 0.25, hw, cw); m.box((x0 + x1) / 2 + 0.6, y0 - p, 0, x1 + p, y0 - p + 0.25, hw, cw); }
+}
+// כפר ניטרלי בתלת-ממד: אשכול בתים בסגנון האזור (עיר ניטרלית — יותר בתים וחומה)
+function villageModel(mi) {
+  const m0 = S.minors[mi], st = STYLE[climateAt(m0.town)], key = 'vil:' + mi + ':' + climateAt(m0.town);
+  return g3Model(key, m => {
+    const n = m0.town && m0.kind === 'town' ? 14 : 6, rad = m0.kind === 'town' ? 11 : 6.5, occ = [];
+    for (let k = 0; k < n * 2 && occ.length < n; k++) {
+      const a = hash01(mi, k, 31) * 6.283, r = (0.1 + 0.9 * Math.sqrt(hash01(k, mi, 32))) * rad, hx = Math.cos(a) * r, hy = Math.sin(a) * r * 0.85;
+      const w = 2.1 + hash01(mi + k, 3, 33) * 1.4, d = 1.8 + hash01(k, mi + 3, 34) * 1.1;
+      if (occ.some(([ox, oy, ow, od]) => Math.abs(ox - hx) < (ow + w) / 2 + (st.court ? 1.8 : 0.4) && Math.abs(oy - hy) < (od + d) / 2 + (st.court ? 1.8 : 0.4))) continue; occ.push([hx, hy, w, d]);
+      styledHouse(m, st, hx - w / 2, hy - d / 2, hx + w / 2, hy + d / 2, 1.5 + hash01(k, 5, 35) * 0.9, k, mi, false);
+    }
+    if (m0.kind === 'town') { const c = rgb(st.wall[0]).map(v => v * 0.8); for (let k = 0; k < 28; k++) { if (k % 7 === 3) continue; const a = k / 28 * 6.283, a2 = (k + 1) / 28 * 6.283, R = rad + 2.2, x0 = Math.cos(a) * R, y0 = Math.sin(a) * R * 0.85, x1 = Math.cos(a2) * R, y1 = Math.sin(a2) * R * 0.85; m.box(Math.min(x0, x1) - 0.3, Math.min(y0, y1) - 0.3, 0, Math.max(x0, x1) + 0.3, Math.max(y0, y1) + 0.3, 1.4, c); } }
+  });
+}
 // עיר: אותו פריסת בתים כמו בציור הדו-ממדי
 function townModel(i, b) {
-  const lvl = b.lvl || 1, key = 'town:' + i + ':' + lvl + ':' + (b.capital ? 1 : 0) + ':' + b.n;
+  const lvl = b.lvl || 1, st = STYLE[climateAt(i)], key = 'town:' + i + ':' + lvl + ':' + (b.capital ? 1 : 0) + ':' + b.n + ':' + climateAt(i);
   return g3Model(key, m => {
     const rad = townRad(b), ns = 3 + lvl, angs = Array.from({ length: ns }, (_, k) => hash01(i, k, 21) * 6.283);
     const n = Math.round((6 + lvl * 6 + (b.capital ? 8 : 0)) * 1.7), occ = [];
@@ -280,7 +321,7 @@ function townModel(i, b) {
       if (b.capital && Math.abs(hx) < 5.5 && Math.abs(hy) < 5) continue;
       if (occ.some(([ox, oy, ow, od]) => Math.abs(ox - hx) < (ow + w) / 2 && Math.abs(oy - hy) < (od + d) / 2)) continue; occ.push([hx, hy, w, d]);
       const h = (big ? 2.4 + lvl * 0.8 + hash01(k, 9, 3) * 2 : 1.6 + hash01(k, 5, 17) * 0.8);
-      house(m, hx - w / 2, hy - d / 2, hx + w / 2, hy + d / 2, h, rgb(WALL2[(hash01(k, i, 18) * WALL2.length) | 0]), rgb(ROOF2[(hash01(i, k, 15) * ROOF2.length) | 0]), big && lvl >= 3 && hash01(k, 1, 1) < 0.5 ? 'flat' : 'gable');
+      styledHouse(m, st, hx - w / 2, hy - d / 2, hx + w / 2, hy + d / 2, h, k, i, big && lvl >= 3);
     }
     // פנסי רחוב לאורך הרחובות (נדלקים בלילה)
     for (const a of angs) for (let r = rad * 0.3; r < rad * 1.05; r += 3.6) { const ox = Math.cos(a + 1.57) * 0.9, oy = Math.sin(a + 1.57) * 0.9 * 0.84, x = Math.cos(a) * r + ox, y = Math.sin(a) * r * 0.84 + oy; if (occ.some(([hx, hy, w, d]) => Math.abs(hx - x) < w / 2 + 0.2 && Math.abs(hy - y) < d / 2 + 0.2)) continue; m.box(x - 0.08, y - 0.08, 0, x + 0.08, y + 0.08, 2.6, [0.2, 0.2, 0.22, 0]); m.box(x - 0.22, y - 0.22, 2.6, x + 0.22, y + 0.22, 2.9, [1, 0.85, 0.55, 1]); }
@@ -313,6 +354,17 @@ function unitModel(t) {
       m.box(-0.25, -0.25, 2.2, 0.25, 0.25, 2.65, [0.85, 0.7, 0.55, 0]);                                                          // ראש
       m.box(-0.32, -0.32, 2.5, 0.32, 0.32, 2.9, t === 'cmdo' ? [0.22, 0.26, 0.2, 0] : [0.35, 0.38, 0.28, 0]);                    // קסדה
       m.box(0.2, 0.3, 1.5, 1.5, 0.45, 1.65, [0.18, 0.15, 0.12, 0]);                                                              // רובה
+    } else if (t === 'infK' || t === 'cmdoK') {   // כורע: רגל אחת מקופלת, גוף נמוך, רובה מכוון
+      m.box(-0.5, -0.45, 0, 0.35, -0.1, 0.55, [0.32, 0.33, 0.26, 0]); m.box(0.1, 0.1, 0, 0.5, 0.45, 0.9, [0.32, 0.33, 0.26, 0]);
+      m.box(-0.4, -0.55, 0.55, 0.25, 0.55, 1.6, uni); m.box(-0.75, -0.4, 0.65, -0.4, 0.4, 1.45, dk);
+      m.box(-0.2, -0.25, 1.6, 0.3, 0.25, 2.05, [0.85, 0.7, 0.55, 0]); m.box(-0.27, -0.32, 1.9, 0.37, 0.32, 2.3, t === 'cmdoK' ? [0.22, 0.26, 0.2, 0] : [0.35, 0.38, 0.28, 0]);
+      m.box(0.25, -0.08, 1.45, 1.8, 0.08, 1.6, [0.18, 0.15, 0.12, 0]);
+    } else if (t === 'infP' || t === 'infD' || t === 'body') {   // שוכב: על הבטן ויורה / פצוע / גופה
+      const u2 = t === 'body' ? [0.36, 0.36, 0.3, 0] : uni, red = [0.55, 0.08, 0.06, 0];
+      m.box(-2.5, -0.45, 0, -1.5, 0.45, 0.4, [0.32, 0.33, 0.26, 0]); m.box(-1.6, -0.55, 0, 0.5, 0.55, 0.65, u2); m.box(-1.3, -0.4, 0.65, -0.2, 0.4, 0.95, dk);
+      m.box(0.5, -0.25, 0.05, 1.0, 0.25, 0.55, [0.85, 0.7, 0.55, 0]); m.box(0.5, -0.32, 0.3, 1.05, 0.32, 0.7, [0.35, 0.38, 0.28, 0]);
+      if (t === 'infP') m.box(0.8, 0.25, 0.25, 2.3, 0.4, 0.4, [0.18, 0.15, 0.12, 0]); else m.box(-0.9, -0.3, 0.66, -0.2, 0.3, 0.72, red);
+    } else if (t === 'rock') { m.box(-0.9, -0.7, 0, 0.8, 0.7, 0.8, [0.46, 0.44, 0.4, 0]); m.box(-0.5, -0.4, 0.8, 0.4, 0.5, 1.2, [0.52, 0.5, 0.46, 0]); m.box(0.5, -0.9, 0, 1.2, -0.2, 0.5, [0.42, 0.4, 0.37, 0]);
     } else if (t === 'ltank' || t === 'htank') {
       const H_ = t === 'htank', L = H_ ? 3.2 : 2.6, Wd = H_ ? 1.9 : 1.6;
       m.box(-L, -Wd, 0, L, -Wd + 0.6, 0.9, met); m.box(-L, Wd - 0.6, 0, L, Wd, 0.9, met);
@@ -337,6 +389,7 @@ function unitModel(t) {
       m.box(-2.4, -1, 0.5, 0.8, 1, 2.3, [0.45, 0.47, 0.35, 0]); m.box(0.8, -1, 0.5, 2.4, 1, 1.9, uni); m.box(2.35, -0.8, 1.2, 2.45, 0.8, 1.8, [0.5, 0.7, 0.85, 0]);
       for (const X of [-1.8, -0.4, 1.6]) { m.box(X - 0.35, -1.15, 0, X + 0.35, -0.95, 0.7, met); m.box(X - 0.35, 0.95, 0, X + 0.35, 1.15, 0.7, met); }
     } else if (t === 'tree') treeInto(m, 0, 0, 1, [0.24, 0.32, 0.17, 0]);
+    else if (t === 'palm') { for (let q = 0; q < 6; q++) { const z0 = q * 0.9; m.box(-0.22 + q * 0.06, -0.22, z0, 0.22 + q * 0.06, 0.22, z0 + 0.95, [0.45, 0.36, 0.24, 0]); } const tx = 0.36, tz = 5.4; for (let q = 0; q < 6; q++) { const a = q / 6 * 6.283; m.quad([[tx, 0, tz], [tx + Math.cos(a) * 2.6, Math.sin(a) * 2.6, tz - 1.1], [tx + Math.cos(a + 0.35) * 2.3, Math.sin(a + 0.35) * 2.3, tz - 0.9], [tx + Math.cos(a + 0.2) * 0.4, Math.sin(a + 0.2) * 0.4, tz + 0.1]], [0, 0, 1], [0.28 + q * 0.01, 0.42, 0.18, 0]); } }
     else if (t === 'bush') { m.box(-0.9, -0.8, 0, 0.9, 0.8, 1.1, [0.24, 0.33, 0.17, 0]); m.box(-0.6, -0.55, 1.1, 0.6, 0.55, 1.6, [0.29, 0.39, 0.2, 0]); }
     else if (t === 'tree2') { m.cyl(0, 0, 0.2, 0, 1.4, [0.35, 0.27, 0.19, 0], 5); m.box(-1.1, -1.1, 1.2, 1.1, 1.1, 3, [0.28, 0.38, 0.19, 0]); m.box(-0.7, -0.7, 3, 0.7, 0.7, 3.8, [0.33, 0.44, 0.22, 0]); }
     else if (t === 'plane') {   // מטוס קרב: גוף, כנפיים משוכות, זנב
@@ -423,7 +476,7 @@ function g3BuildMesh() {
 // תמונת הקרקע: כל מה ששוכב על הקרקע (שטח, שליטה, כבישים, רחובות ערים, אזורי קרב, יעדים, סימון)
 function g3GroundTexture(now) {
   const fp = G3.fp, T = CFG.T, dpr = devicePixelRatio || 1;
-  const gz = Math.min(fp.z * dpr * 1.1, 4096 / (fp.x1 - fp.x0), 4096 / (fp.y1 - fp.y0), 8), w = Math.round((fp.x1 - fp.x0) * gz), h = Math.round((fp.y1 - fp.y0) * gz);
+  const TX = matchMedia('(pointer:coarse)').matches ? 2048 : 4096, gz = Math.min(fp.z * dpr * 1.1, TX / (fp.x1 - fp.x0), TX / (fp.y1 - fp.y0), 8), w = Math.round((fp.x1 - fp.x0) * gz), h = Math.round((fp.y1 - fp.y0) * gz);
   if (!G3.gCv) { G3.gCv = document.createElement('canvas'); G3.gCtx = G3.gCv.getContext('2d'); }
   if (G3.gCv.width !== w || G3.gCv.height !== h) { G3.gCv.width = w; G3.gCv.height = h; }
   const main = ctx; ctx = G3.gCtx;
@@ -438,8 +491,8 @@ function g3GroundTexture(now) {
     eachBuilding((b, i) => { if (b.type !== 'city' || !done(b)) return; const [x, y] = XY(i); if (x * T < fp.x0 - 60 || x * T > fp.x1 + 60 || y * T < fp.y0 - 60 || y * T > fp.y1 + 60) return; drawTownGround(i, b); });
     if (ui.pick?.kind === 'build' && view.hintCv) ctx.drawImage(view.hintCv, 0, 0, W * T, H * T);
     for (const f of S.fronts) if (f.kind === 'land' && f.zone?.length) { const col = S.nations[f.n].color; for (const j of f.zone) { const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K)); ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); } ctx.globalAlpha = 1; }
-    for (const d of DECALS) { if (d.x < fp.x0 - 20 || d.x > fp.x1 + 20 || d.y < fp.y0 - 20 || d.y > fp.y1 + 20) continue; const g = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r); g.addColorStop(0, 'rgba(18,14,10,.6)'); g.addColorStop(0.6, 'rgba(30,24,16,.35)'); g.addColorStop(1, 'rgba(40,32,20,0)'); ctx.fillStyle = g; ctx.fillRect(d.x - d.r, d.y - d.r, d.r * 2, d.r * 2); }
-    drawPasses(ctx, null); drawMinors(ctx, null); drawMapMode(ctx); drawFog(ctx);
+    drawTracks(ctx, fp); for (const d of DECALS) { if (d.x < fp.x0 - 20 || d.x > fp.x1 + 20 || d.y < fp.y0 - 20 || d.y > fp.y1 + 20) continue; drawCrater(ctx, d); }
+    drawPasses(ctx, null); drawBridges(ctx, null); drawTrenches(ctx, null); drawMinors(ctx, null, true); drawMapMode(ctx); drawFog(ctx);
     for (const op of S.ops) if (op.n === 0) for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2, r = o.main ? 12 : 7; ctx.strokeStyle = o.main || o.custom ? '#ffd84a' : o.type === 'encircle' ? '#ff9a3c' : '#ff4f6a'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.stroke(); }
     if (ui.sel != null) { const [x, y] = XY(ui.sel); ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 1; ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   } finally { ctx = main; }
@@ -454,7 +507,8 @@ function g3Trees() {
   const x0 = Math.max(0, Math.floor(fp.x0 / T)), x1 = Math.min(W - 1, Math.ceil(fp.x1 / T)), y0 = Math.max(0, Math.floor(fp.y0 / T)), y1 = Math.min(H - 1, Math.ceil(fp.y1 / T));
   const near = new Set(); eachBuilding((b, j) => { const [bx, by] = XY(j), R = b.type === 'city' ? Math.ceil(townRad(b) / T) + 1 : 2; for (let y = by - R; y <= by + R; y++) for (let x = bx - R; x <= bx + R; x++) near.add(y * W + x); });
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = y * W + x; if (S.terrain[i] !== FOREST || TERR.farm?.[i] || near.has(i)) continue;
+    const i = y * W + x; if (S.terrain[i] !== FOREST || near.has(i)) continue;
+    if (TERR.farm?.[i] && !(hash01(x, y, 391) < 0.55 && nb4(i).some(k => S.terrain[k] === FOREST && !TERR.farm[k]))) continue;   // שדות ביער: רק בשוליים נשארים עצים בודדים
     for (let k = 0; k < 2; k++) { const r = hash01(x, y, 300 + k); if (k && r < 0.4) continue; const wx = (x + hash01(x, y, 310 + k)) * T, wy = (y + hash01(x, y, 320 + k)) * T, s = 0.9 + hash01(x, y, 330 + k) * 0.7, g = 0.85 + hash01(y, x, 340 + k) * 0.3;
       out.push(wx, wy, g3H(wx, wy), r * 6.28, s * 1.15, g, g * (0.95 + r * 0.1), g); }
   }
@@ -468,6 +522,17 @@ function g3Trees() {
     for (const [ax, ay, bx, by] of [[X0, Y0, X0 + w, Y0], [X0, Y0, X0, Y0 + h]]) { const L = Math.hypot(bx - ax, by - ay); for (let d = 0.6; d < L; d += 1.5 + hash01(cx * 7 + d * 10 | 0, cy, 360) * 0.8) { const wx = ax + (bx - ax) * d / L + (hash01(cx, cy * 3 + d | 0, 361) - 0.5) * 0.4, wy = ay + (by - ay) * d / L; if (!farmAt(wx, wy) || hash01(cx * 13 + d * 7 | 0, cy * 5, 364) < 0.3) continue; const g = 0.85 + hash01(cx + d | 0, cy, 362) * 0.3; hedges.push(wx, wy, g3H(wx, wy), d, 0.55 + hash01(cy, cx + d | 0, 363) * 0.35, g, g, g); } }
   }
   G3.hedges = new Float32Array(hedges);
+  // סלעים בגבעות, בהרים ובחוף — אותן נקודות שהחיילים תופסים כמחסה (soldiers.js)
+  const rocks = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const t = S.terrain[y * W + x]; if (t !== HILLS && t !== MOUNT && t !== SAND) continue;
+    for (let k = 0; k < 2; k++) if (hash01(x, y, 370 + k) < (t === SAND ? 0.12 : 0.45)) { const wx = (x + 0.15 + hash01(x, y, 371 + k) * 0.7) * T, wy = (y + 0.15 + hash01(x, y, 373 + k) * 0.7) * T, s = 0.8 + hash01(x, y, 375 + k) * 0.6; rocks.push(wx, wy, g3H(wx, wy), hash01(x, y, 377 + k) * 6.28, s, 1, 1, 1); } }
+  G3.rocks = new Float32Array(rocks);
+  // דקלים: בחוף ובשפלה של אזורים חמים (דרום, חוף ים תיכוני)
+  const palms = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = y * W + x, t = S.terrain[i]; if ((t !== SAND && t !== GRASS) || TERR.farm?.[i] || near.has(i) || hash01(x, y, 395) > (t === SAND ? 0.1 : 0.03)) continue;
+    const cl = climateAt(idx(x - x % (2 * G), y - y % (2 * G))); if (cl !== 'arid' && cl !== 'med') continue;
+    const wx = (x + hash01(x, y, 396)) * T, wy = (y + hash01(x, y, 397)) * T; palms.push(wx, wy, g3H(wx, wy), hash01(x, y, 398) * 6.28, 0.9 + hash01(x, y, 399) * 0.4, 1, 1, 1); }
+  G3.palms = new Float32Array(palms);
   for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) { const i = y * W + x; if (S.terrain[i] !== GRASS || TERR.farm?.[i] || near.has(i) || hash01(x, y, 350) > 0.035) continue; const wx = (x + 0.5) * T, wy = (y + 0.5) * T; out.push(wx, wy, g3H(wx, wy), 0, 0.9, 1, 1, 1); }
   return G3.trees = new Float32Array(out);
 }
@@ -486,6 +551,7 @@ function g3Scene(now) {
     const sc = done(b) ? 1 : 0.25 + 0.75 * (b.prog || 0);
     items.push({ mdl: b.type === 'city' ? townModel(i, done(b) ? b : { ...b, lvl: 1 }) : buildingModel(b), M: [wx, wy, g3H(wx, wy), 0], sc });
   });
+  for (const mn of S.minors || []) { if (!mn.alive) continue; const [x, y] = XY(mn.town), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; items.push({ mdl: villageModel(mn.id), M: [wx, wy, g3H(wx, wy), 0], sc: 1 }); }
   // יחידות לפי סוג ואומה
   const groups = new Map(), add = (t, n, x, y, ang, s, alt = 0, abs) => { const k = t + ':' + n; let g = groups.get(k); if (!g) groups.set(k, g = { t, n, a: [] }); const c = rgb(S.nations[n].color); g.a.push(x, y, abs ? alt : g3H(x, y) + alt, ang, s, c[0] * 0.75 + 0.2, c[1] * 0.75 + 0.2, c[2] * 0.75 + 0.2); };
   for (const f of S.fronts) {
@@ -499,7 +565,8 @@ function g3Scene(now) {
     updateUnits(f, X, Y, view.fdt || 0, now);
     const v = VIS.get(f.id); if (!v) continue;
     for (const u of v.units) {
-      if (u.t === 'inf' || u.t === 'cmdo') for (let k = 0; k < 3; k++) { const a = u.ang + Math.PI / 2, ox = Math.cos(a) * (k - 1) * 1.3 - Math.cos(u.ang) * (k === 1 ? 0.9 : 0), oy = Math.sin(a) * (k - 1) * 1.3 - Math.sin(u.ang) * (k === 1 ? 0.9 : 0); add(u.t, f.n, u.x + ox * 1.3, u.y + oy * 1.3, u.ang, 1.15); }
+      if ((u.t === 'inf' || u.t === 'cmdo') && u.sq) { for (const s of u.sq.m) if (s.st !== 'gone') add(s.st === 'dead' ? 'body' : sModel(s, u.t), f.n, s.x, s.y, s.ang + (s.st === 'down' ? 1.2 : 0), 1.3, s.st === 'run' ? Math.abs(Math.sin(now / 95 + s.k * 1.7)) * 0.3 : 0); }
+      else if (u.t === 'inf' || u.t === 'cmdo') for (let k = 0; k < 3; k++) { const a = u.ang + Math.PI / 2, ox = Math.cos(a) * (k - 1) * 1.3 - Math.cos(u.ang) * (k === 1 ? 0.9 : 0), oy = Math.sin(a) * (k - 1) * 1.3 - Math.sin(u.ang) * (k === 1 ? 0.9 : 0); add(u.t, f.n, u.x + ox * 1.3, u.y + oy * 1.3, u.ang, 1.15); }
       else add(u.t, f.n, u.x, u.y, u.ang, u.t === 'htank' ? 1.3 : 1.15);
     }
   }
@@ -509,6 +576,7 @@ function g3Scene(now) {
   for (const s of TRADE.ships || []) { const [x, y] = pathPos(s.path, s.t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy) || fogHide(s.n, x, y)) continue; const [x2, y2] = pathPos(s.path, clamp(s.t + s.dir * 0.4, 0, s.path.total)); add('ship', s.n, wx, wy, Math.atan2(y2 - y, x2 - x), s.len / 9, 0.1, true); }
   for (const r of S.rails) { for (let k = 0; k < 4; k++) { const t = clamp(r.t - r.dir * k * 0.6 * RAIL_COST, 0, r.path.total), [x, y] = pathPos(r.path, t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(r.path, clamp(t + r.dir * 0.3 * RAIL_COST, 0, r.path.total)), [x1, y1] = pathPos(r.path, clamp(t - r.dir * 0.3 * RAIL_COST, 0, r.path.total)); add(k ? 'wagon' : 'loco', r.n, wx, wy, Math.atan2(y2 - y1, x2 - x1), 1, 0.3); } }
   eachBuilding((b, i) => { if (b.type !== 'airport' || !done(b)) return; const [x, y] = XY(i), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) return; add('plane', b.n, wx - 1.8, wy + 7.4, -Math.PI / 2, 1, 0.9); add('plane', b.n, wx + 6, wy - 1.6, 0, 0.95, 0.9); });
+  for (const b of BODIES) { if (!inF(b.x, b.y)) continue; b.t += view.fdt || 0; if (b.t > 30) continue; add('body', b.n, b.x, b.y, b.ang, 1.3); }
   for (const w of WRECKS) if (w.tank) { const k = 'wreck:x'; let g = groups.get(k); if (!g) groups.set(k, g = { t: 'wreck', n: -1, a: [] }); g.a.push(w.x, w.y, g3H(w.x, w.y), w.ang || 0, 0.8, 1, 1, 1); }
   return { items, groups };
 }
@@ -518,9 +586,13 @@ function draw3D(now, fdt) {
   if (TRADE.last != null && TRADE.s === S) updateTrade(vTime() - TRADE.last); else { TRADE.ships = []; TRADE.caravans = []; } TRADE.last = vTime(); TRADE.s = S;
   if (glCv.width !== Wd || glCv.height !== Hd) { glCv.width = Wd; glCv.height = Hd; }
   g3Footprint();
-  const zs = S.fronts.reduce((a, f) => a + (f.zone?.length ? f.zone[0] + f.zone.length * 7 + Math.round(Object.values(f.prog || {}).reduce((x, y) => x + y, 0) * 3) : 0), 0);
-  const sig = [OWNV, DECALS.length, ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty, fogOn() ? FOG.ver : 0, MM.mode, MM.ver].join('|');
-  if (G3.gT === 0 || (sig !== G3.gSig && now - G3.gT > 400) || now - G3.gT > 4000) { G3.gSig = sig; g3GroundTexture(now); }
+  const fp0 = G3.fp, inFp = j => { const x = (j % W) * CFG.T, y = ((j / W) | 0) * CFG.T; return x > fp0.x0 - 16 && x < fp0.x1 + 16 && y > fp0.y0 - 16 && y < fp0.y1 + 16; };
+  if (G3.ownGen !== OWNLOG.gen) { G3.ownGen = OWNLOG.gen; G3.ownI = 0; G3.ownCh = (G3.ownCh || 0) + 1; }
+  for (let q = G3.ownI || 0; q < OWNLOG.a.length; q++) if (inFp(OWNLOG.a[q])) G3.ownCh = (G3.ownCh || 0) + 1; G3.ownI = OWNLOG.a.length;
+  // רק גנרלים שאזור הקרב שלהם על המסך משפיעים על החתימה
+  const zs = S.fronts.reduce((a, f) => a + (f.zone?.length && inFp(f.zone[0]) ? f.zone[0] + f.zone.length * 7 + Math.round(Object.values(f.prog || {}).reduce((x, y) => x + y, 0) * 3) : 0), 0);
+  const sig = [G3.ownCh, DECALS.length, TRACKS.length >> 4, S.divs.reduce((a, d) => a + Math.round((d.dig || 0) * 4), 0), ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty, fogOn() ? FOG.ver : 0, MM.mode, MM.ver].join('|');
+  if (G3.gT === 0 || (sig !== G3.gSig && now - G3.gT > 900) || now - G3.gT > 6000) { G3.gSig = sig; g3GroundTexture(now); }
   const sun = sunState(), VP = camMatrix(), LVP = lightMatrix(sun, G3.fp), sc = g3Scene(now), trees = g3Trees(), lines = g3Fx(fdt, now), PL = g3Lights(sun);
   const passes = [['sh', G3.sh], ['lit', G3.lit]];
   gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
@@ -547,6 +619,8 @@ function draw3D(now, fdt) {
     for (const it of sc.items) { if (it.sc < 1) { g3DrawModel(P, it.mdl, new Float32Array([...it.M, it.sc, 1, 1, 1]), 1); } else g3DrawModel(P, it.mdl, null, 0, it.M); }
     if (trees.length) { g3DrawModel(P, unitModel('tree'), trees, trees.length / 8); }
     if (G3.hedges?.length) g3DrawModel(P, unitModel('bush'), G3.hedges, G3.hedges.length / 8);
+    if (G3.rocks?.length) g3DrawModel(P, unitModel('rock'), G3.rocks, G3.rocks.length / 8);
+    if (G3.palms?.length) g3DrawModel(P, unitModel('palm'), G3.palms, G3.palms.length / 8);
     for (const g of sc.groups.values()) g3DrawModel(P, unitModel(g.t), new Float32Array(g.a), g.a.length / 8);
   }
   g3DrawParticles(VP, lines);
@@ -581,7 +655,7 @@ function drawOverlay3(now, fdt) {
   drawEncirclements(now, inVis); drawAxes(now);
   // מעברי הרים: תווית זקופה
   minorLabels((wx, wy) => { if (!inVis(wx, wy, 40)) return false; g3Upright(wx, wy, 5); return true; });
-  if (cam.zoom >= 1.4) for (const p of passes()) { const [x, y] = XY(p.tile), wx = x * T + T / 2, wy = y * T + T / 2; if (!inVis(wx, wy, 30)) continue; g3Upright(wx, wy, 4); drawLabel(wx, wy, '⛰ מעבר', null, '#e8d8a0'); }
+  featLabels((wx, wy) => { if (!inVis(wx, wy, 30)) return false; g3Upright(wx, wy, 4); return true; });
   // זקוף: סמלי מבנים ותוויות ערים
   eachBuilding((b, i) => {
     const [x, y] = XY(i), wx = x * T + T / 2, wy = y * T + T / 2; if (!inVis(wx, wy, 40)) return;
@@ -617,7 +691,13 @@ function g3Boom(x, y, big) {
   for (let k = 0; k < (big ? 14 : 5); k++) { const a = RND() * 6.28, d = RND() * r * 0.7, [c0, c1] = SMOKE(0.5 + RND() * 0.2); part({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, z: h + 1, vx: Math.cos(a) * 1.5 + 1.2, vy: Math.sin(a) * 1.5, vz: 3 + RND() * 5, drag: 0.6, life: 2.2 + RND() * 2.5, s0: r * 0.7, s1: r * (2.4 + RND()), c0, c1 }); }
   for (let k = 0; k < (big ? 10 : 4); k++) { const a = RND() * 6.28; part({ x, y, z: h + 1, vx: Math.cos(a) * (6 + RND() * 10), vy: Math.sin(a) * (6 + RND() * 10), vz: 8 + RND() * 14, g: -32, life: 0.5 + RND() * 0.5, s0: 0.7, s1: 0.4, c0: [1, 0.85, 0.5, 1], c1: [1, 0.4, 0.1, 0], add: 1 }); }
   LIGHTS3.push({ x, y, z: h + 5, r: r * 7, c: [2.2, 1.3, 0.55], t: 0, life: big ? 0.9 : 0.45 });
-  if (big || RND() < 0.35) { DECALS.push({ x, y, r: r * (0.8 + RND() * 0.5) }); if (DECALS.length > 500) DECALS.shift(); }
+  if (big) {   // פיצוץ גדול (סבב גרפיקה 1): כדור אש שעולה, עמוד עשן כהה גבוה, טבעת אבק על הקרקע, רסיסים כבדים
+    for (let k = 0; k < 6; k++) part({ x: x + (RND() - 0.5) * 2, y: y + (RND() - 0.5) * 2, z: h + 2 + k * 1.2, vz: 4 + k * 1.5, drag: 0.8, life: 0.7 + k * 0.12, s0: r * (1.6 - k * 0.12), s1: r * 2.4, c0: [1, 0.62 - k * 0.06, 0.18, 0.95], c1: [0.35, 0.12, 0.05, 0], add: 1 });
+    for (let k = 0; k < 8; k++) { const [c0, c1] = SMOKE(0.75); part({ x: x + (RND() - 0.5) * 3, y: y + (RND() - 0.5) * 3, z: h + 4 + k * 2, vx: 0.8, vz: 3 + RND() * 3, drag: 0.25, life: 4 + RND() * 3, s0: r * 0.9, s1: r * (2.6 + RND()), c0: [0.12, 0.11, 0.1, 0.8], c1 }); }
+    for (let k = 0; k < 18; k++) { const a = k / 18 * 6.28 + RND() * 0.3, v = 10 + RND() * 6; part({ x, y, z: h + 0.6, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: 0.6, drag: 2.6, life: 1.6 + RND(), s0: 1.5, s1: r * 1.2, c0: [0.66, 0.56, 0.4, 0.55], c1: [0.7, 0.62, 0.48, 0] }); }
+    for (let k = 0; k < 10; k++) { const a = RND() * 6.28, v = 4 + RND() * 9; part({ x, y, z: h + 1, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: 10 + RND() * 12, g: -30, life: 0.9 + RND() * 0.6, s0: 0.9, s1: 0.8, c0: [0.16, 0.13, 0.1, 1], c1: [0.2, 0.17, 0.13, 1] }); }
+  }
+  if (big || RND() < 0.35) { DECALS.push({ x, y, r: r * (0.8 + RND() * 0.5), a: RND() * 6.28 }); if (DECALS.length > 500) DECALS.shift(); }
 }
 // פיצוצים: בתלת-ממד — חלקיקים; בדו-ממד — כמו קודם
 const spawnBoom2D = spawnBoom;
@@ -627,9 +707,10 @@ function g3Fx(dt, now) {
   // יריות: הבזקי לוע, נותבים, פגזים בקשת
   for (let i = SHOTS.length - 1; i >= 0; i--) {
     const s = SHOTS[i]; s.t += dt; const k = s.t / s.life, h1 = g3H(s.x1, s.y1), h2 = g3H(s.x2, s.y2);
+    if (!s.seen && (s.kind === 'cannon' || (s.kind === 'shell' && !s.small))) { const a = Math.atan2(s.y2 - s.y1, s.x2 - s.x1); for (let q = 0; q < 3; q++) part({ x: s.x1 + Math.cos(a) * (2 + q), y: s.y1 + Math.sin(a) * (2 + q), z: h1 + 2, vx: Math.cos(a) * 2, vy: Math.sin(a) * 2, vz: 1, drag: 1.2, life: 1.2 + q * 0.3, s0: 1.2, s1: 3.5, c0: [0.78, 0.76, 0.72, 0.55], c1: [0.8, 0.8, 0.78, 0] }); }
     if (!s.seen) { s.seen = 1; const big = s.kind === 'cannon' || s.kind === 'shell'; part({ x: s.x1, y: s.y1, z: h1 + (big ? 2 : 1.6), life: big ? 0.09 : 0.05, s0: big ? 3 : 1.2, s1: big ? 4 : 1.6, c0: [1, 0.92, 0.6, 1], c1: [1, 0.6, 0.2, 0], add: 1 }); if (big) { const [c0, c1] = SMOKE(0.35); part({ x: s.x1, y: s.y1, z: h1 + 2, vz: 1.5, life: 1.2, s0: 1.5, s1: 4, c0, c1 }); } }
     if (k >= 1) { SHOTS.splice(i, 1);
-      if (s.kind === 'shell') spawnBoom(s.x2, s.y2, true); else if (s.kind === 'cannon' && RND() < 0.6) spawnBoom(s.x2, s.y2, false);
+      if (s.kind === 'shell') spawnBoom(s.x2, s.y2, !s.small); else if (s.kind === 'cannon' && RND() < 0.6) spawnBoom(s.x2, s.y2, false);
       else if (RND() < 0.25) part({ x: s.x2, y: s.y2, z: h2 + 0.3, vz: 1.5, life: 0.5, s0: 0.6, s1: 1.8, c0: [0.45, 0.38, 0.28, 0.6], c1: [0.5, 0.45, 0.35, 0] });
       continue; }
     if (s.kind === 'shell') { const L = Math.hypot(s.x2 - s.x1, s.y2 - s.y1), x = s.x1 + (s.x2 - s.x1) * k, y = s.y1 + (s.y2 - s.y1) * k, z = h1 + (h2 - h1) * k + 2 + Math.sin(k * Math.PI) * L * 0.3;

@@ -9,9 +9,9 @@ function step(dt) {
   S.convoys = S.convoys.filter(c => {
     c.t += c.spd * dt;
     const [x, y] = pathPos(c.path, c.t), here = tileOf(x, y);
-    if (c.mode === 'sea' && isWater(here) && !c.units.ship && !c.safe && seaThreat(c.n, x, y, 2)) { if (mod(S.nations[c.n], 'escort') > 1 && Math.random() < 0.6) { c.safe = true; return true; } if (c.n === 0) toast(`⚓ שיירה של ${c.cnt} יחידות טובעה!`, 'bad'); return false; }
+    if (c.mode === 'sea' && isWater(here) && !c.units.ship && !c.safe && seaThreat(c.n, x, y, 2)) { if (mod(S.nations[c.n], 'escort') > 1 && Math.random() < 0.6) { c.safe = true; return true; } if (c.n === 0) toast(`⚓ שיירה של ${c.cnt} יחידות טובעה!`, 'bad'); convoyLost(c); return false; }
     if (c.mode === 'air' && !c.hit && (c.units.plane || isWater(here) || S.owner[here] !== c.n) && aaThreat(c.n, x, y, 3) >= 2) { c.hit = true; for (const t of UKEYS) c.units[t] = Math.floor((c.units[t] || 0) / 2); c.cnt = unitCount(c.units); if (c.n === 0) toast('✈ רכבת אווירית נפגעה מהגנה אווירית', 'bad'); if (!c.cnt) return false; }
-    if (c.t < c.path.total) { const u = convoyUpdate(c, dt); if (u === 'dead') return false; if (u === 'arrive') { convoyArrive(c); return false; } return true; }
+    if (c.t < c.path.total) { const u = convoyUpdate(c, dt); if (u === 'dead') { convoyLost(c); return false; } if (u === 'arrive') { convoyArrive(c); return false; } return true; }
     // סוף הקטע: אם הגנרל זז — ממשיכים אליו (רדיפה), אחרת מגיעים
     if (convoyChase(c, here)) return true;
     convoyArrive(c);
@@ -33,9 +33,10 @@ function step(dt) {
     if (n.isAI) { n.aiT += dt; if (n.aiT >= CFG.AI_THINK) { n.aiT = 0; aiThink(n); } }
   }
   if (Math.floor(S.time) > S.day) { S.day = Math.floor(S.time); daily(); }
+  if (S.scenAtk) scenTick();
 }
 function daily() {
-  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily();
+  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily(); sectorsDaily(); digDaily();
   const c = counts();
   for (const n of S.nations) {
     if (!n.alive) continue;

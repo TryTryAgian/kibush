@@ -52,12 +52,16 @@ function mainComp(nid) {
     // BFS מהיר: מערך מוכן מראש, בלי הקצאות לכל משבצת; בעלות "שלי או בעל ברית" מחושבת פעם אחת לכל אומה
     const okN = S.nations.map(m => m.id === nid || allied(nid, m.id)), st = new Int32Array(W * H), own = S.owner, ter = S.terrain; let top = 0;
     const ok = v => { const o = own[v]; return o >= 0 && okN[o] && !TER[ter[v]].water; };
-    st[top++] = seed; a[seed] = 1;
-    while (top) { const u = st[--top], x = u % W;
-      if (x > 0 && !a[u - 1] && ok(u - 1)) { a[u - 1] = 1; st[top++] = u - 1; }
-      if (x < W - 1 && !a[u + 1] && ok(u + 1)) { a[u + 1] = 1; st[top++] = u + 1; }
-      if (u >= W && !a[u - W] && ok(u - W)) { a[u - W] = 1; st[top++] = u - W; }
-      if (u < W * H - W && !a[u + W] && ok(u + W)) { a[u + W] = 1; st[top++] = u + W; } }
+    const fill = s0 => { st[top++] = s0; a[s0] = 1;
+      while (top) { const u = st[--top], x = u % W;
+        if (x > 0 && !a[u - 1] && ok(u - 1)) { a[u - 1] = 1; st[top++] = u - 1; }
+        if (x < W - 1 && !a[u + 1] && ok(u + 1)) { a[u + 1] = 1; st[top++] = u + 1; }
+        if (u >= W && !a[u - W] && ok(u - W)) { a[u - W] = 1; st[top++] = u - W; }
+        if (u < W * H - W && !a[u + W] && ok(u + W)) { a[u + W] = 1; st[top++] = u + W; } } };
+    fill(seed);
+    // קו ימי: אם יש נמל בשטח המרכזי, כל שטח (אי, ראש גשר) שיש בו נמל שלנו מחובר אליו דרך הים — לא כיס
+    const ports = keys.filter(k => S.buildings[k].n === nid && S.buildings[k].type === 'port' && done(S.buildings[k]));
+    if (ports.some(k => a[k])) for (const k of ports) if (!a[k] && ok(k)) fill(k);
   }
   compCache[nid] = { t: S.time, a }; return a;
 }
@@ -332,7 +336,13 @@ function syncFront(f) {
   }
   f.units = tot; f.synced = { ...tot };
 }
+// תקרת אוגדות לגנרל: גנרל מפקד על גיס — עד 6 אוגדות קרקע (אוויר וצי לא נספרים)
+const GEN_DIVS = 6;
+const capped = f => f && f.kind === 'land' && !f.solo && !f.flying;
+const genLoad = f => S.divs.filter(d => d.front === f.id && d.type !== 'air' && d.type !== 'navy').length;
+const genFull = f => capped(f) && genLoad(f) >= GEN_DIVS;
 function sendDivision(d, f, fromTile) {
+  if (d.type !== 'air' && d.front !== f.id && genFull(f)) return false;
   const from = fromTile ?? (d.loc === 'front' && d.front != null ? tileOf(...S.fronts.find(x => x.id === d.front).pos) : d.home);
   const kind = d.type === 'air' ? 'plane' : d.type === 'navy' ? 'ship' : 'inf';
   const to = tileOf(...f.pos), route = supplyRoute(d.n, from, to, kind);
@@ -343,10 +353,27 @@ function sendDivision(d, f, fromTile) {
   return true;
 }
 function convoySpeed(d, f, mode) { let s = DIV_TYPES[d.type].spd * mod(S.nations[d.n], 'reinforce') * (f ? TRAITS[f.gen.trait].reinforce || 1 : 1); return mode === 'air' && d.type !== 'air' ? s * 1.5 : s; }
+// אוגדה שהבסיס שלה אבד: עוברת לבסיס פנוי מאותו סוג; אין כזה — היחידות נכנסות למלאי של הבסיס הקרוב (לא נעלמות)
+function rehomeDiv(d) {
+  const p = d.pos ? tileOf(...d.pos) : d.home; let best = null, bd = Infinity, stockAt = null, sd = Infinity;
+  eachBuilding((b, j) => { if (b.n !== d.n || !done(b) || divTypeOf(b) !== d.type) return; const dd = dist(j, p);
+    if ((b.div == null || !divById(b.div)) && dd < bd) { bd = dd; best = j; } if (dd < sd) { sd = dd; stockAt = j; } });
+  if (best != null) { d.home = best; S.buildings[best].div = d.id; return true; }
+  if (stockAt != null) { const b = S.buildings[stockAt]; b.stock = b.stock || zeroUnits(); for (const t of UKEYS) b.stock[t] += d.units[t] || 0; }
+  return false;
+}
+// שיירה שהושמדה בדרך (טובעה / יורטה / מארב): האוגדה שבתוכה אבדה — חוזרת כשלד למחנה ומתאמנת מחדש (לא "בדרך" לנצח)
+function convoyLost(c) {
+  if (c.div == null) return; const d = divById(c.div); if (!d) return;
+  const f = d.front != null && S.fronts.find(z => z.id === d.front);
+  d.units = zeroUnits(); d.front = null; d.loc = 'camp'; d.task = null; d.cmd = null; if (f) syncFront(f);
+  if (S.buildings[d.home]?.n !== d.n && !rehomeDiv(d)) S.divs.splice(S.divs.indexOf(d), 1);
+  if (d.n === 0) toast(`☠ ${divName(d)} אבדה בדרך — המחנה מקים אותה מחדש`, 'bad');
+}
 function returnDivision(d, fromTile) {
   const home = S.buildings[d.home]?.n === d.n ? d.home : null;
   const g = d.front != null && S.fronts.find(x => x.id === d.front); d.front = null; if (g) syncFront(g);
-  if (home == null) { S.divs.splice(S.divs.indexOf(d), 1); return; }
+  if (home == null) { if (!rehomeDiv(d)) { S.divs.splice(S.divs.indexOf(d), 1); return; } return returnDivision(d, fromTile); }
   const route = supplyRoute(d.n, fromTile, home, d.type === 'air' ? 'plane' : d.type === 'navy' ? 'ship' : 'inf');
   if (!route || route.blocked) { d.loc = 'camp'; absorbStock(d); return; }
   d.loc = 'moving';
@@ -366,12 +393,12 @@ function convoyArrive(c) {
     const f = d.front != null && S.fronts.find(z => z.id === d.front);
     if (f) { d.loc = 'front'; syncFront(f); return; }
     d.front = null; d.loc = 'camp';
-    if (S.buildings[d.home]?.n !== d.n) { S.divs.splice(S.divs.indexOf(d), 1); return; }
+    if (S.buildings[d.home]?.n !== d.n && !rehomeDiv(d)) { S.divs.splice(S.divs.indexOf(d), 1); return; }
     absorbStock(d); return;
   }
   if (c.repl != null) {
     const d = divById(c.repl);
-    if (d) { for (const t of UKEYS) d.units[t] += c.units[t] || 0; const f = d.front != null && S.fronts.find(z => z.id === d.front); if (f && d.loc === 'front') syncFront(f); }
+    if (d) { const lead = d.loc === 'moving' && S.convoys.find(x => x.div === d.id); const tgt = lead ? lead.units : d.units; for (const t of UKEYS) tgt[t] = (tgt[t] || 0) + (c.units[t] || 0); if (lead) lead.cnt = unitCount(lead.units); const f = d.front != null && S.fronts.find(z => z.id === d.front); if (f && d.loc === 'front') syncFront(f); }
   }
 }
 
@@ -411,6 +438,10 @@ function frontAnchor(f) {
   return dist(ft, op.ax.origin) > CFG.NEAR_CAMP ? ft : op.ax.origin;
 }
 function allocateDivisions(nid) {
+  for (const f of S.fronts) if (f.n === nid && capped(f) && genLoad(f) > GEN_DIVS) {   // עודף (שמירות ישנות): החלשה ביותר חוזרת למחנה
+    const d = frontDivs(f).filter(x => x.loc === 'front' && x.type !== 'air' && !x.contact).sort((a, b) => divStrength(a) - divStrength(b))[0];
+    if (d) { returnDivision(d, tileOf(...f.pos)); syncFront(f); }
+  }
   const items = S.fronts.filter(f => f.n === nid && f.kind === 'land' && !f.solo && !f.flying).map(f => ({ f, nd: frontNeed(f) }));
   items.sort((a, b) => b.nd.prio - a.nd.prio);
   const enemyAir = S.nations.some(m => m.alive && atWar(nid, m.id) && unitsOf(m.id).plane > 0);
@@ -534,7 +565,7 @@ function fortressAuras(o) {
   return _aur.m[o] = a;
 }
 function tileDefense(j, auras) {
-  const o = S.owner[j]; let d = (1 + TER[S.terrain[j]].def) * TER_CAP[S.terrain[j]];
+  const o = S.owner[j]; let d = (1 + TER[S.terrain[j]].def) * TER_CAP[S.terrain[j]] * (riverAt(j) === 1 ? 1.6 : 1);   // נהר: קשה לחצות תחת אש
   if (o < 0) return d + minorTileDef(j);   // כפר: חיל מצב ועיר (minors.js)
   d += 2 * TER_CAP[S.terrain[j]];
   const b = S.buildings[j]; if (b && done(b)) d += BUILD[b.type].def * (b.type === 'fortress' ? mod(S.nations[o], 'fort') : 1) + (b.capital ? 6 : 0);
@@ -543,7 +574,7 @@ function tileDefense(j, auras) {
   for (const g of S.fronts) if (g.n === o && g.kind === 'land' && hyp(g.pos[0] - x, g.pos[1] - y) <= 3) { d += Math.min(10, frontPower(g, 'def') * 0.05); break; }
   return d;
 }
-function fortBonus(f) { const [x, y] = f.pos, dig = (f.order === 'hold' ? 1.25 : f.order === 'delay' ? 1.1 : 1) * TER_DEF[S.terrain[tileOf(x, y)]]; return dig * (fortressAuras(f.n).some(a => { const [ax, ay] = XY(a.i); return Math.max(Math.abs(ax - x), Math.abs(ay - y)) / G <= a.r; }) ? 1.5 * mod(S.nations[f.n], 'fort') : 1); }
+function fortBonus(f) { const [x, y] = f.pos, dig = (f.order === 'hold' ? 1.25 : f.order === 'delay' ? 1.1 : 1) * TER_DEF[S.terrain[tileOf(x, y)]] * featDef(f) * digBonus(f); return dig * (fortressAuras(f.n).some(a => { const [ax, ay] = XY(a.i); return Math.max(Math.abs(ax - x), Math.abs(ay - y)) / G <= a.r; }) ? 1.5 * mod(S.nations[f.n], 'fort') : 1); }
 function frontPower(f, kind) {
   const n = S.nations[f.n], tr = TRAITS[f.gen.trait]; let p = 0;
   for (const t of UKEYS) if (f.units[t]) p += f.units[t] * UNITS[t][kind] * mod(n, t + '_' + kind);
@@ -618,7 +649,7 @@ function computeZone(f) {
 }
 function retreatTile(f) {
   const m = mainComp(f.n); let best = null, bd = Infinity;
-  eachBuilding((b, j) => { if (b.n === f.n && done(b) && (b.type === 'camp' || b.capital) && m[j]) { const d = hyp(f.pos[0] - j % W, f.pos[1] - ((j / W) | 0)); if (d < bd) { bd = d; best = j; } } });
+  eachBuilding((b, j) => { if (b.n === f.n && done(b) && (b.type === 'camp' || b.capital || b.type === 'port' || b.type === 'city') && m[j]) { const d = hyp(f.pos[0] - j % W, f.pos[1] - ((j / W) | 0)); if (d < bd) { bd = d; best = j; } } });
   return best ?? tileOf(...f.pos);
 }
 function moveAlong(f, dest, dt, opt) {
@@ -824,9 +855,9 @@ function extractFront(f, mode) {
   return { ok: true };
 }
 function cancelOp(op) { for (const id of op.gens) { const f = S.fronts.find(x => x.id === id); if (f) { f.role = 'defend'; f.op = null; f.target = null; f.plan = null; f.zone = []; f.opRole = null; f.consol = null; f.expGo = false; f.planHold = false; f.cellKey = null; } } S.ops = S.ops.filter(o => o !== op); }
-const OBJ_VAL = o => o.type === 'capital' ? 12 : o.type === 'encircle' ? 10 : o.type === 'pass' ? 6 : KEY_VAL[o.type] || 0;
+const OBJ_VAL = o => o.type === 'capital' ? 12 : o.type === 'encircle' ? 10 : o.type === 'pass' ? 6 : o.type === 'feat' ? FT[o.ft].val * (o.route ? 1.5 : 1) : KEY_VAL[o.type] || 0;
 const OBJ_NAMES = { capital: 'הבירה', city: 'עיר', factory: 'מפעל', port: 'נמל', airport: 'שדה תעופה', camp: 'מחנה', university: 'אוניברסיטה', custom: 'יעד שסימנת', encircle: 'כיתור', pass: 'מעבר הרים' };
-const objName = o => o.type === 'city' || o.type === 'capital' ? `${OBJ_NAMES[o.type]}${S.buildings[o.tile] ? ' ' + cityName(o.tile, S.buildings[o.tile]) : ''}` : OBJ_NAMES[o.type] || 'יעד';
+const objName = o => o.custom && o.name ? o.name : o.type === 'feat' ? `${FT[o.ft].ic} ${o.name}` : o.type === 'city' || o.type === 'capital' ? `${OBJ_NAMES[o.type]}${S.buildings[o.tile] ? ' ' + cityName(o.tile, S.buildings[o.tile]) : ''}` : OBJ_NAMES[o.type] || 'יעד';
 // קואורדינטות לאורך הציר (a) ולרוחבו (l) — ביחידות משחק
 const opXY = (op, tile) => { const [x, y] = XY(tile), vx = x + 0.5 - op.ax.ox, vy = y + 0.5 - op.ax.oy; return { a: (vx * op.ax.dx + vy * op.ax.dy) / G, l: (-vx * op.ax.dy + vy * op.ax.dx) / G }; };
 const opPoint = (op, a, l) => [op.ax.ox + (op.ax.dx * a - op.ax.dy * l) * G, op.ax.oy + (op.ax.dy * a + op.ax.dx * l) * G];
@@ -853,7 +884,7 @@ function planOp(op, from) {
   if (origin == null) { const cap = cands.find(o => o.type === 'capital') || cands[0], back = travelField([cap.tile], op.naval, nid); let bd = Infinity; for (const i of own) if (m[i] && back[i] < bd) { bd = back[i]; origin = i; } }
   if (origin == null) origin = own[0];
   // מטרה עיקרית: יעד שסימנת > הבירה בעומק מבצעי > אשכול המבנים החשוב ביחס למרחק
-  let main = custom ? { tile: custom.tile, type: 'custom', custom: true } : null;
+  let main = custom ? { tile: custom.tile, type: 'custom', custom: true, name: custom.name } : null;
   if (!main) {
     const cap = cands.find(o => o.type === 'capital');
     if (cap && dist(origin, cap.tile) <= CFG.MAIN_RANGE) main = cap;
@@ -862,13 +893,24 @@ function planOp(op, from) {
       main = cands.slice().sort((a, b) => sc(b) - sc(a))[0];
     }
   }
-  op.main = { tile: main.tile, type: main.type, custom: !!main.custom, main: true, done: false };
+  op.main = { tile: main.tile, type: main.type, custom: !!main.custom, name: main.name, main: true, done: false };
   const [ox, oy] = XY(origin), [gx, gy] = XY(op.main.tile), L = Math.hypot(gx - ox, gy - oy) || 1;
   op.ax = { ox: ox + 0.5, oy: oy + 0.5, dx: (gx - ox) / L, dy: (gy - oy) / L, len: L / G, origin, goal: op.main.tile };
-  op.subs = op.subs.filter(o => o.type === 'encircle' && !objDone(op, o));   // כיתור פעיל נשאר
+  op.route = opRoute(op, fld);
+  op.subs = op.subs.filter(o => (o.type === 'encircle' || o.by != null) && !objDone(op, o));   // כיתור פעיל וציר שהשחקן צייר — נשארים
   op.subT = 0; refreshSubs(op);
   op.lanes = null;
   for (const f of opGenerals(op)) { f.retarget = true; f.bad = []; }
+}
+// ציר ההתקדמות האמיתי (Avenue of Approach): יורדים במפת זמן ההגעה מהמטרה העיקרית אל השטח שלנו —
+// הנתיב הזול ביותר: לאורך עמקים, דרך גשרים ומעברים, מסביב להרים. דגימה כל ~2 יחידות
+function opRoute(op, fld) {
+  if (!op.main || !fld) return null; let cur = op.main.tile; const out = [cur];
+  for (let k = 0; k < 4000 && fld[cur] > 0; k++) {
+    let best = cur; for (const v of nb4(cur)) if (fld[v] < fld[best]) best = v;
+    if (best === cur) break; cur = best; if (dist(out[out.length - 1], cur) >= 2) out.push(cur);
+  }
+  return out.reverse();
 }
 // מטרות משנה: מבני מפתח בתוך הרצועה, מהחזית ועד SUB_DEPTH קדימה (והמטרה העיקרית כשהיא בטווח)
 function refreshSubs(op) {
@@ -883,7 +925,10 @@ function refreshSubs(op) {
     subs.push({ tile: j, type: b.capital ? 'capital' : b.type, done: false, a: c.a, l: c.l });
   });
   // מעברי הרים ברצועה (סון דזה: "מעבר צר — תפוס ראשון"): קרקע מפתח, מטרת משנה
-  for (const p of passes()) { const j = p.tile; if (S.owner[j] !== op.target || !isFinite(op.landF?.[j] ?? 0)) continue; const c = opXY(op, j); if (Math.abs(c.l) > half || c.a < -4 || c.a > horizon) continue; subs.push({ tile: j, type: 'pass', done: false, a: c.a, l: c.l }); }
+  // תוואי שטח ברצועה (OAKOC): מעברים, מיצרים, גשרים, גבעות שולטות, עמקים — קרקע מפתח לאורך ציר ההתקדמות.
+  // תוואי שעל הנתיב עצמו (op.route) — כפול חשוב: בלעדיו אי אפשר להתקדם
+  const onRoute = j => op.route && op.route.some(r => dist(r, j) <= 3);
+  for (const ft of features()) { const j = ft.tile; if (S.owner[j] !== op.target || !isFinite(op.landF?.[j] ?? 0)) continue; if (ft.t === 'forest' || ft.t === 'bay') { if (!onRoute(j)) continue; } const c = opXY(op, j); if (Math.abs(c.l) > half || c.a < -4 || c.a > horizon) continue; subs.push({ tile: j, type: 'feat', ft: ft.t, fid: ft.id, name: ft.name, route: onRoute(j), done: false, a: c.a, l: c.l }); }
   const mc = opXY(op, op.main.tile); Object.assign(op.main, { a: mc.a, l: mc.l });
   op.subs = [...keep, ...subs];
   op.objectives = [op.main, ...op.subs];
@@ -983,26 +1028,58 @@ function encircleTile(op, o, f) {
 function enemyPowerNear(nid, tile, r) { const [x, y] = XY(tile); return wsEnemy(nid, x + 0.5, y + 0.5, r); }
 // נתיבים ותפקידים: המאמץ העיקרי (החזק) על הציר עצמו, הקיבוע בנתיבים מקבילים משני הצדדים,
 // והדרג השני (מ-3 גנרלים) נוסע מאחורי המאמץ העיקרי עד שנפתחת פרצה
+// הקצאת גנרלים במבצע (סבב 6): כל גנרל מקבל נתיב קבוע משלו — נתיבים לא מתחלפים כשהמאמץ העיקרי עובר או כשגנרל חוזר.
+// עד 3 גנרלים בציר הראשי (מאמץ עיקרי + קיבוע), אחד בדרג שני, והשאר — חזית משנית: המטה מחפש קטע גבול רחוק מהציר שהאויב לא מגן עליו.
+const SEC_MIN = 3;
+function secondaryFront(op, gens, me, fr) {
+  if (op.target < 0 || !fr.length || !op.ax) return null;
+  const nid = op.n, meL = op.lanes?.[me.id] ?? 0, keys = []; eachBuilding((b, j) => { if (b.n === op.target && done(b) && KEY_VAL[b.type]) keys.push(j); });
+  for (const ft of features()) if (S.owner[ft.tile] === op.target && ft.t !== 'forest') keys.push(ft.tile);
+  let best = null, bs = Infinity;
+  for (let k = 0; k < fr.length; k += 5) {
+    const i = fr[k], c = opXY(op, i); if (Math.abs(c.l - meL) < 14) continue;
+    const ep = enemyPowerNear(nid, i, 7); let kd = Infinity, kt = null; for (const t of keys) { const d = dist(i, t); if (d < kd) { kd = d; kt = t; } }
+    if (kt == null || kd > 18) continue;
+    const sc = ep * 1.2 + kd * 3; if (sc < bs) { bs = sc; best = { jump: i, goal: kt, ep }; }
+  }
+  return best;
+}
 function assignLanes(op, gens) {
   const k = gens.length; if (!k || !op.ax) return;
   for (const f of gens) if (f.opRoleOp !== op.id) f.opRole = null;
   const atk = f => frontPower(f, 'atk') + unitCount(inTransit(f)), lat = f => opXY(op, tileOf(...f.pos)).l;
   const me = gens.find(f => f.opRole === 'ME') || gens.slice().sort((a, b) => atk(b) - atk(a) || Math.abs(lat(a)) - Math.abs(lat(b)))[0];
   const mob = f => frontDivs(f).filter(d => d.type === 'light' || d.type === 'cmdo').length;
-  let exp = null;
-  if (k >= 3) exp = gens.find(f => f.opRole === 'EXP' && f !== me) || gens.filter(f => f !== me).sort((a, b) => mob(b) - mob(a) || dist(tileOf(...a.pos), tileOf(...me.pos)) - dist(tileOf(...b.pos), tileOf(...me.pos)))[0];
-  const others = gens.filter(f => f !== me && f !== exp).sort((a, b) => lat(a) - lat(b));
-  const line = others.slice(); line.splice(Math.floor(others.length / 2), 0, me);
-  const gap = clamp(18 / line.length, 4, 8);
-  op.lanes = {}; op.laneJump = {};
-  line.forEach((f, i) => { op.lanes[f.id] = (i - (line.length - 1) / 2) * gap; f.opRole = f === me ? 'ME' : 'PIN'; f.opRoleOp = op.id; });
-  if (exp) { op.lanes[exp.id] = op.lanes[me.id]; if (exp.opRole !== 'EXP') exp.expGo = false; exp.opRole = 'EXP'; exp.opRoleOp = op.id; }
-  // נקודת זינוק: הולכים לאורך הנתיב עד קצה השטח שלנו (הגבול מול האויב) — לא נקודה קבועה על הציר, שבנתיב צדדי יכולה להיות רחוקה מהחזית
-  const edge = L => { let last = null; for (let a = -4; a <= 30; a += 0.5) { const [px, py] = opPoint(op, a, L), x = Math.round(px), y = Math.round(py); if (x < 0 || y < 0 || x >= W || y >= H) break; const j = idx(x, y); if (S.owner[j] === op.n && !isWater(j)) last = { a, j }; else if (last && !isWater(j)) break; } return last; };
-  // הגבול המשותף עם האויב: משבצות שלנו שנוגעות בשטח שלו. נקודת הזינוק = משבצת הגבול הקרובה לנתיב
+  // הגבול המשותף עם האויב: משבצות שלנו שנוגעות בשטח שלו
   const fr = []; if (op.target >= 0) for (let i = 0; i < W * H; i++) { if (S.owner[i] !== op.n || isWater(i)) continue; const x = i % W; if ((x > 0 && S.owner[i - 1] === op.target) || (x < W - 1 && S.owner[i + 1] === op.target) || S.owner[i - W] === op.target || S.owner[i + W] === op.target) fr.push(i); }
+  // חזית משנית: נשמרת כל עוד הגנרל שלה במבצע והיעד שלה לא נכבש
+  let sec = op.sec && gens.find(f => f.id === op.sec.gid && f !== me) ? op.sec : null;
+  if (sec && S.owner[sec.goal] === op.n) sec = null;
+  if (!sec && k >= SEC_MIN && (op.secT ?? -99) <= S.time) {
+    op.secT = S.time + 10; const sf = secondaryFront(op, gens, me, fr);
+    if (sf) { const g = gens.filter(f => f !== me && f.opRole !== 'EXP').sort((a, b) => dist(tileOf(...a.pos), sf.jump) - dist(tileOf(...b.pos), sf.jump))[0];
+      if (g && sf.ep < frontPower(g, 'atk') * 0.8) { sec = { gid: g.id, jump: sf.jump, goal: sf.goal }; if (op.n === 0) toast(`🗺 המטה פותח חזית משנית: ${g.gen.name} תוקף אל ${objName({ type: S.buildings[sf.goal]?.type || 'feat', tile: sf.goal, ft: featAt(sf.goal)?.t || 'hill', name: featAt(sf.goal)?.name || '' })} — שם האויב כמעט לא מגן`, 'good'); } }
+  }
+  op.sec = sec;
+  const rest = gens.filter(f => f !== me && f.id !== sec?.gid);
+  let exp = null;
+  if (rest.length >= 3) exp = rest.find(f => f.opRole === 'EXP') || rest.slice().sort((a, b) => mob(b) - mob(a) || dist(tileOf(...a.pos), tileOf(...me.pos)) - dist(tileOf(...b.pos), tileOf(...me.pos)))[0];
+  const others = rest.filter(f => f !== exp);
+  // נתיבים קבועים: מי שכבר היה לו נתיב — שומר אותו. חדש — מקבל משבצת פנויה ליד המקום שבו הוא עומד
+  const old = op.lanes || {}; op.lanes = {}; op.laneJump = op.laneJump || {};
+  const line = [me, ...others];
+  if (old[me.id] == null) old[me.id] = clamp(lat(me), -6, 6);
+  for (const f of line) {
+    let L = old[f.id];
+    if (L == null || f.opRoleOp !== op.id) { L = clamp(lat(f), -14, 14); let tries = 0; while (tries++ < 8 && Object.values(op.lanes).some(x => Math.abs(x - L) < 5)) L += (L >= (op.lanes[me.id] ?? 0) ? 5 : -5); }
+    op.lanes[f.id] = L; f.opRole = f === me ? 'ME' : 'PIN'; f.opRoleOp = op.id;
+  }
+  if (exp) { op.lanes[exp.id] = op.lanes[me.id]; if (exp.opRole !== 'EXP') exp.expGo = false; exp.opRole = 'EXP'; exp.opRoleOp = op.id; }
+  if (sec) { const g = gens.find(f => f.id === sec.gid); g.opRole = 'SEC'; g.opRoleOp = op.id; op.lanes[g.id] = opXY(op, sec.jump).l; }
   const nearFr = (px, py) => { let b = null, bd = Infinity; for (const i of fr) { const d = (i % W - px) ** 2 + (((i / W) | 0) - py) ** 2; if (d < bd) { bd = d; b = i; } } return b; };
+  const edge = L => { let last = null; for (let a = -4; a <= 30; a += 0.5) { const [px, py] = opPoint(op, a, L), x = Math.round(px), y = Math.round(py); if (x < 0 || y < 0 || x >= W || y >= H) break; const j = idx(x, y); if (S.owner[j] === op.n && !isWater(j)) last = { a, j }; else if (last && !isWater(j)) break; } return last; };
   for (const f of gens) {
+    if (sec && f.id === sec.gid) { op.laneJump[f.id] = sec.jump; continue; }
     if (fr.length) { const [px, py] = opPoint(op, 0, op.lanes[f.id]); let jt = nearFr(px, py); if (f === exp && jt != null) { const [jx, jy] = XY(jt); jt = nearestOwn(op.n, jx - op.ax.dx * 4 * G, jy - op.ax.dy * 4 * G, true) ?? jt; } op.laneJump[f.id] = jt; continue; }
     const e = edge(op.lanes[f.id]);
     let jt = e ? e.j : null;
@@ -1041,8 +1118,15 @@ function pickLaneTarget(op, f, gens, open, next) {
     if (deep.length) { const sc = p => enemyPowerNear(nid, p.o.tile, 6) * 0.4 + (p.o.a - me.a) * 0.15 + Math.abs(p.o.l - meL) * 0.2 - OBJ_VAL(p.o) * 0.5; return { tile: deep.sort((x, y) => sc(x) - sc(y))[0].o.tile, why: 'ניצול' }; }
     const t = pushTile(op, Math.max(me.a, meA) + 8, meL, open, next); return t != null ? { tile: t, why: 'ניצול' } : null;
   }
-  // קיבוע: לא בורחים קדימה מהמאמץ העיקרי
-  if (role === 'PIN' && ME && !ME.consol && me.a > meA + CFG.PIN_LEAD) return holdLine('קיבוע');
+  // חזית משנית: יעד משלה, בלי קשר לקצב של הציר הראשי
+  if (role === 'SEC' && op.sec) {
+    const sc = op.sec; if (bad.includes(sc.goal)) { op.sec = null; op.secT = S.time + 10; f.opRole = 'PIN'; f.retarget = true; }   // אין דרך ליעד — מוותרים על החזית המשנית
+    else if (S.owner[sc.goal] !== nid && validTarget(nid, sc.goal)) return { tile: sc.goal, why: 'חזית משנית' };
+    const [fx, fy] = f.pos; let bt = null, bd = 14; eachBuilding((b, j) => { if (b.n === op.target && done(b) && KEY_VAL[b.type]) { const d = hyp(j % W - fx, ((j / W) | 0) - fy); if (d < bd) { bd = d; bt = j; } } });
+    if (bt != null) { sc.goal = bt; return { tile: bt, why: 'חזית משנית' }; }
+  }
+  // קיבוע: לא בורחים הרחק קדימה מהמאמץ העיקרי — אלא אם הנתיב שלנו נפתח (יתרון מקומי ברור): אז ממשיכים בנתיב שלנו
+  if (role === 'PIN' && ME && !ME.consol && me.a > meA + CFG.PIN_LEAD && localRatio(f, tileOf(...f.pos), 8) < 1.4) return holdLine('קיבוע');
   // ציר שהשחקן צייר לגנרל הזה — גובר על הכול
   const axO = pool.find(p => p.o.by === f.id);
   if (axO) return { tile: axO.o.tile, why: 'ציר שציירת' };
@@ -1054,7 +1138,7 @@ function pickLaneTarget(op, f, gens, open, next) {
   }
   if (role === 'PIN') {
     // סיוע — רק למאמץ העיקרי, ורק מהנתיבים הסמוכים לו
-    if (ME && ME.plan != null && !ME.retreating && !ME.consol && ME.engaged && frontPower(ME, 'atk') < (ME.needPow || 0) * 0.8 && Math.abs(L - meL) <= 9) return { tile: ME.plan, why: 'סיוע' };
+    if (ME && ME.plan != null && !ME.retreating && !ME.consol && ME.engaged && frontPower(ME, 'atk') < (ME.needPow || 0) * 0.8 && Math.abs(L - meL) <= 5) return { tile: ME.plan, why: 'סיוע' };   // רק השכן הצמוד; השאר מרתקים את האויב בנתיב שלהם
     const t = pushTile(op, Math.max(me.a, -1) + 3, L, open, next);
     if (t != null && localRatio(f, t) >= 1) return { tile: t, why: 'דחיפה' };
     return holdLine('קיבוע');
@@ -1074,12 +1158,12 @@ function updateOp(op, dt) {
   const nid = op.n;
   op.gens = op.gens.filter(id => S.fronts.some(f => f.id === id));
   if (op.target < 0) return updateExpand(op, dt);
-  if (!S.nations[op.target].alive) { op.status = 'האויב הובס'; op.objectives.forEach(o => o.done = true); return; }
+  if (!S.nations[op.target].alive) { if (nid === 0) toast(`🏳 ${nm(op.target)} הובסה — המבצע נגדה הסתיים והגנרלים חוזרים להגנה`, 'good'); cancelOp(op); return; }
   const paused = !atWar(nid, op.target);
   const gens = opGenerals(op).filter(f => !f.flying);
   for (const f of gens) { f.role = 'attack'; f.op = op.id; }
   if (paused) {   // עוד לא במלחמה: מרכזים כוחות בנקודות הזינוק ליד הגבול, כדי שביום ההכרזה כולם כבר שם
-    if (!op.ax) planOp(op);
+    if (!op.ax && (op.replanT || 0) <= S.time) { op.replanT = S.time + 2; planOp(op); }
     const act0 = gens.filter(f => !f.retreating);
     if (op.ax && (!op.lanes || op.laneKey !== act0.map(f => f.id).sort().join(','))) assignLanes(op, act0);
     let nAt = 0;
@@ -1102,7 +1186,7 @@ function updateOp(op, dt) {
     const had = op.main, ME = gens.find(f => f.opRole === 'ME') || gens[0];
     op.objectives = op.objectives.filter(o => !o.custom);
     planOp(op, ME ? nearestOwn(nid, ...ME.pos, false) : null);
-    if (!op.main) { op.status = 'הושלם'; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
+    if (!op.main) { op.status = 'הושלם'; S.nations[nid].noOpUntil = S.time + 15; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
     if (had && nid === 0) toast(`✅ מבצע ${opName(op)}: המטרה העיקרית הושגה — ממשיכים אל ${objName(op.main)}`, 'good');
   }
   op.subT -= dt; if (op.subT <= 0) { op.subT = 2; refreshSubs(op); }
@@ -1122,7 +1206,7 @@ function updateOp(op, dt) {
     const meA = opXY(op, tileOf(...ME.pos)).a, stuck = ME.consol || S.time - (op.lastGain ?? S.time) > 6;
     const cand = act.filter(f => f.opRole === 'PIN' && !f.consol && unitCount(f.units) && opXY(op, tileOf(...f.pos)).a > meA + CFG.PULL_LEAD).sort((a, b) => opXY(op, tileOf(...b.pos)).a - opXY(op, tileOf(...a.pos)).a)[0];
     if (stuck && cand) {
-      cand.opRole = 'ME'; ME.opRole = 'PIN'; const l = op.lanes[cand.id]; op.lanes[cand.id] = op.lanes[ME.id]; op.lanes[ME.id] = l;
+      cand.opRole = 'ME'; ME.opRole = 'PIN';   // רק התפקידים מתחלפים — כל אחד נשאר בנתיב שלו (אין דילוג לצד השני של החזית)
       cand.retarget = ME.retarget = true; if (EXP) EXP.retarget = true;
       if (nid === 0) toast(`🧭 ${cand.gen.name} מתקדם בקלות — הופך למאמץ העיקרי (משיכת סיור)`, 'good');
     }
@@ -1140,9 +1224,15 @@ function updateOp(op, dt) {
       const c0 = cost(curL); let bL = null, bc = c0 * 0.6;
       for (const d of [-12, -8, -4, 4, 8, 12]) { const c = cost(curL + d); if (c < bc) { bc = c; bL = curL + d; } }
       if (bL != null) {
-        op.lanes[ME.id] = bL; ME.culmN = 0; ME.bad = []; ME.retarget = true; op.lastGain = S.time; op.shiftT = 12;
-        for (const g of act) if (g !== ME && op.lanes[g.id] != null && Math.abs(op.lanes[g.id] - bL) < 3) { op.lanes[g.id] = curL; g.retarget = true; }   // מי שהיה בנתיב החדש — עובר לישן (ממשיך לקבע שם)
-        if (nid === 0) toast(`🔀 ${ME.gen.name}: ההתקפה נתקעה — מעבירים את המאמץ העיקרי לנתיב ${bL > curL ? 'השמאלי' : 'הימני'}, שם האויב חלש יותר`, 'good');
+        op.lastGain = S.time; op.shiftT = 12; ME.culmN = 0; ME.bad = [];
+        const there = act.find(g => g !== ME && g.opRole === 'PIN' && op.lanes[g.id] != null && Math.abs(op.lanes[g.id] - bL) < 5);
+        if (there) {   // כבר יש שם גנרל — הוא הופך למאמץ העיקרי; אף אחד לא זז
+          there.opRole = 'ME'; ME.opRole = 'PIN'; there.retarget = ME.retarget = true;
+          if (nid === 0) toast(`🔀 ההתקפה של ${ME.gen.name} נתקעה — ${there.gen.name} הופך למאמץ העיקרי בנתיב שלו, שם האויב חלש יותר`, 'good');
+        } else if (Math.abs(bL - curL) <= 4) {   // אין שם אף אחד — הזזה קטנה בלבד
+          op.lanes[ME.id] = bL; ME.retarget = true;
+          if (nid === 0) toast(`🔀 ${ME.gen.name}: ההתקפה נתקעה — מזיז את המאמץ קצת ${bL > curL ? 'שמאלה' : 'ימינה'}, שם האויב חלש יותר`, 'good');
+        }
       }
     }
   }
@@ -1240,7 +1330,7 @@ function updateExpand(op, dt) {
   op.expT = (op.expT || 0) - dt;
   if (op.expT <= 0 || !op.cells) { op.expT = 2; expandCells(op); }
   op.objectives = [];
-  if (!op.cells.length) { op.status = 'הושלם'; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
+  if (!op.cells.length) { op.status = 'הושלם'; S.nations[nid].noExpandUntil = S.time + 30; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
   op.status = `התפשטות · ${op.cells.reduce((a, c) => a + c.n, 0)} משבצות ניטרליות באזור`;
   const taken = new Map();
   for (const f of gens) if (f.cellKey) taken.set(f.cellKey, (taken.get(f.cellKey) || 0) + 1);

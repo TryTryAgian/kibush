@@ -20,7 +20,7 @@ function syncPlatoons(f, v, cx, cy) {
   const want = new Map(); let tot = 0;
   for (const [dv, U] of groups) for (const t of PLT_ORDER) { const k = Math.ceil((U[t] || 0) / PLT[t]); if (k) { want.set(dv + ':' + t, k); tot += k; } }
   if (tot > MAX_PLT) for (const [key, k] of want) want.set(key, Math.max(1, Math.round(k * MAX_PLT / tot)));
-  const lost = (u) => { v.units.splice(v.units.indexOf(u), 1); if (f.engaged) { WRECKS.push({ x: u.x, y: u.y, t: 0, tank: u.t === 'ltank' || u.t === 'htank' || u.t === 'art' || u.t === 'aa', ang: u.ang }); spawnBoom(u.x, u.y, u.t !== 'inf' && u.t !== 'cmdo'); if (WRECKS.length > 140) WRECKS.shift(); } };
+  const lost = (u) => { v.units.splice(v.units.indexOf(u), 1); if (f.engaged) { sqLost(u, f.n); WRECKS.push({ x: u.x, y: u.y, t: 0, tank: u.t === 'ltank' || u.t === 'htank' || u.t === 'art' || u.t === 'aa', ang: u.ang }); spawnBoom(u.x, u.y, u.t !== 'inf' && u.t !== 'cmdo'); if (WRECKS.length > 140) WRECKS.shift(); } };
   // מחלקות של אוגדה שכבר לא כאן (עזבה / הושמדה) — יוצאות; מחלקות "יתומות" משויכות מחדש בלי הריסה
   for (const u of v.units.slice()) if (!want.has(u.dv + ':' + u.t)) { const alt = [...want.keys()].find(k => k.endsWith(':' + u.t) && v.units.filter(o => o.dv + ':' + o.t === k).length < want.get(k)); if (alt) u.dv = alt.split(':')[0] === 'null' ? null : +alt.split(':')[0]; else v.units.splice(v.units.indexOf(u), 1); }
   for (const [dv, U, gx, gy] of groups) for (const t of PLT_ORDER) {
@@ -65,9 +65,9 @@ function placeGroup(f, units, cx, cy, ztiles, fx, fy, px, py, d) {
       else if (drill === 'break') { const mv = (k % 2) === phase; u.bound = mv; const s = mv ? -6 : -1; nx += fx * s; ny += fy * s; }
       if (Math.hypot(nx - u.sx, ny - u.sy) > 1.5) { u.sx = nx; u.sy = ny; }
     }
-    else { u.zt = null; const row = (k / 4) | 0, inRow = Math.min(4, front.length - row * 4), off = ((k % 4) - (inRow - 1) / 2) * 3.4 + (row % 2) * 1.7; const nx = cx + px * off + fx * (2 - row * 3.4) + jx * 0.4, ny = cy + py * off + fy * (2 - row * 3.4) + jy * 0.4; if (u.sx == null || Math.hypot(nx - u.sx, ny - u.sy) > 1.2) { u.sx = nx; u.sy = ny; } }
+    else { u.zt = null; const row = (k / 4) | 0, inRow = Math.min(4, front.length - row * 4), off = ((k % 4) - (inRow - 1) / 2) * 6 + (row % 2) * 3; const nx = cx + px * off + fx * (2 - row * 5) + jx * 0.4, ny = cy + py * off + fy * (2 - row * 5) + jy * 0.4; if (u.sx == null || Math.hypot(nx - u.sx, ny - u.sy) > 1.2) { u.sx = nx; u.sy = ny; } }
   });
-  back.forEach((u, k) => { const off = (k - (back.length - 1) / 2) * 5.5; u.sx = cx - fx * 9 + px * off; u.sy = cy - fy * 9 + py * off; });
+  back.forEach((u, k) => { const off = (k - (back.length - 1) / 2) * 7; u.sx = cx - fx * 12 + px * off; u.sy = cy - fy * 12 + py * off; });
 }
 // מחלקות של אויבים קרובים (לבחירת מטרה לירי)
 function enemyPlatoonsNear(f, x, y, r) {
@@ -83,11 +83,14 @@ function updateUnits(f, cx, cy, dt, now) {
     const dx = u.sx - u.x, dy = u.sy - u.y, d = Math.hypot(dx, dy);
     // תזוזה קצרה (תיקון עמדה): זזים בלי להסתובב, הפנים לאויב. רק מעבר אמיתי מסובב את היחידה לכיוון הנסיעה. הסיבוב מוגבל במהירות
     const duck = u.hit && now - u.hit < 700 ? 0.25 : 1;   // נפגע — נשכב לרגע ומתקדם לאט
-    u.mv = d > 0.3; if (u.mv) { const s = Math.min(d, (4 + d * 2.2) * dt * duck); u.x += dx / d * s; u.y += dy / d * s; }
+    u.mv = d > 0.3; if (u.mv) { const s = Math.min(d, (4 + d * 2.2) * dt * duck); u.x += dx / d * s; u.y += dy / d * s; if (isTank(u.t)) trackMark(u); }
     if (d > 0.3 && !u.reloc && d > 4) u.reloc = true; else if (d < 1.2) u.reloc = false;
     const want = u.reloc ? Math.atan2(dy, dx) : hd, turn = (u.t === 'inf' || u.t === 'cmdo' ? 5 : 1.8) * dt;
     let da = want - u.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); u.ang += clamp(da, -turn, turn);
   }
+  // חיילים בודדים (soldiers.js): רק לכיתות; אוגדות שלא במגע — "שקטות"
+  { const qd = new Set(); if (f.dep) { const mine = S.divs.filter(d => d.front === f.id && d.depF === f.id), any = mine.some(d => d.contact); for (const d of mine) if (d.line === false || (any && !d.contact)) qd.add(d.id); }
+    for (const u of v.units) if (u.t === 'inf' || u.t === 'cmdo') { u.quiet = u.dv != null && qd.has(u.dv); if (dt > 0) sqUpdate(u, f, dt, now); } }
   // ירי
   if ((!f.engaged && f.mEng == null && !f.bombXY) || dt <= 0) return;   // mEng: קרב מול חיל מצב של כפר
   let foes = null;
@@ -111,21 +114,25 @@ function updateUnits(f, cx, cy, dt, now) {
     if (u.dv != null && quiet.has(u.dv)) continue;   // רק אוגדות במגע יורות
     if (u.bound && u.mv) continue;                    // בדילוג: מי שנע לא יורה — מי שעומד מחפה
     u.cd -= dt * (FIRE[u.t] || 1) * (0.6 + Math.random() * 0.8); if (u.cd > 0) continue; u.cd = 1;
-    foes = foes || enemyPlatoonsNear(f, cx, cy, 40);
-    let tx, ty;
-    if (foes.length) { const e = foes[(Math.random() * foes.length) | 0]; tx = e.x + (Math.random() - 0.5) * 2; ty = e.y + (Math.random() - 0.5) * 2; e.hit = now; }
+    const fl = enemyPlatoonsNear(f, u.x, u.y, u.t === 'inf' || u.t === 'cmdo' ? 48 : 70);   // אויבים בטווח של המחלקה עצמה
+    let tx, ty, e = null;
+    if (fl.length) { e = fl[(Math.random() * fl.length) | 0]; const sp = sqTarget(e); tx = (sp ? sp[0] : e.x) + (Math.random() - 0.5) * 2; ty = (sp ? sp[1] : e.y) + (Math.random() - 0.5) * 2; e.hit = now; }
     else if (f.zone?.length) { const [zx, zy] = XY(f.zone[(Math.random() * f.zone.length) | 0]); tx = (zx + Math.random()) * CFG.T; ty = (zy + Math.random()) * CFG.T; }
     else continue;
     u.flash = now;
     const kind = u.t === 'art' ? 'shell' : u.t === 'htank' || u.t === 'ltank' ? 'cannon' : u.t === 'aa' ? 'flak' : 'rifle';
-    if (SHOTS.length < 220) SHOTS.push({ x1: u.x, y1: u.y, x2: tx, y2: ty, t: 0, life: kind === 'shell' ? 1.1 : kind === 'cannon' ? 0.18 : 0.12, kind });
+    const mz = (u.t === 'inf' || u.t === 'cmdo') ? sqMuzzle(u) : null, ox = mz ? mz[0] : u.x, oy = mz ? mz[1] : u.y;
+    if (SHOTS.length < 220) SHOTS.push({ x1: ox, y1: oy, x2: tx, y2: ty, t: 0, life: kind === 'shell' ? 1.1 : kind === 'cannon' ? 0.18 : 0.12, kind });
+    if (mz && e && (e.t === 'inf' || e.t === 'cmdo')) sqGrenade(u, e);
+    if (e && isTank(e.t) && (kind === 'cannon' || kind === 'rifle') && Math.random() < 0.35) { const a = Math.random() * 6.28, x2 = tx, y2 = ty; DELAY.push({ t: kind === 'cannon' ? 0.18 : 0.12, fn: () => { if (SHOTS.length < 220) SHOTS.push({ x1: x2, y1: y2, x2: x2 + Math.cos(a) * 9, y2: y2 + Math.sin(a) * 9, t: 0, life: 0.14, kind: 'rifle' }); } }); }   // ריקושט מהשריון
   }
 }
 function drawUnits(f, cx, cy, now) {
   const v = VIS.get(f.id); if (!v) return;
   for (const u of v.units) {
     const s = (TD_SIZE[u.t] || 3) * 1.35, hit = u.hit && now - u.hit < 120;
-    if (u.t === 'inf' || u.t === 'cmdo') {   // כיתה: שלושה חיילים
+    if ((u.t === 'inf' || u.t === 'cmdo') && u.sq) sqDraw2D(u, f.n, s, now);
+    else if (u.t === 'inf' || u.t === 'cmdo') {   // כיתה: שלושה חיילים
       for (let k = 0; k < 3; k++) { const a = u.ang + Math.PI / 2, ox = Math.cos(a) * (k - 1) * 1.3 - Math.cos(u.ang) * (k === 1 ? 0.8 : 0), oy = Math.sin(a) * (k - 1) * 1.3 - Math.sin(u.ang) * (k === 1 ? 0.8 : 0); tdSprite(u.t, f.n, u.x + ox, u.y + oy, u.ang + Math.sin(now / 300 + k + u.j * 9) * 0.2, s * 0.8, u.mv); }
     } else tdSprite(u.t, f.n, u.x, u.y, u.ang, s, u.mv);
     if (hit) { ctx.fillStyle = 'rgba(255,240,200,.35)'; ctx.beginPath(); ctx.arc(u.x, u.y, s * 0.6, 0, 7); ctx.fill(); }
@@ -139,7 +146,7 @@ function drawUnits(f, cx, cy, now) {
 function drawShots(dt) {
   for (let i = SHOTS.length - 1; i >= 0; i--) {
     const s = SHOTS[i]; s.t += dt; const k = s.t / s.life;
-    if (k >= 1) { if (s.kind === 'shell') spawnBoom(s.x2, s.y2, true); else if (s.kind === 'cannon' && Math.random() < 0.6) spawnBoom(s.x2, s.y2, false); SHOTS.splice(i, 1); continue; }
+    if (k >= 1) { if (s.kind === 'shell') spawnBoom(s.x2, s.y2, !s.small); else if (s.kind === 'cannon' && Math.random() < 0.6) spawnBoom(s.x2, s.y2, false); SHOTS.splice(i, 1); continue; }
     if (s.kind === 'shell') {   // פגז בקשת
       const x = s.x1 + (s.x2 - s.x1) * k, y = s.y1 + (s.y2 - s.y1) * k - Math.sin(k * Math.PI) * Math.hypot(s.x2 - s.x1, s.y2 - s.y1) * 0.25;
       ctx.fillStyle = 'rgba(255,220,150,.9)'; ctx.beginPath(); ctx.arc(x, y, 0.55, 0, 7); ctx.fill();
@@ -337,4 +344,20 @@ function drawContact(inVis, now, dt) {
       if (h > 0.7 && (now / 90 + h * 50) % 20 < 1.2) { ctx.fillStyle = 'rgba(255,220,140,.9)'; ctx.beginPath(); ctx.arc(cx + (h - 0.8) * T * 2, cy + (hash(j + 1) - 0.5) * T, 0.9, 0, 7); ctx.fill(); }
     }
   }
+}
+/* ---------- סבב גרפיקה 1: מכתשים ועקבות זחלים על הקרקע ---------- */
+const TRACKS = [];                 // [x, y, ang] — נקודות עקבות של כלים משוריינים
+function trackMark(u) { const L = TRACKS[TRACKS.length - 1]; if (u._tx != null && Math.hypot(u.x - u._tx, u.y - u._ty) < 1.6) return; u._tx = u.x; u._ty = u.y; TRACKS.push([u.x, u.y, u.ang]); if (TRACKS.length > 2400) TRACKS.splice(0, 400); void L; }
+function drawTracks(c, box) {
+  c.save(); c.fillStyle = 'rgba(40,30,18,.22)';
+  for (const [x, y, a] of TRACKS) { if (box && (x < box.x0 - 5 || x > box.x1 + 5 || y < box.y0 - 5 || y > box.y1 + 5)) continue; const px = -Math.sin(a), py = Math.cos(a);
+    c.fillRect(x + px * 1.3 - 0.4, y + py * 1.3 - 0.4, 0.8, 0.8); c.fillRect(x - px * 1.3 - 0.4, y - py * 1.3 - 0.4, 0.8, 0.8); }
+  c.restore();
+}
+// מכתש: מרכז כהה, שפה בהירה מוגבהת, קרני חריכה
+function drawCrater(c, d) {
+  const r = d.r; c.save(); c.translate(d.x, d.y); c.rotate(d.a || 0);
+  c.strokeStyle = 'rgba(25,18,10,.35)'; c.lineWidth = r * 0.12; c.beginPath(); for (let k = 0; k < 9; k++) { const a = k / 9 * 6.28 + (k % 2) * 0.2, l = r * (1.25 + (k % 3) * 0.22); c.moveTo(Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6); c.lineTo(Math.cos(a) * l, Math.sin(a) * l); } c.stroke();
+  const g = c.createRadialGradient(0, 0, 0, 0, 0, r); g.addColorStop(0, 'rgba(14,10,6,.75)'); g.addColorStop(0.45, 'rgba(40,28,16,.6)'); g.addColorStop(0.72, 'rgba(150,120,80,.45)'); g.addColorStop(0.86, 'rgba(110,86,56,.35)'); g.addColorStop(1, 'rgba(60,46,30,0)');
+  c.fillStyle = g; c.beginPath(); c.arc(0, 0, r, 0, 7); c.fill(); c.restore();
 }

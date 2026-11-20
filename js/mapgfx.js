@@ -38,7 +38,7 @@ function prepTerrain() {
   // גובה רציף: גובה לפי סוג השטח בפינות המשבצות, מוחלק (טשטוש ריבועי ×3) + רעש — כך קווי הגובה והצללה זורמים בין גבעות, הרים ויערות
   const TH = t => TER[t].water ? -0.3 : t === SAND ? 0.4 : t === HILLS ? 3 : t === MOUNT ? 6 : t === SNOW ? 8.5 : t === FOREST ? 1.3 : 1;
   let hg = new Float32Array(CW * CHh);
-  for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { let s = 0, n = 0; for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H) { s += TH(S.terrain[Y * W + X]); n++; } } hg[y * CW + x] = s / n; }
+  for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { let s = 0, n = 0; for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H) { s += S.river && S.river[Y * W + X] ? Math.min(0.2, TH(S.terrain[Y * W + X])) : TH(S.terrain[Y * W + X]); n++; } } hg[y * CW + x] = s / n; }
   const raw = hg.slice(), R = Math.max(1, Math.round(G * 0.9)), tmp = new Float32Array(CW * CHh);
   for (let pass = 0; pass < 3; pass++) {
     for (let y = 0; y < CHh; y++) { let acc = 0, cnt = 0; for (let x = -R; x < CW + R; x++) { if (x + R < CW) { acc += hg[y * CW + x + R]; cnt++; } if (x - R - 1 >= 0) { acc -= hg[y * CW + x - R - 1]; cnt--; } if (x >= 0 && x < CW) tmp[y * CW + x] = acc / cnt; } }
@@ -47,13 +47,16 @@ function prepTerrain() {
   // רכסים: בתוך אזורי ההרים — רעש "רכס" (קווי פסגה חדים ועמקים ביניהם), כך שהרים נראים כמו רכס ולא כמו רמה
   for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { const k = y * CW + x, m = clamp((hg[k] - 2.4) / 3, 0, 1); if (!m) continue; const u = x / G, v = y / G, r1 = 1 - Math.abs(2 * nz(u * 0.6 + 13, v * 0.6 - 7, 4) - 1), r2 = 1 - Math.abs(2 * nz(u * 1.7 - 31, v * 1.7 + 5, 2) - 1); hg[k] += m * (r1 * r1 * r1 * 5 + r2 * r2 * 0.7 - 1.8); }
   for (let k = 0; k < hg.length; k++) { if (raw[k] > hg[k] && raw[k] > 2.5) hg[k] += (raw[k] - hg[k]) * 0.5; hg[k] += (el[k] - 0.5) * 1.4 * Math.min(1, Math.max(0.25, hg[k] / 3)); }   // פסגות חדות יותר — הטשטוש לא משטח את ההרים
+  // ערוץ הנהר: שקע צר בפינות שנוגעות בנהר — העמק נחתך גם בתלת-ממד
+  if (S.river) for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { let r = 0; for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H && S.river[Y * W + X]) r = 1; } if (r) { const k = y * CW + x; hg[k] = Math.min(hg[k], hg[k] * 0.55 + 0.1); } }
   // הצללה מצפון-מערב
   const sh = new Float32Array(CW * CHh), K = 0.55 / G * 4;
   for (let y = 0; y < CHh; y++) for (let x = 0; x < CW; x++) { const k = y * CW + x, l = hg[y * CW + Math.max(0, x - 1)], r = hg[y * CW + Math.min(CW - 1, x + 1)], u = hg[Math.max(0, y - 1) * CW + x], d = hg[Math.min(CHh - 1, y + 1) * CW + x]; sh[k] = clamp(1 + ((r - l) + (d - u)) * K * 0.25, 0.72, 1.22); }
   // שדות: רעש בסיסי + תוספת סביב ערים (מחושבת מחדש כשעיר נבנית או גדלה)
   const farmN = new Float32Array(W * H); for (let i = 0; i < W * H; i++) { const [x, y] = XY(i); farmN[i] = nz(x / G * 0.18 + 300, y / G * 0.18 - 70, 3); }
   const pal = {}; for (const k in MAPPAL) pal[k] = Array.isArray(MAPPAL[k]) ? MAPPAL[k].map(hex2rgb) : hex2rgb(MAPPAL[k]);
-  Object.assign(TERR, { jx, jy, el, cd, CW, coastD, nearC, farmN, farm: new Uint8Array(W * H), hg, sh, pal, s: S, cityKey: cityKey(), farmVer: (TERR.farmVer || 0) + 1 });
+  const nearR = new Uint8Array(W * H); if (S.river) { const RR = Math.ceil(0.8 * G) + 1; for (let i = 0; i < W * H; i++) if (S.river[i]) { const [x, y] = XY(i); for (let yy = Math.max(0, y - RR); yy <= Math.min(H - 1, y + RR); yy++) for (let xx = Math.max(0, x - RR); xx <= Math.min(W - 1, x + RR); xx++) nearR[yy * W + xx] = 1; } }
+  Object.assign(TERR, { nearR, jx, jy, el, cd, CW, coastD, nearC, farmN, farm: new Uint8Array(W * H), hg, sh, pal, s: S, cityKey: cityKey(), farmVer: (TERR.farmVer || 0) + 1 });
   computeFarm();
   TERR.chunks.clear();
 }
@@ -82,7 +85,7 @@ function refreshFarmland() {
 // צביעת אזור מפה (במשבצות) לתמונה ברזולוציה P פיקסלים למשבצת
 function paintTerrain(tx0, ty0, tw, th, P) {
   const PW = tw * P, PH = th * P, img = new ImageData(PW, PH), d = img.data, seed = S.seed, C = TERR.pal, { jx, jy, el, cd, CW, nearC, farm, hg, sh } = TERR;
-  const OX = tx0 * P, OY = ty0 * P, detail = P >= 16, wuPx = CFG.T / P;
+  const OX = tx0 * P, OY = ty0 * P, detail = P >= 16, wuPx = CFG.T / P, riv = S.river;
   const put = (x, y, rgb, a = 1) => { x -= OX; y -= OY; if (x < 0 || y < 0 || x >= PW || y >= PH) return; const o = (y * PW + x) * 4; if (a >= 1) { d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; } else { d[o] += (rgb[0] - d[o]) * a; d[o + 1] += (rgb[1] - d[o + 1]) * a; d[o + 2] += (rgb[2] - d[o + 2]) * a; } d[o + 3] = 255; };
   // ערך בפינות המשבצות → אינטרפולציה (קווי חוף וקווי גובה חלקים בכל רזולוציה)
   const bil = (A, u, v) => { const x = clamp(Math.floor(u), 0, W - 1), y = clamp(Math.floor(v), 0, H - 1), fx = u - x, fy = v - y, k = y * CW + x; return (A[k] * (1 - fx) + A[k + 1] * fx) * (1 - fy) + (A[k + CW] * (1 - fx) + A[k + CW + 1] * fx) * fy; };
@@ -122,8 +125,13 @@ function paintTerrain(tx0, ty0, tw, th, P) {
       const step = 0.5, f = e / step, fr = f - Math.floor(f), lw = 0.06 * (P >= 16 ? 1 : 2.2);
       if (e > 0.6 && (fr < lw || fr > 1 - lw)) { const major = Math.round(f) % 4 === 0, a = (t === FOREST || farm[ti] ? 0.1 : 0.2) + (major ? 0.08 : 0); col = col.map((v2, q) => v2 + (C.contour[q] - v2) * a); }
     }
+    if (riv && riv[ti]) { const sh2 = TERR.sh ? bil(sh, (gx + 0.5) / P, (gy + 0.5) / P) : 1; col = [52 + r * 10, 98 + r * 12, 150 + r * 10].map(v2 => v2 * (0.85 + 0.15 * sh2)); if (r < 0.02) col = [150, 190, 220]; }
     put(gx, gy, col);
   }
+  // גדות הנהר: קו בוץ כהה בצד היבשה
+  if (riv) { const mud = hex2rgb('#4a4030'), isR = (gx, gy) => riv[terAt(gx, gy)] > 0;
+    for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) { const gx = OX + px, gy = OY + py, bt = clamp(Math.floor(gx / P), 0, W - 1) + clamp(Math.floor(gy / P), 0, H - 1) * W; if (!TERR.nearR[bt]) continue;
+      if (isR(gx, gy)) continue; if (isR(gx + 1, gy) || isR(gx - 1, gy) || isR(gx, gy + 1) || isR(gx, gy - 1)) put(gx, gy, mud, 0.55); } }
   // חוף: פס בהיר בצד היבשה וקו כהה בצד המים — רק ליד קווי מים
   const beach = hex2rgb('#a89870'), wetEdge = hex2rgb('#2a4a52');
   for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) {
@@ -142,7 +150,8 @@ function paintTerrain(tx0, ty0, tw, th, P) {
   for (let ty = ty0 - 1; ty <= ty0 + th; ty++) for (let tx = tx0 - 1; tx <= tx0 + tw; tx++) {
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
     const i = idx(tx, ty), t = S.terrain[i], X0 = tx * P, Y0 = ty * P;
-    if (t === FOREST && !farm[i]) { const n = Math.floor((4 + hash01(tx, ty, seed + 31) * 4) * area + hash01(ty, tx, seed + 32)); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 9 + k2, ty, seed + 3) * P | 0), Y0 + (hash01(tx, ty * 9 + k2, seed + 4) * P | 0), Math.max(1, Math.round((2 + (hash01(k2, tx + ty, seed) * 3 | 0)) * k))); }
+    if (t === FOREST && farm[i] && nb4(i).some(k => S.terrain[k] === FOREST && !farm[k])) { const n = 1 + (hash01(tx, ty, seed + 37) * 3 | 0); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 7 + k2, ty, seed + 38) * P | 0), Y0 + (hash01(tx, ty * 7 + k2, seed + 39) * P | 0), Math.max(1, Math.round(k * 2.2))); }   // שולי יער שפונה לשדות: עצים פזורים — מעבר רך
+    else if (t === FOREST && !farm[i]) { const n = Math.floor((4 + hash01(tx, ty, seed + 31) * 4) * area + hash01(ty, tx, seed + 32)); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 9 + k2, ty, seed + 3) * P | 0), Y0 + (hash01(tx, ty * 9 + k2, seed + 4) * P | 0), Math.max(1, Math.round((2 + (hash01(k2, tx + ty, seed) * 3 | 0)) * k))); }
     else if (t === GRASS && !farm[i] && hash01(tx, ty, seed + 33) < 0.15 * area) { const n = 1 + (hash01(tx, ty, seed + 34) * 2 | 0); for (let k2 = 0; k2 < n; k2++) blob(X0 + (hash01(tx * 5 + k2, ty, seed + 35) * P | 0), Y0 + (hash01(tx, ty * 5 + k2, seed + 36) * P | 0), Math.max(1, Math.round((2 + (k2 & 1)) * k))); }
     else if ((t === MOUNT || t === SNOW) && hash01(tx, ty, seed + 40) < 0.35 * area) {
       const cx = X0 + P / 2, cy = Y0 + P / 2, a = hash01(tx, ty, seed + 41) * Math.PI, L = Math.round(8 * k);

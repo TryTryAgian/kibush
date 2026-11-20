@@ -13,7 +13,8 @@ function ctxOpen(i, sx, sy) {
   if (o === 0) return ctxWheel(i, sx, sy, 'build');
   if (o > 0) return ctxPanel(sx, sy, nationCtx(o, i));
   if (m && m.alive) return ctxPanel(sx, sy, minorCtx(m));
-  ctxPanel(sx, sy, [h('div', { class: 'cx-h' }, '🏔 שטח הפקר'), h('div', { class: 'dim' }, isWater(i) ? 'ים.' : `${TER[S.terrain[i]].name}. אפשר לתפוס אותו במבצע התפשטות, או לבנות לידו מבנה שתופס שטח סביבו.`),
+  const ft0 = featAt(i, 1);
+  ctxPanel(sx, sy, [h('div', { class: 'cx-h' }, ft0 ? featLabel(ft0) : '🏔 שטח הפקר'), ft0 ? h('div', { class: 'dim', style: { fontSize: '11px' } }, FT[ft0.t].why) : null, h('div', { class: 'dim' }, isWater(i) ? 'ים.' : `${TER[S.terrain[i]].name}. אפשר לתפוס אותו במבצע התפשטות, או לבנות לידו מבנה שתופס שטח סביבו.`),
     h('div', { class: 'cx-row' }, h('button', { class: 'btn sm', onclick: () => { ctxClose(); if (!S.ops.some(op => op.n === 0 && op.target === -1)) createOp(0, -1); ui.tab = 'fronts'; render(); } }, '🌾 מבצע התפשטות'))]);
 }
 /* ---------- גלגל בנייה ---------- */
@@ -54,8 +55,10 @@ function nationCtx(o, i) {
   const n = S.nations[o], r = rel(0, o), war = r.state === 'war', ap = n.isAI ? APPROACH[approach(o, 0)] : null, il = intelLabel(0, o), cool = r.cool > S.time;
   const act = (fn) => () => { fn(); ctxClose(); render(); };
   const deal = (k, t) => h('button', { class: 'btn sm', disabled: cool || !!dealInvalid(k, 0, o), title: dealInvalid(k, 0, o) || '', onclick: act(() => doPropose(o, k)) }, t);
-  const wb = warBlock(0, o), op = S.ops.find(x => x.n === 0 && x.target === o);
+  const wb = warBlock(0, o), op = S.ops.find(x => x.n === 0 && x.target === o), ft = featAt(i, 1);
+  const seize = () => { let q = S.ops.find(x => x.n === 0 && x.target === o) || createOp(0, o); q.objectives = q.objectives.filter(x => !(x.custom && x.by == null)); q.objectives.push({ tile: ft.tile, type: 'custom', custom: true, by: null, done: false, name: featLabel(ft) }); planOp(q); ui.tab = 'fronts'; toast(`🎯 מבצע נגד ${n.name}: המטרה — ${ft.name}`, 'good'); };
   return [
+    ft ? h('div', { class: 'cx-feat' }, h('b', {}, featLabel(ft)), h('div', { class: 'dim', style: { fontSize: '11px' } }, FT[ft.t].why), h('button', { class: 'btn sm' + (war ? ' pri' : ''), onclick: act(seize) }, `🎯 מבצע לתפוס את ${ft.name}`)) : null,
     h('div', { class: 'cx-h', style: { borderColor: n.color } }, h('span', { class: 'dot', style: { background: n.color } }), ' ', n.name, n.ruler ? h('span', { class: 'dim' }, ` · ${n.ruler}`) : null),
     h('div', { class: 'dim' }, `${war ? '⚔ במלחמה איתך' : allied(0, o) ? '🛡 בעלת ברית' : napActive(0, o) ? '🤚 אי-תקיפה' : hasTrade(0, o) ? '🤝 סחר' : 'שלום'} · כוח ~${fl(powerEst(0, o))} (מודיעין ${il.txt})`),
     ap ? h('div', { class: 'dim' }, 'גישה: ', h('b', { style: { color: ap[1] } }, ap[0]), ` · דעה ${Math.round(opinion(o, 0))}`) : null,
@@ -77,11 +80,11 @@ function minorCtx(m) {
     h('div', { class: 'cx-h', style: { borderColor: host ? '#ff6a4a' : minorCol(m) } }, `${m.kind === 'town' ? '🏘' : '🏠'} ${minorKind(m)} ${m.name}`, h('span', { class: 'dim' }, ` · ${m.tiles} משבצות`)),
     h('div', { class: 'dim' }, `🛡 חיל מצב ${Math.round(m.gar)}/${m.max}${host ? ' · ⚔ הכרזת עליו כיריב' : ''}`),
     host ? h('div', { class: 'dim' }, 'מבצע ההתפשטות שלך יתקוף את השטח שלו. כשהעיר עצמה תיפול — כל האזור נכנע.') : h('div', {},
-      h('div', { class: 'dim' }, `ההשפעה שלך: ${my}/100${m.mis[0] ? ` · +${g.g.toFixed(1)} ליום` : ''}`), bar(my, '#5fe0ff'),
-      ...rivals.map(([k, v]) => h('div', { class: 'dim', style: { fontSize: '11px' } }, `${nm(+k)}: ${Math.round(v)}`, bar(v, S.nations[k].color))),
-      h('div', { class: 'dim', style: { fontSize: '11px' }, title: g.parts.map(([t, v]) => `${typeof v === 'number' ? (v > 0 ? '+' : '') + v.toFixed(1) : v}  ${t}`).join('\n') }, `ⓘ ב-100 (ויתרון של ${MINOR.LEAD} על כל אחד אחר) הוא מצטרף אליך עם כל השטח, עיר וחיל המצב`)),
+      h('div', { class: 'dim' }, `ההשפעה שלך: ${my}/${minorNeed(m)}${m.mis[0] ? ` · +${g.g.toFixed(1)} ליום` : ''}`), bar(my / minorNeed(m) * 100, '#5fe0ff'),
+      ...rivals.map(([k, v]) => h('div', { class: 'dim', style: { fontSize: '11px' } }, `${nm(+k)}: ${Math.round(v)}`, bar(v / minorNeed(m) * 100, S.nations[k].color))),
+      h('div', { class: 'dim', style: { fontSize: '11px' }, title: g.parts.map(([t, v]) => `${typeof v === 'number' ? (v > 0 ? '+' : '') + v.toFixed(1) : v}  ${t}`).join('\n') }, `ⓘ ב-${minorNeed(m)} (ויתרון של ${MINOR.LEAD} על כל אחד אחר) הוא מצטרף אליך עם כל השטח, עיר וחיל המצב`)),
     h('div', { class: 'cx-row' },
-      !host ? h('button', { class: 'btn sm' + (m.mis[0] ? ' on' : ' pri'), disabled: !m.mis[0] && player().res.gold < MINOR.MISSION_GOLD * 5, onclick: act(() => { m.mis[0] = !m.mis[0]; toast(m.mis[0] ? `🤝 שליחים יצאו ל${m.name} (${MINOR.MISSION_GOLD}💰 ליום)` : `השליחים חזרו מ${m.name}`, m.mis[0] ? 'good' : ''); }) }, m.mis[0] ? '🤝 החזר שליחים' : `🤝 שלח שליחים (${MINOR.MISSION_GOLD}💰/יום)`) : null,
+      !host ? h('button', { class: 'btn sm' + (m.mis[0] ? ' on' : ' pri'), disabled: !m.mis[0] && (player().res.gold < misCost(0) * 5 || misCount(0) >= misMax(0)), title: !m.mis[0] && misCount(0) >= misMax(0) ? `מקסימום ${misMax(0)} משלחות במקביל (משלחת נוספת לכל 2 ערים)` : `${misCount(0)}/${misMax(0)} משלחות · הבאה תעלה ${misCost(0) + (m.mis[0] ? 0 : MINOR.MISSION_GOLD * 0.5 * (misCount(0) ? 1 : 0))}💰 ליום`, onclick: act(() => { m.mis[0] = !m.mis[0]; toast(m.mis[0] ? `🤝 שליחים יצאו ל${m.name} (${misCost(0)}💰 ליום)` : `השליחים חזרו מ${m.name}`, m.mis[0] ? 'good' : ''); }) }, m.mis[0] ? '🤝 החזר שליחים' : `🤝 שלח שליחים (${misCost(0) * (misCount(0) ? 1.5 : 1)}💰/יום)`) : null,
       !host ? h('button', { class: 'btn sm', disabled: player().res.gold < gc, onclick: act(() => { if (minorGift(m, 0)) toast(`🎁 מתנה ל${m.name}: +${MINOR.GIFT_INF} השפעה`, 'good'); }) }, `🎁 מתנה ${gc}💰`) : null,
       !host ? h('button', { class: 'btn sm warn', onclick: act(() => { minorDeclare(m, 0); if (!S.ops.some(op => op.n === 0 && op.target === -1)) createOp(0, -1); ui.tab = 'fronts'; }) }, '⚔ תקוף') : h('button', { class: 'btn sm', onclick: act(() => { if (!S.ops.some(op => op.n === 0 && op.target === -1)) createOp(0, -1); ui.tab = 'fronts'; }) }, '📋 מבצע ההתפשטות'),
       h('button', { class: 'btn sm', onclick: act(() => centerOnXY(tx, ty)) }, '📍')),

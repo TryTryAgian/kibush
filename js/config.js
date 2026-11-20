@@ -13,7 +13,7 @@
 const G = 4;
 const CFG = {
   // T = יחידות עולם למשבצת (קטן כשהרשת צפופה — העולם נשאר באותו גודל)
-  T: 8, TR: 2, WIN_RATIO: 0.8, SAVE_KEY: 'pixelConquest.save.v10',
+  T: 8, TR: 2, WIN_RATIO: 0.7, SAVE_KEY: 'pixelConquest.save.v10',
   ZOOM_MIN: 0.12, ZOOM_MAX: 9,
   DAY_SEC: 3,                  // שניות אמיתיות ליום משחק במהירות ×1
   TICK: 0.1,                   // צעד סימולציה (ימים)

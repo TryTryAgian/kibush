@@ -40,7 +40,8 @@ const ui = { tab: null, pick: null, sel: null, selFront: null, lastTab: null };
 const view = { cam: { x: 0, y: 0, zoom: 2 }, ownerDirty: true, ownDirty: new Set() };
 // שינוי בעלות על משבצת: מסמנים לציור מחדש רק אותה (ולא את כל שכבת הגבולות) ומעדכנים את מונה הגרסה
 let OWNV = 0;
-function markTile(k) { view.ownDirty.add(k); OWNV++; }
+const OWNLOG = { a: [], gen: 0 };   // יומן שינויי בעלות — כדי שהתלת-ממד יבנה קרקע מחדש רק כששינוי נופל בתוך המסך
+function markTile(k) { view.ownDirty.add(k); OWNV++; OWNLOG.a.push(k); if (OWNLOG.a.length > 50000) { OWNLOG.a.length = 0; OWNLOG.gen++; } }
 const idx = (x, y) => y * W + x;
 const XY = i => [i % W, (i / W) | 0];
 const isWater = i => TER[S.terrain[i]].water;
@@ -51,11 +52,11 @@ const dist = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b); return Math.h
 const cheb = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b); return Math.max(Math.abs(ax - bx), Math.abs(ay - by)) / G; };
 const hyp = (dx, dy) => Math.hypot(dx, dy) / G;
 const tileOf = (x, y) => idx(clamp(Math.round(x), 0, W - 1), clamp(Math.round(y), 0, H - 1));
-const _cnt = { v: -1, c: null, s: null };
-function counts() {
-  if (_cnt.v === OWNV && _cnt.s === S) return _cnt.c.slice();
+const _cnt = { v: -1, c: null, s: null, t: -1 };
+function counts() {   // מחושב לכל היותר פעם בעשירית יום (שינויי בעלות קורים כל הזמן במלחמה)
+  if (_cnt.s === S && (_cnt.v === OWNV || (S.time - _cnt.t < 0.1 && S.time >= _cnt.t))) return _cnt.c.slice();
   const c = S.nations.map(() => 0); for (let i = 0; i < S.owner.length; i++) if (S.owner[i] >= 0) c[S.owner[i]]++;
-  _cnt.v = OWNV; _cnt.s = S; _cnt.c = c; return c.slice();
+  _cnt.v = OWNV; _cnt.s = S; _cnt.t = S.time; _cnt.c = c; return c.slice();
 }
 function eachBuilding(fn) { for (const k in S.buildings) fn(S.buildings[k], +k); }
 const done = b => b.prog >= 1;
@@ -106,7 +107,7 @@ function placeCapitals(n, rnd) {
   for (let tries = 0; out.length < n && tries < 20000; tries++) {
     if (tries % 2000 === 1999) minD *= 0.8;
     const x = 3 + (rnd() * (W - 6) | 0), y = 3 + (rnd() * (H - 6) | 0), i = idx(x, y);
-    if (!ok.includes(S.terrain[i])) continue;
+    if (!ok.includes(S.terrain[i]) || (S.river && S.river[i])) continue;
     if (out.some(j => { const [a, b] = XY(j); return Math.hypot(a - x, b - y) < minD; })) continue;
     let land = 0; const R5 = 5 * G; for (let dy = -R5; dy <= R5; dy++) for (let dx = -R5; dx <= R5; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H && !isWater(idx(xx, yy))) land++; }
     if (land < 50 * G * G) continue;
@@ -121,11 +122,13 @@ function loadTerrain(settings, seed) {
 }
 function newGame(settings) {
   const seed = settings.seed || (Math.random() * 1e9 | 0);
+  if (typeof G3 !== 'undefined') { G3.models.clear(); G3.towns?.clear?.(); }   // מודלים של המשחק הקודם
   const m = loadTerrain(settings, seed);
   S = { v: 10, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
         terrain: m.terrain, owner: new Int8Array(W * H).fill(-1), buildings: {}, nations: [], diplo: {},
         fronts: [], convoys: [], offers: [], ops: [], rails: [], divs: [], nextId: 1, lastOwner: new Int8Array(W * H).fill(-1), railMap: new Uint8Array(W * H), core: new Int8Array(W * H).fill(-1), capDay: new Float32Array(W * H), lastWarDay: 0 };
   S.landTotal = S.terrain.reduce((a, t) => a + (TER[t].water ? 0 : 1), 0);
+  genRivers();   // נהרות וגשרים (features.js)
   const caps = m.starts ? m.starts.slice(0, settings.ai + 1) : placeCapitals(settings.ai + 1, mulberry32(seed + 99));
   caps.forEach((ci, id) => {
     const p = NATION_PRESETS[id];
@@ -141,7 +144,7 @@ function newGame(settings) {
     S.buildings[j] = { type: 'camp', dt: 'inf', n: id, prog: 1, lvl: 1 }; claim(id, j, BUILD.camp.claim);
     const d = ensureDiv(j); d.units = { ...DIV_TYPES.inf.comp, ...zeroUnits(), inf: 12 };
   });
-  genMinors();   // כפרים וערים ניטרליים על כל השטח הפנוי (minors.js)
+  genMinors(); townBridges(); features(); sectors();   // חישוב חד-פעמי עכשיו — לא קפיצה ביום הראשון   // כפרים וערים ניטרליים על כל השטח הפנוי (minors.js)
   const c0 = counts(); S.nations.forEach(n => { n.startTiles = c0[n.id]; });
   Object.assign(ui, { tab: null, pick: null, sel: null, selFront: null });
   for (const k in compCache) delete compCache[k];
@@ -162,7 +165,7 @@ const DIRS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, 
 const isOwnPort = (nid, i) => { const b = S.buildings[i]; return b && b.type === 'port' && b.n === nid && done(b); };
 function passable(nid, i) { const o = S.owner[i]; return o < 0 || o === nid || allied(nid, o); }
 const RAIL_COST = 0.3;
-function stepCost(nid, v) { return S.railMap[v] && !isWater(v) && (S.owner[v] === nid || allied(nid, S.owner[v])) ? RAIL_COST : MOVE_COST[S.terrain[v]]; }
+function stepCost(nid, v) { return S.railMap[v] && !isWater(v) && (S.owner[v] === nid || allied(nid, S.owner[v])) ? RAIL_COST : MOVE_COST[S.terrain[v]] + riverCost(v); }
 class Heap {
   constructor() { this.a = []; }
   get size() { return this.a.length; }
@@ -214,7 +217,7 @@ function travelField(sources, sea, nid, also) {
   while (heap.size) {
     const [du, u] = heap.pop(); if (du > d[u]) continue;
     for (const v of nb4(u)) {
-      const w = isWater(v) ? (sea ? 1.4 : Infinity) : ok && !ok(v) ? Infinity : MOVE_COST[S.terrain[v]];
+      const w = isWater(v) ? (sea ? 1.4 : Infinity) : ok && !ok(v) ? Infinity : MOVE_COST[S.terrain[v]] + riverCost(v);
       if (du + w < d[v]) { d[v] = du + w; heap.push(d[v], v); }
     }
   }

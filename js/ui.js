@@ -130,7 +130,7 @@ function armyTab() {
 function genIcon(f) {
   if (f.kind === 'navy') return '⚓'; if (f.solo) return f.airborne ? '🪂' : '🎯';
   if (f.flying) return '✈'; if (f.retreating) return '↩'; if (f.order) return { hold: '🛡', delay: '⏪', withdraw: '🏃' }[f.order]; if (f.consol) return '⛺';
-  if (f.role === 'attack') return f.op != null && S.ops.find(o => o.id === f.op)?.target < 0 ? '🌾' : { ME: '⭐', PIN: '📌', EXP: '⚡' }[f.opRole] || '⚔';
+  if (f.role === 'attack') return f.op != null && S.ops.find(o => o.id === f.op)?.target < 0 ? '🌾' : { ME: '⭐', PIN: '📌', EXP: '⚡', SEC: '🗺' }[f.opRole] || '⚔';
   if (f.zoneKind === 'incursion' && f.defRole !== 'reserve') return '🚨';
   return { reserve: '🛡', depth: '🧱', screen: '👁', delay: '⏳' }[f.defRole] || '🛡';
 }
@@ -150,7 +150,7 @@ function genCard(f) {
       live(el => { const e = genETA(f); el.textContent = (f.supply && f.supply !== 'ok' ? '🔴 ' : '') + shortStatus(f) + (e != null && e > 0.2 ? ` · ⏱ ${etaText(e)}` : ''); }, 'span', { class: 'gst dim' }),
       h('button', { class: 'btn xs', onclick: e => { e.stopPropagation(); centerOnXY(...f.pos); } }, '📍')),
     sel ? [
-      f.kind === 'land' && !f.solo ? live(el => { el.textContent = f.order ? `פקודה ישירה · ${f.status}` + (f.order === 'withdraw' ? '' : ' · לחץ שוב כדי לבטל') : (f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (f.defRole !== 'reserve' && f.zoneKind === 'incursion' ? '🚨 הודף חדירה לשטח' : DEF_NAMES[f.defRole] || '') : '') + ' · ' + f.status + (f.op != null && f.planWhy && !f.planHold ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע למאמץ העיקרי', 'דחיפה': '➡ דוחף קדימה', 'ניצול': '⚡ ניצול לעומק', 'כיתור': '⭕ סוגר כיתור', 'התפשטות': '🌾 מתפשט' }[f.planWhy] || ''}` : ''); }, 'div', { class: 'role' }) : null,
+      f.kind === 'land' && !f.solo ? live(el => { el.textContent = f.order ? `פקודה ישירה · ${f.status}` + (f.order === 'withdraw' ? '' : ' · לחץ שוב כדי לבטל') : (f.role === 'attack' ? (ROLE_NAMES[f.opRole] || '') : f.role === 'defend' ? (f.defRole !== 'reserve' && f.zoneKind === 'incursion' ? '🚨 הודף חדירה לשטח' : DEF_NAMES[f.defRole] || '') : '') + ' · ' + f.status + (f.op != null && f.planWhy && !f.planHold ? ` · ${{ 'יעד': '🎯 יעד בנתיב', 'סיוע': '🤝 מסייע למאמץ העיקרי', 'דחיפה': '➡ דוחף קדימה', 'ניצול': '⚡ ניצול לעומק', 'כיתור': '⭕ סוגר כיתור', 'חזית משנית': '🗺 תוקף בחזית משנית', 'התפשטות': '🌾 מתפשט' }[f.planWhy] || ''}` : ''); }, 'div', { class: 'role' }) : null,
       h('div', { class: 'kv' },
         f.kind === 'land' ? live(el => { el.textContent = `מורל ${Math.round((f.org ?? 1) * 100)}% · 📦 אספקה ${Math.round((f.supLvl ?? 1) * 100)}%`; }) : null,
         f.kind === 'land' ? live(el => { el.textContent = { sea: '🔴 בכיס — אספקה בים', air: '🔴 בכיס — רכבת אווירית', cut: '🔴 בכיס — מנותק!' }[f.supply] || ''; el.style.color = '#ff8a7a'; }) : null,
@@ -166,10 +166,11 @@ function genCard(f) {
       // למה כל אוגדה עושה מה שהיא עושה (שלב 3ב)
       f.kind === 'land' ? live(el => { const ds = frontDivs(f).filter(d => d.loc === 'front' && d.task && !['move', 'reserve', 'hold'].includes(d.task.k)); el.style.display = ds.length ? '' : 'none'; el.textContent = ds.map(d => `${TASKS[d.task.k].ic} ${d.num}: ${d.task.why}`).join('\n'); }, 'div', { class: 'dim tasks' }) : null,
       f.kind === 'land' ? live(el => { const ds = frontDivs(f).filter(d => d.loc === 'front'); el.style.display = ds.length ? '' : 'none'; el.textContent = '🎖 ' + ds.map(d => { const c = ensureCmd(d); return `${d.num}: ${cmdTitle(c)} ${cmdStars(c)} (${cmdTraits(c)})${d.taskSince != null && S.time - d.taskSince < 0.6 - 0.12 * cmdLvl(c) ? ' ⏳ מתארגן' : ''}`; }).join('\n🎖 '); }, 'div', { class: 'dim tasks' }) : null,
+      capped(f) ? live(el => { const c = genLoad(f); el.textContent = `אוגדות ${c}/${GEN_DIVS}${c >= GEN_DIVS ? ' · מלא' : ''}`; }, 'div', { class: 'dim' }) : null,
       f.auto || f.solo ? null : h('div', { class: 'row wrap' }, Object.keys(DIV_TYPES).filter(k => (f.kind === 'navy') === (k === 'navy')).map(k => {
         const free = divsOf(0).filter(d => d.type === k && d.loc === 'camp' && d.front == null);
         if (!free.length) return null;
-        return h('button', { class: 'btn sm', disabled: !free.length, onclick: e => { e.stopPropagation(); const ft = tileOf(...f.pos); const d = free.sort((a, b) => dist(a.home, ft) - dist(b.home, ft))[0]; if (!sendDivision(d, f)) toast('אין נתיב אספקה', 'bad'); render(); } }, `+ ${DIV_TYPES[k].name} (${free.length})`);
+        return h('button', { class: 'btn sm', disabled: !free.length, onclick: e => { e.stopPropagation(); const ft = tileOf(...f.pos); const d = free.sort((a, b) => dist(a.home, ft) - dist(b.home, ft))[0]; if (genFull(f) && k !== 'air') toast(`ל${f.gen.name} כבר ${GEN_DIVS} אוגדות — מנה גנרל נוסף`, 'bad'); else if (!sendDivision(d, f)) toast('אין נתיב אספקה', 'bad'); render(); } }, `+ ${DIV_TYPES[k].name} (${free.length})`);
       })),
       h('div', { class: 'row wrap' }, ...genActions(f))] : null);
 }
@@ -221,7 +222,8 @@ function frontsTab() {
         const subs = op.subs.filter(o => !o.done && !o.skip);
         el.replaceChildren(
           op.main ? h('div', { class: 'uline' }, h('b', { style: { color: '#ffd84a' } }, '🎯 מטרה עיקרית'), h('span', { class: 'nm' }, (op.main.custom ? OBJ_IC.custom + ' ' : (OBJ_IC[op.main.type] || '') + ' ') + objName(op.main))) : null,
-          subs.length ? h('div', { class: 'uline' }, h('span', { class: 'dim' }, 'מטרות משנה'), h('span', { class: 'nm row wrap' }, ...subs.slice(0, 8).map(o => h('span', { class: 'pill' + (o.type === 'encircle' ? ' war' : '') }, o.type === 'encircle' ? '⭕ כיתור' : OBJ_IC[o.type] || '•')), subs.length > 8 ? h('span', { class: 'dim' }, `+${subs.length - 8}`) : null)) : null);
+          (() => { const ph = subs.filter(o => o.type === 'feat').sort((a, b) => (b.route - a.route) || a.a - b.a).slice(0, 5); return ph.length ? h('div', { class: 'uline' }, h('span', { class: 'dim' }, 'שלבים'), h('span', { class: 'nm row wrap' }, ...ph.map((o, k) => h('span', { class: 'pill', title: FT[o.ft].why }, `${k + 1}. ${FT[o.ft].ic} ${o.name}${o.route ? '' : ' (אגף)'}`)))) : null; })(),
+          subs.length ? h('div', { class: 'uline' }, h('span', { class: 'dim' }, 'מטרות משנה'), h('span', { class: 'nm row wrap' }, ...subs.slice(0, 8).map(o => h('span', { class: 'pill' + (o.type === 'encircle' ? ' war' : '') }, o.type === 'encircle' ? '⭕ כיתור' : o.type === 'feat' ? FT[o.ft].ic : OBJ_IC[o.type] || '•')), subs.length > 8 ? h('span', { class: 'dim' }, `+${subs.length - 8}`) : null)) : null);
       }, 'div', { style: { display: 'flex', flexDirection: 'column', gap: '3px' } }),
       op.target >= 0 && fogOn() ? live(el => {   // מודיעין מהסיור האחרון
         const it = op.intel, age = it ? Math.floor(S.time - it.t) : null, g = it?.weakGen != null ? S.fronts.find(f => f.id === it.weakGen) : null;
@@ -400,6 +402,10 @@ function openHelp() {
       h('li', {}, 'רכבות: מפעלים מחוברים במסילה לעיר ולנמל — כל משלוח מכניס זהב. מסילה גם מאיצה צבא ותגבורת.'),
       h('li', {}, 'דיפלומטיה: הסכמים פגים אחרי זמן; אחרי שלום — שביתת נשק. המחשב דורש זהב לשלום לפי מי שמנצח. תקיפה, ובמיוחד הפרת הסכם, עלולה להוביל לקואליציה נגד התוקף.'),
       h('li', {}, 'שטח כבוש (מסומן בנקודות): עולה זהב, מפיק פחות, ובערים יש סכנת מרד אם אין גנרל קרוב. אחרי 150 יום הוא הופך לליבה. אומה גדולה מאוד מפיקה פחות לכל משבצת.'),
+      h('li', {}, 'נהרות: חציית נהר איטית ויקרה, ומגן מאחורי נהר חזק יותר. גשר (🌉) = מעבר יבש — קרקע מפתח.'),
+      h('li', {}, 'תוואי שטח: ▲ גבעה שולטת, ⛰ מעבר הרים, ⧗ מיצר, 🌉 גשר, 🏞 עמק, ⚓ מפרץ, 🌲 יער — לכל אחד שם על המפה. המבצע מתכנן ציר התקדמות (קו כתום) ושלבים לאורכו; קליק ימני על תוואי של אויב — "מבצע לתפוס".'),
+      h('li', {}, 'גזרות: מי שמחזיק את תוואי המפתח של גזרה ואת רוב השטח שלה — שאר השטח בה נופל לידיו בהדרגה. תופסים מקומות, לא משבצות.'),
+      h('li', {}, 'תעלות: אוגדה שמחזיקה מקום כמה ימים חופרת תעלה (עד +30% הגנה). תזוזה — מתחילים מחדש. בזום קרוב רואים את החיילים במחסה, בדילוגים ובחילוץ פצועים.'),
       h('li', {}, 'קליק ימני על המפה: על השטח שלך — גלגל בנייה (במרכז: ⛺ מחנות, ⬆ שדרוג עיר). על אומה אחרת — דיפלומטיה, הכרזת מלחמה והכנת מבצע. על כפר או עיר ניטרלית — שליחים, מתנה, או תקיפה.'),
       h('li', {}, 'כפרים וערים ניטרליים: כל השטח הפנוי שייך להם, ולכל אחד חיל מצב. לשכנע — שליחים (זהב כל יום) ומתנות, עד 100 השפעה — והוא מצטרף עם כל השטח. לכבוש — מכריזים עליו כיריב ומבצע ההתפשטות תוקף; כשהעיר שלו נופלת כל האזור נכנע. כיבוש מרתיע כפרים שכנים.'),
       h('li', {}, 'אוגדות ומפקדים: האוגדות של כל גנרל נפרסות בשטח — עד 4 בקו והשאר בעתודה. בהתקפה הגנרל נותן לכל אוגדה משימה (תפוס, תפוס גבעה, אגף, רתק, סייר, חפה), והחצים במפה מראים מי עושה מה. לכל אוגדה מפקד עם אופי וניסיון שמצטבר; הדיווחים שלהם ביומן 📜.'),
@@ -449,7 +455,7 @@ function startGame(settings) {
 }
 function homeScreen() {
   const page = ui.home, box = (...c) => h('div', { class: 'home-box px' }, ...c);
-  const title = h('div', { class: 'home-title' }, h('div', { class: 'logo' }, 'כיבוש פיקסלים'), h('div', { class: 'sub' }, 'אסטרטגיה בזמן אמת · כבוש 80% מהמפה'));
+  const title = h('div', { class: 'home-title' }, h('div', { class: 'logo' }, 'כיבוש פיקסלים'), h('div', { class: 'sub' }, 'אסטרטגיה בזמן אמת · כבוש 70% מהמפה'));
   if (page === 'new') {
     const maxFor = (map, size) => map ? Math.min(5, parseAscii(FIXED_MAPS[map].rows).starts.length - 1) : { small: 5, medium: 6, large: 7 }[size];
     const maxAI = NG.quick ? Math.min(3, maxFor(NG.map, 'small')) : maxFor(NG.map, NG.size);
@@ -468,11 +474,13 @@ function homeScreen() {
         h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה'),
         h('button', { class: 'btn pri grow', onclick: () => startGame({ map: NG.map, size: NG.size, ai: NG.ai, diff: NG.diff, seed: parseInt(NG.seed) || 0, quick: NG.quick, fog: NG.fog }) }, '⚔ התחל משחק'))));
   }
+  if (page === 'scen') return scenScreen(title, box);
   if (page === 'settings') return h('div', { class: 'home' }, title, box(h('h2', {}, 'הגדרות'), prefToggle(), soundControls(), h('div', { class: 'dim' }, 'בלילה המפה מקבלת גוון כחול והערים נדלקות. אפשר לשנות גם מתוך התפריט במשחק.'), h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה')));
   return h('div', { class: 'home' }, title, box(
     hasSave() ? h('button', { class: 'btn pri big', onclick: () => { ui.home = null; if (load()) { S.speed = 1; render(); toast(`ממשיכים מיום ${fl(S.time)}`); if (S.over) showEnd(); } else showHome('new'); } }, '▶ המשך משחק') : null,
     h('button', { class: 'btn big' + (hasSave() ? '' : ' pri'), onclick: () => { ui.home = 'new'; render(); } }, '⚔ משחק חדש'),
     h('button', { class: 'btn big', onclick: () => { ui.home = 'settings'; render(); } }, '⚙ הגדרות'),
+    h('button', { class: 'btn big', onclick: () => { ui.home = 'scen'; render(); } }, '🧪 תרחישי בדיקה'),
     h('button', { class: 'btn big', onclick: openHelp }, '❓ איך משחקים')),
     h('div', { class: 'home-foot dim' }, 'v0.9 · כל האומות ברקע משחקות עכשיו נגד עצמן'));
 }

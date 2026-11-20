@@ -14,14 +14,15 @@ function unpackBytes(str, len) {
 const packArr = a => packBytes(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
 const unpackArr = (str, Type, n) => new Type(unpackBytes(str, n * Type.BYTES_PER_ELEMENT).buffer);
 function save() {
-  if (S?.demo) return;   // משחק הרקע של מסך הבית לא נשמר
+  if (S?.demo || S?.scenario) return;   // תרחיש בדיקה לא נשמר; משחק הרקע של מסך הבית לא נשמר
   try {
-    const { terrain, owner, lastOwner, railMap, core, capDay, mnr, ...rest } = S;
+    const { terrain, owner, lastOwner, railMap, core, capDay, mnr, river, ...rest } = S;
     const cap = Uint16Array.from(capDay, v => clamp(Math.round(v), 0, 65535));
     // מפות זמני ההגעה של המבצעים (landF) — חישוב זמני ענק; לא שומרים, מחושבים מחדש בטעינה
+    for (const k of Object.keys(rest)) if (k[0] === '_') delete rest[k];   // מטמונים זמניים לא נשמרים
     const ops = rest.ops.map(({ landF, ...o }) => o);
     const divs = rest.divs.map(({ gf, ...d }) => d);
-    localStorage.setItem(CFG.SAVE_KEY, JSON.stringify({ ...rest, ops, divs, packed: 1, owner: packArr(owner), lastOwner: packArr(lastOwner), railMap: packArr(railMap), core: packArr(core), capDay: packArr(cap), mnr: mnr ? packArr(mnr) : null }));
+    localStorage.setItem(CFG.SAVE_KEY, JSON.stringify({ ...rest, ops, divs, packed: 1, owner: packArr(owner), lastOwner: packArr(lastOwner), railMap: packArr(railMap), core: packArr(core), capDay: packArr(cap), mnr: mnr ? packArr(mnr) : null, river: river ? packArr(river) : null }));
   } catch (e) { if (!S.saveWarned) { S.saveWarned = true; toast('⚠ השמירה נכשלה — אין מספיק מקום באחסון של הדפדפן', 'bad'); } }
 }
 function load() {
@@ -31,7 +32,7 @@ function load() {
     const m = loadTerrain(d.settings, d.seed);
     const N = m.terrain.length, P = d.packed;
     S = { ...d, terrain: m.terrain, owner: P ? unpackArr(d.owner, Int8Array, N) : Int8Array.from(d.owner), lastOwner: P ? unpackArr(d.lastOwner, Int8Array, N) : Int8Array.from(d.lastOwner), railMap: P ? unpackArr(d.railMap, Uint8Array, N) : Uint8Array.from(d.railMap), core: P ? unpackArr(d.core, Int8Array, N) : Int8Array.from(d.core), capDay: P ? Float32Array.from(unpackArr(d.capDay, Uint16Array, N)) : Float32Array.from(d.capDay) };
-    delete S.packed; S.mnr = d.mnr ? unpackArr(d.mnr, Int16Array, N) : null;
+    delete S.packed; S.mnr = d.mnr ? unpackArr(d.mnr, Int16Array, N) : null; S.river = d.river ? unpackArr(d.river, Uint8Array, N) : null;
     view.railDirty = true;
     for (const k in compCache) delete compCache[k];
     for (const op of S.ops) planOp(op);   // מחשבים מחדש את הציר ומפת ההגעה
@@ -63,19 +64,25 @@ function interpBegin() {
 }
 function interpEnd() { if (FOGSW.on) { S.fronts = FOGSW.f; S.convoys = FOGSW.c; S.rails = FOGSW.r; FOGSW.on = false; } for (const [o, k, v] of IP) o[k] = v; IP.length = 0; }
 const vTime = () => S.time - (1 - (view.alpha ?? 1)) * (S.speed > 0 ? CFG.TICK : 0);
+let crashT = 0;
+// שגיאה בסימולציה לא מקפיאה את המשחק: עוצרים, שומרים ומודיעים (פעם בכמה שניות לכל היותר)
+function crashed(e, where) {
+  console.error(where, e); if (S) S.speed = 0;
+  if (performance.now() - crashT > 4000) { crashT = performance.now(); try { save(); } catch (e2) { } toast(`⚠ שגיאה ב${where} — המשחק נעצר ונשמר. אפשר להמשיך (▶). פרטים: ${String(e && e.message || e).slice(0, 80)}`, 'bad'); }
+}
 function loop(now) {
+  requestAnimationFrame(loop);   // קודם כול — כך ששגיאה בהמשך לא עוצרת את הלולאה
   const real = Math.min(0.25, (now - last) / 1000); last = now;
   if (S && !S.over && S.speed > 0 && (!modalOpen() || S.demo)) {
     acc += real * S.speed / CFG.DAY_SEC; let n = 0;
-    while (acc >= CFG.TICK && n++ < 20) { snapPrev(); step(CFG.TICK); acc -= CFG.TICK; }
+    try { while (acc >= CFG.TICK && n++ < 20) { snapPrev(); step(CFG.TICK); acc -= CFG.TICK; } } catch (e) { acc = 0; crashed(e, 'סימולציה'); }
     if (n >= 20) acc = 0;
   }
   view.alpha = S && S.speed > 0 && !S.demo ? clamp(acc / CFG.TICK, 0, 1) : 1;
   // משחק הרקע של מסך הבית: ריצה מהירה קדימה בתקציב של ~10ms לפריים
   if (S?.demo && S.warmTo && S.time < S.warmTo) { const t0 = performance.now(); while (S.time < S.warmTo && performance.now() - t0 < 10) step(CFG.TICK); }
-  view.anim = now / 380; if (S?.demo) homePan(real); interpBegin(); try { draw(); } finally { interpEnd(); }
-  if (now - lastUi > 250) { lastUi = now; updateLive(); }
-  requestAnimationFrame(loop);
+  view.anim = now / 380; if (S?.demo) homePan(real); interpBegin(); try { draw(); } catch (e) { if (!view.drawErr) { view.drawErr = true; console.error('draw', e); } } finally { interpEnd(); }
+  if (now - lastUi > 250) { lastUi = now; try { updateLive(); } catch (e) { console.error('ui', e); } }
 }
 resize();
 loadSprites().then(() => { showHome(); requestAnimationFrame(loop); });

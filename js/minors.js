@@ -8,7 +8,8 @@
 //      ב-100 השפעה (ויתרון של 10 על כל אומה אחרת) הכפר מצטרף — עם כל השטח, עיר בנויה וחיל המצב שלו.
 // גם המחשב משחק בזה: שולח שליחים ותוקף כפרים לפי האופי שלו.
 // S.mnr[i] = מספר הכפר שהמשבצת שלו (או -1). המשבצת עצמה נשארת owner = -1 עד שמישהו לוקח אותה.
-const MINOR = { SPACING: 7, MAXR: 8, MIN_TILES: 24, MISSION_GOLD: 3, GIFT_GOLD: 60, GIFT_INF: 12, JOIN: 100, LEAD: 10, DECAY: 0.3, REGEN: 0.2, REP_R: 22 };
+// איזון (סבב 6): שליחים איטיים יותר, מחיר עולה עם כל משלחת נוספת, תקרת משלחות לפי ערים, וכפרים חוששים מאומה גדולה
+const MINOR = { BASE: 1.3, SHARE0: 0.18, SPACING: 7, MAXR: 8, MIN_TILES: 24, MISSION_GOLD: 3, GIFT_GOLD: 60, GIFT_INF: 12, JOIN: 100, LEAD: 10, DECAY: 0.3, REGEN: 0.2, REP_R: 22 };
 const MN_PRE_V = ['כפר', 'מושב', 'נווה', 'גבעת', 'עין', 'בית', 'מצפה', 'תל', 'נאות', 'שדה'], MN_PRE_T = ['קריית', 'רמת', 'מעלה', 'עיר'];
 const MN_SUF = ['אלון', 'שחר', 'הדס', 'ארז', 'תמר', 'רימון', 'זית', 'אורן', 'נחל', 'סלע', 'אביב', 'גפן', 'דגן', 'ענבר', 'שקד', 'יערה', 'אשל', 'ברוש', 'צור', 'לוטם', 'נטף', 'רותם', 'כרמל', 'חרוב', 'דליה', 'יובל', 'עומר', 'רעים', 'אגמון', 'שניר'];
 const minorAt = j => S.mnr && j != null && S.mnr[j] >= 0 ? S.minors[S.mnr[j]] : null;
@@ -83,28 +84,52 @@ function minorDeclare(m, nid) {
 const giftCost = (m, nid) => Math.round(MINOR.GIFT_GOLD * (1 + 0.5 * (m.gifts[nid] || 0)));
 function minorGift(m, nid) {
   const n = S.nations[nid], c = giftCost(m, nid); if (!m.alive || minorHostile(m, nid) || n.res.gold < c) return false;
-  n.res.gold -= c; m.gifts[nid] = (m.gifts[nid] || 0) + 1; m.infl[nid] = Math.min(MINOR.JOIN, (m.infl[nid] || 0) + MINOR.GIFT_INF); return true;
+  n.res.gold -= c; m.gifts[nid] = (m.gifts[nid] || 0) + 1; m.infl[nid] = Math.min(minorNeed(m), (m.infl[nid] || 0) + MINOR.GIFT_INF); return true;
 }
 // כמה השפעה ביום מקבלת האומה בכפר עם שליחים (גם להסבר בממשק)
 function minorGain(m, nid) {
-  const parts = [['שליחים', 1.6]], [tx, ty] = XY(m.town);
+  const parts = [['שליחים', MINOR.BASE]], [tx, ty] = XY(m.town);
   if (minorBorder(m, nid)) parts.push(['גבול משותף', 1.5]);
   const pw = wsOwn(nid, tx, ty, 5); if (pw > 0) parts.push(['צבא קרוב', Math.min(2, pw / (m.gar * 6 + 1))]);
   const tr = S.nations.filter(o => o.alive && hasTrade(nid, o.id)).length; if (tr) parts.push(['מוניטין של סחר', Math.min(1.2, tr * 0.4)]);
-  const rep = S.minors.filter(o => !o.alive && o.joinedTo === nid).length; if (rep) parts.push(['כפרים שכבר הצטרפו', Math.min(1.5, rep * 0.5)]);
+  const rep = S.minors.filter(o => !o.alive && o.joinedTo === nid).length; if (rep) parts.push(['כפרים שכבר הצטרפו', Math.min(0.6, rep * 0.3)]);
+  const sh = minorShare(nid); if (sh > MINOR.SHARE0) parts.push(['אתה כבר גדול — חוששים ממך', -Math.min(3, (sh - MINOR.SHARE0) * 9)]);
+  if (rep >= 4) parts.push(['עייפות: כבר הצטרפו אליך רבים', -Math.min(1.5, (rep - 3) * 0.2)]);
   if (S.minors.some(o => o.host?.[nid] && dist(o.town, m.town) < MINOR.REP_R)) parts.push(['פחד: תקפת כפר קרוב', -1.5]);
   let g = parts.reduce((a, p) => a + p[1], 0); if (m.kind === 'town') { g *= 0.7; parts.push(['עיר — קשה יותר לשכנע', '×0.7']); }
+  // מרחק: כפר רחוק מהשטח שלך כמעט לא שומע עליך ולא רוצה להצטרף לממלכה רחוקה
+  if (!minorBorder(m, nid)) { const d = minorDist(m, nid), k = clamp(1.25 - d / 16, 0.1, 1); if (k < 1) { g *= k; parts.push([`רחוק מהשטח שלך (${Math.round(d)} יח׳)`, `×${k.toFixed(2)}`]); } }
   return { g: Math.max(0.3, g), parts };
 }
+// מרחק מהעיר של הכפר למשבצת הקרובה של האומה (ביחידות; פעם ביום)
+function minorDist(m, nid) {
+  m.dc = m.dc || {}; if (m.dc.t !== S.day) m.dc = { t: S.day }; if (m.dc[nid] != null) return m.dc[nid];
+  const [tx, ty] = XY(m.town); let best = 40 * G;
+  for (let r = 2; r <= 40 * G && best === 40 * G; r += 2) for (let k = 0, n = Math.max(8, r * 2); k < n; k++) { const a = k / n * 6.283, x = Math.round(tx + Math.cos(a) * r), y = Math.round(ty + Math.sin(a) * r); if (x < 0 || y < 0 || x >= W || y >= H) continue; if (S.owner[y * W + x] === nid) { best = r; break; } }
+  return m.dc[nid] = best / G;
+}
 // גבול משותף (נבדק בהגרלה של משבצות הכפר — זול)
+const MBC = { s: null, d: -1, b: null };
 function minorBorder(m, nid) {
-  m.bc = m.bc || {}; if (m.bc.t === S.day && m.bc[nid] != null) return m.bc[nid];
-  if (m.bc.t !== S.day) m.bc = { t: S.day };
-  let b = false; const [tx, ty] = XY(m.town), R = Math.ceil(MINOR.MAXR * G);
-  for (let y = Math.max(0, ty - R); y <= Math.min(H - 1, ty + R) && !b; y += 1) for (let x = Math.max(0, tx - R); x <= Math.min(W - 1, tx + R); x += 1) { const i = y * W + x; if (S.mnr[i] === m.id && nb4(i).some(k => S.owner[k] === nid)) { b = true; break; } }
-  return m.bc[nid] = b;
+  // מעבר אחד על כל המפה פעם ביום (במקום סריקה סביב כל כפר לכל אומה)
+  if (MBC.d !== S.day || MBC.s !== S || !MBC.b) {
+    const n = S.nations.length, B = new Uint8Array((S.minors.length) * n), O = S.owner, M = S.mnr, N = O.length;
+    for (let i = 0; i < N; i++) { const k = M[i]; if (k < 0) continue; const x = i % W; let o;
+      if (x > 0 && (o = O[i - 1]) >= 0) B[k * n + o] = 1; if (x < W - 1 && (o = O[i + 1]) >= 0) B[k * n + o] = 1;
+      if (i >= W && (o = O[i - W]) >= 0) B[k * n + o] = 1; if (i < N - W && (o = O[i + W]) >= 0) B[k * n + o] = 1; }
+    MBC.b = B; MBC.d = S.day; MBC.s = S;
+  }
+  return !!MBC.b[m.id * S.nations.length + nid];
 }
 
+// חלק האומה מהיבשה (מחושב פעם ביום)
+function minorShare(nid) { if (S._shD !== S.day || !S._sh) { const c = counts(); S._sh = c.map(v => v / Math.max(1, S.landTotal)); S._shD = S.day; } return S._sh[nid] || 0; }
+// כמה השפעה צריך: כפר גדול (יותר שטח) דורש יותר — 70 לכפר קטן, עד 180 לעיר גדולה
+const minorNeed = m => Math.round(clamp(60 + m.tiles / 12, 70, 180));
+// משלחות: תקרה לפי מספר הערים, וכל משלחת נוספת יקרה יותר
+const misCount = nid => S.minors.filter(m => m.alive && m.mis[nid]).length;
+const misMax = nid => 2 + Math.floor(bCount(nid, 'city') / 2);
+const misCost = nid => MINOR.MISSION_GOLD * (1 + 0.5 * Math.max(0, misCount(nid) - 1));
 /* ---------- יומי: השפעה, חיל מצב, מחשב ---------- */
 function minorsDaily() {
   if (!S.minors) return;
@@ -115,16 +140,17 @@ function minorsDaily() {
     for (const n of S.nations) {
       const k = n.id; if (!n.alive) { m.mis[k] = false; continue; }
       if (m.mis[k]) {
-        if (minorHostile(m, k) || n.res.gold < MINOR.MISSION_GOLD) { m.mis[k] = false; if (k === 0) toast(`🤝 השליחים חזרו מ${m.name} — ${minorHostile(m, k) ? 'אתה במלחמה איתו' : 'אין מספיק זהב'}`, 'bad'); continue; }
-        n.res.gold -= MINOR.MISSION_GOLD;
+        const mc = misCost(k);
+        if (minorHostile(m, k) || n.res.gold < mc) { m.mis[k] = false; if (k === 0) toast(`🤝 השליחים חזרו מ${m.name} — ${minorHostile(m, k) ? 'אתה במלחמה איתו' : 'אין מספיק זהב'}`, 'bad'); continue; }
+        n.res.gold -= mc;
         let g = minorGain(m, k).g; const top = Math.max(0, ...Object.entries(m.infl).filter(([o]) => +o !== k).map(([, v]) => v));
         if (top > (m.infl[k] || 0)) g *= 0.8;   // מתחרה מוביל — קשה יותר
-        m.infl[k] = Math.min(MINOR.JOIN, (m.infl[k] || 0) + g);
+        m.infl[k] = Math.min(minorNeed(m), (m.infl[k] || 0) + g);
       } else if (m.infl[k] > 0) m.infl[k] = Math.max(0, m.infl[k] - MINOR.DECAY);
     }
     // הצטרפות: 100 השפעה ויתרון ברור
     const ranked = Object.entries(m.infl).map(([o, v]) => [+o, v]).filter(([o]) => S.nations[o]?.alive).sort((a, b) => b[1] - a[1]);
-    if (ranked.length && ranked[0][1] >= MINOR.JOIN && ranked[0][1] - (ranked[1]?.[1] || 0) >= MINOR.LEAD) { m.joinedTo = ranked[0][0]; minorGive(m, ranked[0][0], 'join'); }
+    if (ranked.length && ranked[0][1] >= minorNeed(m) && ranked[0][1] - (ranked[1]?.[1] || 0) >= MINOR.LEAD) { m.joinedTo = ranked[0][0]; minorGive(m, ranked[0][0], 'join'); }
   }
   for (const n of S.nations) if (n.alive && n.isAI) aiMinors(n);
 }
@@ -134,7 +160,7 @@ function aiMinors(n) {
   const nid = n.id, ax = n.axes || { aggr: 0.5, greed: 0.5, trust: 0.5 }, near = S.minors.filter(m => m.alive && minorBorder(m, nid));
   if (!near.length) return;
   const wars = S.nations.some(m => m.alive && atWar(nid, m.id)), active = near.filter(m => m.mis[nid]).length;
-  const maxMis = 1 + (ax.greed > 0.6 ? 1 : 0) + (n.amb?.k === 'trade' ? 1 : 0);
+  const maxMis = Math.min(misMax(nid), 1 + (ax.greed > 0.6 ? 1 : 0) + (n.amb?.k === 'trade' ? 1 : 0));
   if (active < maxMis && n.res.gold > 90 + active * 60) {
     const c = near.filter(m => !m.mis[nid] && !minorHostile(m, nid)).sort((a, b) => ((b.infl[nid] || 0) + b.tiles / 40) - ((a.infl[nid] || 0) + a.tiles / 40))[0];
     if (c) c.mis[nid] = true;
@@ -201,7 +227,7 @@ function drawMinorTile(c, i, P, X, Y, x, y) {
   c.globalAlpha = 1;
 }
 // סמל הכפר על הקרקע (בתים קטנים) — 2D ובמרקם התלת-ממד
-function drawMinors(c, vis) {
+function drawMinors(c, vis, ground) {   // ground: תמונת הקרקע בתלת-ממד — רק משטח עפר, הבתים הם מודלים
   if (!S.minors) return; const T = CFG.T;
   for (const m of S.minors) {
     if (!m.alive) continue;
@@ -210,7 +236,7 @@ function drawMinors(c, vis) {
     const n = m.kind === 'town' ? 7 : 4, s = m.kind === 'town' ? 3.4 : 3;
     c.save();
     c.fillStyle = 'rgba(20,16,12,.35)'; c.beginPath(); c.ellipse(X, Y + 2, 9 + n, 6 + n * 0.5, 0, 0, 7); c.fill();
-    for (let k = 0; k < n; k++) {
+    if (!ground) for (let k = 0; k < n; k++) {
       const a = k * 2.4, r = k ? 3 + (k % 3) * 2.2 : 0, hx = X + Math.cos(a) * r * 1.3, hy = Y + Math.sin(a) * r * 0.8;
       c.fillStyle = '#d8cdb4'; c.fillRect(hx - s / 2, hy - s / 2, s, s * 0.8);
       c.fillStyle = k % 2 ? '#a0503a' : '#8a4a36'; c.beginPath(); c.moveTo(hx - s * 0.65, hy - s / 2); c.lineTo(hx, hy - s * 1.15); c.lineTo(hx + s * 0.65, hy - s / 2); c.fill();
@@ -225,7 +251,7 @@ function minorLabels(project) {
     if (!m.alive) continue;
     const [x, y] = XY(m.town), wx = x * T + T / 2, wy = y * T + T / 2;
     if (project && !project(wx, wy)) continue;
-    const my = Math.round(m.infl[0] || 0), host = minorHostile(m, 0);
+    const my = Math.round((m.infl[0] || 0) / minorNeed(m) * 100), host = minorHostile(m, 0);
     const sub = host ? `⚔ יריב · 🛡${Math.round(m.gar)}` : `🛡${Math.round(m.gar)}${my ? ` · 🤝${my}%` : ''}${m.mis[0] ? ' · שליחים' : ''}`;
     drawLabel(wx, wy + 5, `${m.kind === 'town' ? '🏘' : '🏠'} ${m.name}`, sub, host ? '#ff6a4a' : minorCol(m));
   }

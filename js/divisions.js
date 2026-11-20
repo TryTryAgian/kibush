@@ -179,7 +179,8 @@ function findHill(f, cx, cy) {
     const j = y * W + x; if (S.terrain[j] !== HILLS || !validTarget(f.n, j) || f.zone.includes(j)) continue;
     if (!nb4(j).some(k => S.owner[k] === f.n)) continue;
     let hn = 0; for (const k of nb4(j)) if (S.terrain[k] === HILLS || S.terrain[k] === MOUNT) hn++;
-    const sc = 3 + hn - Math.hypot(x - cx, y - cy) / G; if (sc > bs) { bs = sc; best = j; }
+    const fi = featNear()[j], fh = fi >= 0 && FEAT.list[fi].t === 'hill' ? 3 + (FEAT.list[fi].tile === j ? 2 : 0) : 0;   // גבעה שולטת מסומנת — עדיפה
+    const sc = 3 + hn + fh - Math.hypot(x - cx, y - cy) / G; if (sc > bs) { bs = sc; best = j; }
   }
   return best;
 }

@@ -45,7 +45,9 @@ function threatDaily() {
     if (n.threat > 20) for (const m of S.nations) if (m.id !== n.id && m.alive) { const q = rel(n.id, m.id); q.op = Math.max(-100, q.op - (n.threat - 20) / 80 * 0.4); }
   }
   if (S.day % 4) return;
-  for (const x of S.nations) {
+  // קואליציה: רק נגד המעצמה המאיימת ביותר, ומצטרפת לכל היותר אומה אחת בכל סבב — לא "כולם נגד כולם"
+  const lead = S.nations.filter(n => n.alive).sort((p, q) => thr(q.id) - thr(p.id))[0];
+  for (const x of lead ? [lead] : []) {
     if (!x.alive || thr(x.id) < CFG.THREAT_COAL || finalWar()) continue;
     const k = (thr(x.id) - CFG.THREAT_COAL) / (100 - CFG.THREAT_COAL);
     for (const c of S.nations) {
@@ -57,6 +59,7 @@ function threatDaily() {
       if (Math.random() < p) {
         declareWar(c.id, x.id, { joining: true, coalition: true });
         toast(x.id === 0 ? `🤝⚔ ${c.name} מצטרפת לקואליציה נגדך (מד איום ${Math.round(thr(0))})` : `🤝 ${c.name} מצטרפת לקואליציה נגד ${x.name}`, x.id === 0 ? 'bad' : '');
+        break;
       }
     }
   }
@@ -90,6 +93,8 @@ function declareWar(a, b, opt = {}) {
   S.offers = S.offers.filter(o => !((o.from === a && o.to === b) || (o.from === b && o.to === a)));
   if (betrayal) for (const m of S.nations) if (m.id !== a) { const q = rel(a, m.id); q.op = Math.max(-100, q.op - 20); }
   if (!opt.joining) {
+    // "חטוף ובקש שלום": חזרה למלחמה באותו יעד זמן קצר אחרי שלום — כולם רואים בזה תוקפנות
+    if (r.lastPeace != null && S.time - r.lastPeace < 150) { addThreat(a, 20); addRep(a, -20, `חזרה למלחמה ב${nm(b)} זמן קצר אחרי שלום`); }
     addThreat(a, CFG.THREAT_WAR + (betrayal ? 8 : 0));
     if (betrayal) addRep(a, -30, `הפרת הסכם עם ${nm(b)}`);
     else if (wasFriendly) addRep(a, -8, `מתקפת פתע על ${nm(b)}`);
@@ -118,7 +123,7 @@ function declareWar(a, b, opt = {}) {
   render();
 }
 function makePeace(a, b, gold = 0) {
-  const r = rel(a, b); Object.assign(r, { state: 'peace', since: S.time, op: r.op + 20, cool: S.time + 10, truce: S.time + CFG.TRUCE_DAYS });
+  const r = rel(a, b); Object.assign(r, { state: 'peace', since: S.time, op: r.op + 20, cool: S.time + 10, truce: S.time + CFG.TRUCE_DAYS, lastPeace: S.time });
   for (const f of S.fronts) if ((f.n === a || f.n === b) && f.target != null && S.owner[f.target] === (f.n === a ? b : a)) { f.target = null; f.zone = []; f.prog = {}; }
   if (a === 0 || b === 0) toast(`🕊 נחתם שלום עם ${nm(a === 0 ? b : a)}${gold ? ` (${gold}💰)` : ''} — שביתת נשק ל-${CFG.TRUCE_DAYS} יום`, 'good');
 }
@@ -212,12 +217,10 @@ function allNeighbors() {
     if (i < N - W && (b = O[i + W]) >= 0 && b !== a) { sets[a].add(b); sets[b].add(a); } }
   return sets;
 }
+// שכנים: מתוך אורכי הגבול (מחושבים פעם ביום) — בלי סריקת מפה בכל קריאה
 function neighborsOf(nid) {
-  const s = new Set();
-  const O = S.owner, N = O.length;
-  for (let i = 0; i < N; i++) { if (O[i] !== nid) continue; const x = i % W; let o;
-    if (x > 0 && (o = O[i - 1]) >= 0 && o !== nid) s.add(o); if (x < W - 1 && (o = O[i + 1]) >= 0 && o !== nid) s.add(o);
-    if (i >= W && (o = O[i - W]) >= 0 && o !== nid) s.add(o); if (i < N - W && (o = O[i + W]) >= 0 && o !== nid) s.add(o); }
+  const B = borderLens(), n = S.nations.length, s = new Set();
+  for (let o = 0; o < n; o++) if (o !== nid && B[nid * n + o] > 0) s.add(o);
   return s;
 }
 
@@ -239,14 +242,19 @@ function borderLens() {
   return _tr.border = B;
 }
 // מרחק יבשתי (במשבצות) מהשטח של a לשטח של b, בלי לעבור בשטח של מי שנלחם באחד מהם
+// BFS אחד מכל אומה (לכל היעדים יחד) במקום BFS לכל זוג; לא עוברים דרך מי שנלחם בה
 function landTradeDist(a, b) {
-  borderLens(); const k = Math.min(a, b) + ':' + Math.max(a, b); if (_tr.land.has(k)) return _tr.land.get(k);
-  const O = S.owner, N = O.length, D = new Int32Array(N).fill(-1), q = new Int32Array(N), CAP = 70 * G; let h = 0, t = 0, res = Infinity;
-  const ok = i => { if (isWater(i)) return false; const o = O[i]; return o < 0 || o === a || o === b || (!atWar(o, a) && !atWar(o, b)); };
-  for (let i = 0; i < N; i++) if (O[i] === a) { D[i] = 0; q[t++] = i; }
-  while (h < t) { const u = q[h++], d = D[u]; if (O[u] === b) { res = d; break; } if (d >= CAP) continue; const x = u % W;
-    for (const v of [x > 0 ? u - 1 : -1, x < W - 1 ? u + 1 : -1, u - W, u + W]) if (v >= 0 && v < N && D[v] < 0 && ok(v)) { D[v] = d + 1; q[t++] = v; } }
-  _tr.land.set(k, res); return res;
+  borderLens(); let m = _tr.land.get(a);
+  if (!m) {
+    m = new Map(); _tr.land.set(a, m);
+    const O = S.owner, N = O.length, D = new Int32Array(N).fill(-1), q = new Int32Array(N), CAP = 70 * G; let h = 0, t = 0;
+    const ok = i => { if (isWater(i)) return false; const o = O[i]; return o < 0 || o === a || !atWar(o, a); };
+    for (let i = 0; i < N; i++) if (O[i] === a) { D[i] = 0; q[t++] = i; }
+    while (h < t) { const u = q[h++], d = D[u], o = O[u]; if (o >= 0 && o !== a && !m.has(o)) m.set(o, d); if (d >= CAP) continue; const x = u % W;
+      if (x > 0 && D[u - 1] < 0 && ok(u - 1)) { D[u - 1] = d + 1; q[t++] = u - 1; } if (x < W - 1 && D[u + 1] < 0 && ok(u + 1)) { D[u + 1] = d + 1; q[t++] = u + 1; }
+      if (u >= W && D[u - W] < 0 && ok(u - W)) { D[u - W] = d + 1; q[t++] = u - W; } if (u < N - W && D[u + W] < 0 && ok(u + W)) { D[u + W] = d + 1; q[t++] = u + W; } }
+  }
+  const d1 = m.get(b) ?? Infinity; return atWar(b, a) ? Infinity : d1;
 }
 // הנתיב הטוב ביותר בין שתי אומות (מנקודת המבט של a): { kind: 'border'|'land'|'sea', gold, mat } או null
 function tradeRoute(a, b) {

@@ -106,7 +106,9 @@ function opinionParts(a, b) {
   if (atWar(a, b)) add('מלחמה', -30);
   return out;
 }
-const opinion = (a, b) => clamp(opinionParts(a, b).reduce((s, p) => s + p[1], 0), -100, 100);
+// מטמון קצר (רבע יום): הדעה נקראת עשרות פעמים בכל החלטה של המחשב
+const _opC = { k: null, m: new Map() };
+const opinion = (a, b) => { const k = S && (S.time * 4 | 0) + ':' + S.seed; if (_opC.k !== k) { _opC.k = k; _opC.m.clear(); } const key = a * 64 + b; let v = _opC.m.get(key); if (v == null) { v = clamp(opinionParts(a, b).reduce((s, p) => s + p[1], 0), -100, 100); _opC.m.set(key, v); } return v; };
 const APPROACH = { friend: ['ידידותית', '#5ad07a'], warm: ['חיובית', '#9ad07a'], neutral: ['ניטרלית', '#b8c0cc'], guarded: ['חשדנית', '#e8b820'], afraid: ['חוששת', '#c890ff'], hostile: ['עוינת', '#ff6060'] };
 function approach(a, b) {
   const o = opinion(a, b);

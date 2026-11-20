@@ -56,8 +56,9 @@ function aiThink(n) {
   // שייטות: נמל מאמן ספינות רק לאומה ימית או במלחמה (ועד 3 שייטות)
   let navyOn = 0; eachBuilding(b => { if (b.n === nid && b.type === 'port') { const on = (n.pers === 'naval' || wars.length) && navyOn < 3; b.hold = !on; if (on) navyOn++; } });
   // גנרלים: לפחות מגן אחד, השאר במבצע
-  const gens = landGenerals(nid), wantG = Math.min(maxGenerals(nid), 6, 1 + Math.floor(S.time / 50));
-  if (gens.length < wantG && divsOf(nid).filter(d => d.type !== 'navy').length > gens.length) createFront(nid, 'defend');
+  const gens = landGenerals(nid), landN = divsOf(nid).filter(d => d.type !== 'navy' && d.type !== 'air').length, wantG = Math.min(maxGenerals(nid), Math.max(Math.min(6, 1 + Math.floor(S.time / 50)), Math.ceil(landN / GEN_DIVS)));
+  const freeD = divsOf(nid).filter(d => d.loc === 'camp' && d.front == null && d.type !== 'navy' && d.type !== 'air' && divStrength(d) >= 0.5).length;   // גנרל חדש רק כשיש אוגדות פנויות לתת לו
+  if (gens.length < wantG && freeD >= 1) createFront(nid, 'defend');
   const ports = ownPorts(nid);
   let ops = S.ops.filter(o => o.n === nid);
   for (const op of ops) if ((op.target >= 0 && (!S.nations[op.target].alive || !atWar(nid, op.target))) || op.status === 'הושלם') cancelOp(op);
@@ -76,7 +77,7 @@ function aiThink(n) {
     }
   }
   // התפשטות: שטח הפקר (לא הרים) או כפרים שהכרזנו עליהם כיריבים (minors.js)
-  if (desired == null && S.owner.some((o, j) => o === -1 && !isWater(j) && S.terrain[j] !== SNOW && (S.mnr?.[j] >= 0 ? minorHostile(S.minors[S.mnr[j]], nid) : S.terrain[j] !== MOUNT))) desired = -1;
+  if (desired == null && (n.noExpandUntil || 0) <= S.time && S.owner.some((o, j) => o === -1 && !isWater(j) && S.terrain[j] !== SNOW && (S.mnr?.[j] >= 0 ? minorHostile(S.minors[S.mnr[j]], nid) : S.terrain[j] !== MOUNT))) desired = -1;
   if (desired != null && !ops.some(o => o.target === desired)) { ops.forEach(cancelOp); createOp(nid, desired); }
   const op = S.ops.find(o => o.n === nid);
   const all = landGenerals(nid);
