@@ -37,7 +37,7 @@ function step(dt) {
   if (S.scenAtk) scenTick();
 }
 function daily() {
-  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily(); sectorsDaily(); worksDaily();
+  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily(); sectorsDaily(); worksDaily(); cpDaily(); tutorialTick();
   const c = counts();
   for (const n of S.nations) {
     if (!n.alive) continue;
@@ -48,9 +48,9 @@ function daily() {
     shortages(n);
     if (n.isAI && !S.scenario) { weakCheck(n); aiFortify(n); } allocateDivisions(n.id); garrisonDaily(n);
     if (n.tech.cur) {
-      const T = TECH[n.tech.cur], use = Math.min(T.cost - n.tech.prog, n.res.know);
+      const T = TECH[n.tech.cur], cost = techCost(n, n.tech.cur), use = Math.min(cost - n.tech.prog, n.res.know);
       n.res.know -= use; n.tech.prog += use;
-      if (n.tech.prog >= T.cost) {
+      if (n.tech.prog >= cost) {
         n.tech.done[n.tech.cur] = true;
         if (n.id === 0) { toast(`🔬 המחקר "${T.name}" הושלם`, 'good'); render(); }
         n.tech.cur = null; n.tech.prog = 0;
@@ -68,7 +68,7 @@ function daily() {
     r.op = clamp(r.op * 0.993, -100, 100);
   }
   threatDaily();
-  pocketEffects(); occupationEffects(); snowFlip();
+  pocketEffects(); occupationEffects(); rebelsDaily(); snowFlip();
   for (const n of S.nations) if (n.alive) checkCapitulation(n);
   const c2 = counts();
   S.nations.forEach(n => {
@@ -83,8 +83,9 @@ function daily() {
 }
 function checkEnd(c) {
   if (S.over) return; const L = S.landTotal;
-  if (c[0] / L >= winR()) S.over = 'win';
-  else if (!player().alive || S.nations.some(n => n.isAI && c[n.id] / L >= winR())) S.over = 'lose';
+  if (S.scenario) return;
+  if (victoryShare(0, c).ok) S.over = 'win';
+  else if (!player().alive || S.nations.some(n => n.isAI && n.alive && victoryShare(n.id, c).ok)) S.over = 'lose';
   if (S.over) { save(); showEnd(); }
 }
 

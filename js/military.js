@@ -2,20 +2,22 @@
 // צבא: אוגדות, גנרלים, קרב, מבצעים, אספקה
 /* ---------- 8. MILITARY ---------- */
 // גנרל (front) הוא צבא בשטח. role: 'attack' (במבצע), 'defend' (הגנה), 'navy' (צי), 'idle'
-function maxGenerals(nid) { const n = S.nations[nid]; return Math.min(8, 2 + Math.floor(bCount(nid, 'city') / 3) + (mod(n, 'generals') - 1)); }
-const landGenerals = nid => S.fronts.filter(f => f.n === nid && f.kind === 'land' && !f.airborne && !f.solo);
-function createFront(nid, role = 'defend', r = Math.random) {
+// בסיס לפי ערים (עד 8) + בונוס מחקר מעל התקרה (מטה כללי: +2)
+function maxGenerals(nid) { const n = S.nations[nid]; return Math.min(8, 2 + Math.floor(bCount(nid, 'city') / 3)) + Math.round(mod(n, 'generals') - 1); }
+const landGenerals = nid => S.fronts.filter(f => f.n === nid && f.kind === 'land' && !f.airborne && !f.solo && !f.rebel);
+function createFront(nid, role = 'defend', r = Math.random, force = false) {
   const navy = role === 'navy';
-  if (!navy && landGenerals(nid).length >= maxGenerals(nid)) return null;
+  if (!navy && !force && landGenerals(nid).length >= maxGenerals(nid)) return null;
   const used = new Set(S.fronts.filter(f => f.n === nid).map(f => f.gen.name.replace(/^(גנרל|אדמירל) /, '')));   // ייחודי בתוך האומה
   const name = pick(GEN_NAMES.filter(x => !used.has(x)).concat(['אנונימי']), r);
   let home = Object.keys(S.buildings).map(Number).find(k => S.buildings[k].n === nid && (navy ? isOwnPort(nid, k) : S.buildings[k].capital));
   if (home == null) home = Object.keys(S.buildings).map(Number).find(k => S.buildings[k].n === nid && (!navy || isOwnPort(nid, k)));
   if (home == null) { if (navy) return null; home = S.owner.indexOf(nid); }
   const f = { id: S.nextId++, n: nid, kind: navy ? 'navy' : 'land', role, op: null, gen: { name: (navy ? 'אדמירל ' : 'גנרל ') + name, trait: pick(Object.keys(TRAITS), r) },
-    pos: XY(home), target: null, defend: null, navTarget: null, auto: true,
+    pos: XY(home), target: null, defend: null, navTarget: null, auto: true, cp: CP.MAX,
     want: zeroUnits(), units: zeroUnits(), loss: zeroUnits(), zone: [], prog: {}, zoneT: 0, dispT: 0, path: null, pathT: 0, pathDest: null,
     status: 'מתארגן', supply: 'ok', engaged: false, org: 1 };
+  if (!navy) f.gen.doc = pickDoctrine(nid, r);   // דוקטרינה (command.js)
   S.fronts.push(f); return f;
 }
 const unitSpeed = (nid, t, f) => UNITS[t].spd * mod(S.nations[nid], 'reinforce') * (f ? TRAITS[f.gen.trait].reinforce || 1 : 1);
@@ -132,7 +134,7 @@ const _sn = {};
 function supplyNet(nid) {
   const c = _sn[nid]; if (c && c.s === S && c.t > S.time - 1 && c.t <= S.time) return c;
   const N = logiGraph(nid).nodes, d = new Map(), heap = new Heap();
-  for (const j of N.keys()) { const b = S.buildings[j]; if (b.capital || b.type === 'city' || b.type === 'factory' || b.type === 'port') { d.set(j, 0); heap.push(0, j); } }
+  for (const j of N.keys()) { const b = S.buildings[j]; if (!b) continue; if (b.capital || b.type === 'city' || b.type === 'factory' || b.type === 'port') { d.set(j, 0); heap.push(0, j); } }
   while (heap.size) { const [cc, u] = heap.pop(); if (cc > d.get(u)) continue; for (const [v, w] of N.get(u)) { const nc = cc + w; if (nc < (d.get(v) ?? Infinity)) { d.set(v, nc); heap.push(nc, v); } } }
   return _sn[nid] = { d, t: S.time, s: S };
 }
@@ -291,6 +293,8 @@ function trainSpeed(n, t) {
   if (UNITS[t].heavy) { const f = bCount(n.id, 'factory'); if (!f) return 0; s *= 1 + 0.2 * Math.min(4, f - 1); }
   return s;
 }
+const UNIF = { t: -1, s: null, m: new Map() };
+const inUniformC = nid => { if (UNIF.t !== S.day || UNIF.s !== S) { UNIF.t = S.day; UNIF.s = S; UNIF.m.clear(); } let v = UNIF.m.get(nid); if (v == null) { v = inUniform(nid); UNIF.m.set(nid, v); } return v; };
 function trainDivisions(dt) {
   eachBuilding((b, i) => {
     if (b.div == null || !done(b)) return;
@@ -299,8 +303,9 @@ function trainDivisions(dt) {
     if (!b.train) {
       const miss = divMissing(d, b), comp = DIV_TYPES[d.type].comp;
       const t = Object.keys(miss).sort((a, c) => miss[c] / comp[c] - miss[a] / comp[a]).find(u => trainSpeed(n, u) > 0);
-      if (!t || !canAfford(n, UNITS[t].cost)) return;
-      pay(n, UNITS[t].cost); b.train = { t, p: 0 };
+      if (!t || !canAfford(n, unitCost(n, t))) return;
+      if (inUniformC(n.id) + UNITS[t].cost.man > mobCap(n.id)) { n.mobFull = S.time; return; }   // תקרת הגיוס (economy.js)
+      pay(n, unitCost(n, t)); b.train = { t, p: 0 }; UNIF.m.set(n.id, inUniformC(n.id) + UNITS[t].cost.man);
     }
     const t = b.train.t, sp = trainSpeed(n, t); if (!sp) return;
     b.train.p += dt * sp / UNITS[t].time;
@@ -456,7 +461,7 @@ function allocateDivisions(nid) {
     if (have >= it.nd.power * 0.9) continue;
     // מחנות קרובים לאזור המבצע קודם (לפי סוג מועדף); מחנות רחוקים — רק אם הקרובים לא מספיקים
     const pref = typePref(it.nd, enemyAir), anc = frontAnchor(f), near = d => dist(d.home, anc) <= CFG.NEAR_CAMP;
-    const free = freeDivs().filter(d => pref.includes(d.type)).sort((a, b) => (near(b) - near(a)) || pref.indexOf(a.type) - pref.indexOf(b.type) || dist(a.home, anc) - dist(b.home, anc));
+    const free = freeDivs().filter(d => pref.includes(d.type) || docMatch(f, d)).sort((a, b) => (near(b) - near(a)) || (docMatch(f, b) - docMatch(f, a)) || pref.indexOf(a.type) - pref.indexOf(b.type) || dist(a.home, anc) - dist(b.home, anc));
     for (const d of free) { if (have >= it.nd.power) break; if (sendDivision(d, f)) have += divPow(d, it.nd.kind); }
     if (have < it.nd.power * 0.7 && it.nd.prio >= 3) {
       for (const donor of items.slice().reverse()) {
@@ -464,7 +469,7 @@ function allocateDivisions(nid) {
         if (donor.f === f || donor.nd.prio > 1.5 || donor.f.engaged || !donor.f.auto) continue;
         const surplus = power(donor.f, donor.nd.kind) - donor.nd.power * 1.1;
         const d = frontDivs(donor.f).filter(x => x.loc === 'front' && pref.includes(x.type) && divPow(x, donor.nd.kind) <= surplus).sort((a, b) => pref.indexOf(a.type) - pref.indexOf(b.type))[0];
-        if (d && sendDivision(d, f, tileOf(...donor.f.pos))) { have += divPow(d, it.nd.kind); if (nid === 0) toast(`↪ ${divName(d)} עוברת מ${donor.f.gen.name} ל${f.gen.name}`); }
+        if (d && sendDivision(d, f, tileOf(...donor.f.pos))) { have += divPow(d, it.nd.kind); if (nid === 0) toast(`↪ ${divName(d)} עוברת מ${donor.f.gen.name} ל${f.gen.name}`, '', 3); }
       }
     }
   }
@@ -506,7 +511,7 @@ function rebalance(nid) {
       const d = frontDivs(don).filter(x => x.loc === 'front' && x.type !== 'air' && divPow(x, 'atk') + divPow(x, 'def') <= spare).sort((a, b) => (pref.indexOf(a.type) + 9) % 9 - (pref.indexOf(b.type) + 9) % 9)[0];
       if (!d) continue;
       const dp = divPow(d, 'atk') + divPow(d, 'def');
-      if (sendDivision(d, recv, tileOf(...don.pos))) { P.set(don, P.get(don) - dp); P.set(recv, P.get(recv) + dp); moved = true; if (nid === 0) toast(`↪ ${divName(d)} עוברת מ${don.gen.name} ל${recv.gen.name} (איזון כוחות)`); break; }
+      if (sendDivision(d, recv, tileOf(...don.pos))) { P.set(don, P.get(don) - dp); P.set(recv, P.get(recv) + dp); moved = true; if (nid === 0) toast(`↪ ${divName(d)} עוברת מ${don.gen.name} ל${recv.gen.name} (איזון כוחות)`, '', 3); break; }
     }
     if (!moved) return;
   }
@@ -589,17 +594,50 @@ function frontPower(f, kind) {
   for (const t of UKEYS) if (f.units[t]) p += f.units[t] * UNITS[t][kind] * mod(n, t + '_' + kind);
   return p * (kind === 'atk' ? tr.atk || 1 : tr.def || 1) * (0.3 + 0.7 * (f.org ?? 1));
 }
+// קרב (סבב 8): התקפה רכה/קשה מול שריון וחדירה, רוחב קרב לפי השטח, בונוס תכנון ודוקטרינה (command.js)
+//  hard: כמה "קשה" המטרה (0 חי״ר .. 0.9 שריון כבד) · arm: שריון · pen: חדירה · soft/hardK: מכפיל ההתקפה מול רך/קשה
+//  שריון שהחדירה של התוקף לא עוברת — חצי נזק. לחי״ר יכולת נ״ט בסיסית, לקומנדו נ״ט מוגבר.
+const CBT = {
+  inf:   { hard: 0,   arm: 0, pen: 3, soft: 1,    hardK: 0.4 },
+  cmdo:  { hard: 0,   arm: 0, pen: 7, soft: 1,    hardK: 0.85 },
+  ltank: { hard: 0.7, arm: 4, pen: 5, soft: 0.9,  hardK: 1 },
+  htank: { hard: 0.9, arm: 8, pen: 9, soft: 0.85, hardK: 1.2 },
+  art:   { hard: 0.2, arm: 0, pen: 5, soft: 1.2,  hardK: 0.45 },
+  aa:    { hard: 0.3, arm: 1, pen: 7, soft: 0.5,  hardK: 1.5 },
+  plane: { hard: 0,   arm: 0, pen: 7, soft: 1,    hardK: 0.9 },
+  ship:  { hard: 0.5, arm: 5, pen: 7, soft: 1,    hardK: 1 },
+};
+const RANGED = { art: 1, aa: 1, plane: 1 };   // יורים מאחור — לא צורכים רוחב קרב
+const WIDTH_UNITS = 10;                         // ~יחידות לאוגדה
+// רוחב קרב (באוגדות) לפי השטח במקום המגע: מישור 4, יער/גבעות 3, מעבר/מיצר 1.5, גשר 1
+function combatWidth(f) {
+  if (!f?.pos) return 4; const j = tileOf(f.pos[0], f.pos[1]), fi = featNear()[j], ft = fi >= 0 ? FEAT.list[fi] : null;
+  if (ft && (ft.t === 'pass' || ft.t === 'strait' || ft.t === 'bridge')) return ft.t === 'bridge' ? 1 : 1.5;
+  const t = S.terrain[j]; return t === FOREST || t === HILLS || t === MOUNT ? 3 : 4;
+}
 function dealDamage(att, def, dt, pow) {
   const total = unitCount(def.units); if (!total) return;
   const cA = att.garrison ? null : cmdCombat(att), cD = def.garrison ? null : cmdCombat(def);   // מפקדי האוגדות (divisions.js)
-  const dmg = (pow ?? frontPower(att, 'atk')) * (cA?.atk ?? 1) * CFG.COMBAT_K * dt, aa = pow != null ? 0 : att.units.aa * (UNITS.aa.antiAir || 0) * mod(S.nations[att.n], 'anti_air') * CFG.COMBAT_K * dt;
+  const ter = def.pos ? S.terrain[tileOf(def.pos[0], def.pos[1])] : GRASS;
+  // וקטור ההתקפה לפי סוג יחידה
+  const v = {}; let direct = 0, mul = 1;
+  if (pow != null) v[att.garrison ? 'inf' : 'art'] = pow;
+  else { const n = S.nations[att.n], tr = TRAITS[att.gen.trait] || {}; mul = (tr.atk || 1) * (0.3 + 0.7 * (att.org ?? 1));
+    for (const t of UKEYS) { const c = att.units[t]; if (!c || UNITS[t].naval && att.kind === 'land') continue; v[t] = c * UNITS[t].atk * mod(n, t + '_atk') * docUnitAtk(att, t); if (!RANGED[t]) direct += c; } }
+  const wf = pow != null || def.garrison ? 1 : Math.min(1, combatWidth(def) * WIDTH_UNITS / Math.max(1, direct));   // רוחב קרב
+  const mulA = mul * (cA?.atk ?? 1) * (1 + planBonus(att)) * docAtk(att, ter) * CFG.COMBAT_K * dt;
+  const aa = pow != null ? 0 : (att.units.aa || 0) * (UNITS.aa.antiAir || 0) * mod(S.nations[att.n], 'anti_air') * CFG.COMBAT_K * dt;
   if (att.pos) def.hitXY = [att.pos[0], att.pos[1]];   // מאיפה הגיעה האש — האבדות נופלות על האוגדה הקרובה
-  const defMul = (TRAITS[def.gen.trait].def || 1) * (cD?.def ?? 1) * (def.kind === 'land' ? fortBonus(def) : 1) * (def.supply === 'cut' ? 0.7 : 1);
+  let fb = def.kind === 'land' ? fortBonus(def) : 1; if (fb > 1) fb = 1 + (fb - 1) * docFortCut(att);
+  const defMul = (TRAITS[def.gen.trait]?.def || 1) * (cD?.def ?? 1) * fb * docDef(def) * (def.supply === 'cut' ? 0.7 : 1);
+  def.lastWidth = wf; if (pow == null) { att.wfA = wf; att.wfT = S.time; }
   for (const t of UKEYS) {
     const c = def.units[t]; if (!c) continue;
-    const U = UNITS[t]; let d = dmg * c / total; if (U.air) d += aa;
+    const U = UNITS[t], P = CBT[t]; let d = 0;
+    for (const a in v) { const A = CBT[a]; let e = (1 - P.hard) * A.soft + P.hard * A.hardK; if (P.arm > A.pen) e *= 0.5; d += v[a] * (RANGED[a] ? 1 : wf) * e; }
+    d = d * mulA * c / total; if (U.air) d += aa;
     def.loss[t] += d / (U.hp * (1 + U.def / 5) * defMul);
-    while (def.loss[t] >= 1 && def.units[t] > 0) { def.loss[t] -= 1; def.units[t]--; }
+    while (def.loss[t] >= 1 && def.units[t] > 0) { def.loss[t] -= 1; def.units[t]--; if (att.n != null && def.n != null && att.n !== def.n && att.n >= 0 && def.n >= 0) warTally(att.n, def.n, 'k', 1); }
     if (!def.units[t]) def.loss[t] = 0;
   }
 }
@@ -608,7 +646,7 @@ function captureTile(nid, j) {
   const take = k => {
     const prev = S.owner[k];
     if (prev >= 0 && prev !== nid) { const bk = S.buildings[k]; addThreat(nid, bk?.capital ? CFG.THREAT_CAP : bk && KEY_TYPES.includes(bk.type) ? CFG.THREAT_KEY : CFG.THREAT_TILE * 16 / (G * G)); }
-    if (prev >= 0) { S.lastOwner[k] = prev; const r = rel(nid, prev); r.g = r.g || {}; r.g[nid] = (r.g[nid] || 0) + 1; }
+    if (prev >= 0) { S.lastOwner[k] = prev; const r = rel(nid, prev); r.g = r.g || {}; r.g[nid] = (r.g[nid] || 0) + 1; const bk = S.buildings[k]; if (bk?.type === 'city' && bk.n === prev) warTally(nid, prev, bk.capital ? 'cap' : 'c', 1); }
     if (prev < 0 && S.core[k] < 0) S.core[k] = nid;     // שטח ניטרלי — הופך לליבה מיד
     if (prev < 0) minorOnCapture(nid, k);               // שטח של כפר (minors.js) — נפילת העיר שלו = כניעה
     S.capDay[k] = S.time;
@@ -741,7 +779,7 @@ function updateFront(f, dt) {
   // קומנדו מכבשים מהר; ארטילריה שוברת שטח מבוצר
   let capW = 0, capP = 0; for (const t of UKEYS) if (f.units[t] && !UNITS[t].air) { const w = f.units[t] * UNITS[t].atk; capP += w; capW += w * (UNITS[t].capture || 1); }
   const capMul = capP ? capW / capP : 1, artShare = (f.units.art * UNITS.art.atk) / (capP || 1);
-  let P = frontPower(f, 'atk') * CFG.PRESSURE_K * capMul * (TRAITS[f.gen.trait].capture || 1) * mod(S.nations[nid], 'capture') * (f.supply === 'cut' ? 0.5 : 0.7 + 0.3 * (f.supLvl ?? 1)) * obsMul(f) * dt;   // רחוק מהרשת = כיבוש איטי
+  let P = frontPower(f, 'atk') * CFG.PRESSURE_K * capMul * (TRAITS[f.gen.trait].capture || 1) * docCapture(f) * (S.time - (f.wfT ?? -9) < 1 ? 0.4 + 0.6 * f.wfA : 1) * mod(S.nations[nid], 'capture') * (f.supply === 'cut' ? 0.5 : 0.7 + 0.3 * (f.supLvl ?? 1)) * obsMul(f) * dt;   // רחוק מהרשת = כיבוש איטי
   if (enemyPow) { const my = frontPower(f, 'atk'); P *= my / (my + enemyPow); }
   if (f.zone.some(j => S.owner[j] >= 0)) f.org = Math.max(0, f.org - 0.01 * dt);   // תקיפת שטח מוגן שוחקת מעט
   const rough = f.zone.reduce((a, j) => a + (S.terrain[j] === MOUNT ? 1 : S.terrain[j] === HILLS ? 0.4 : 0), 0) / f.zone.length;
@@ -1221,7 +1259,7 @@ function updateOp(op, dt) {
     if (stuck && cand) {
       cand.opRole = 'ME'; ME.opRole = 'PIN';   // רק התפקידים מתחלפים — כל אחד נשאר בנתיב שלו (אין דילוג לצד השני של החזית)
       cand.retarget = ME.retarget = true; if (EXP) EXP.retarget = true;
-      if (nid === 0) toast(`🧭 ${cand.gen.name} מתקדם בקלות — הופך למאמץ העיקרי (משיכת סיור)`, 'good');
+      if (nid === 0) toast(`🧭 ${cand.gen.name} מתקדם בקלות — הופך למאמץ העיקרי (משיכת סיור)`, 'good', 3);
     }
   }
   // החלפת ציר (ליידל הארט: "אל תחדש מאמץ שנכשל באותו קו"): המאמץ העיקרי תקוע — מחפשים נתיב שבו האויב חלש יותר והשטח קל יותר
@@ -1241,10 +1279,10 @@ function updateOp(op, dt) {
         const there = act.find(g => g !== ME && g.opRole === 'PIN' && op.lanes[g.id] != null && Math.abs(op.lanes[g.id] - bL) < 5);
         if (there) {   // כבר יש שם גנרל — הוא הופך למאמץ העיקרי; אף אחד לא זז
           there.opRole = 'ME'; ME.opRole = 'PIN'; there.retarget = ME.retarget = true;
-          if (nid === 0) toast(`🔀 ההתקפה של ${ME.gen.name} נתקעה — ${there.gen.name} הופך למאמץ העיקרי בנתיב שלו, שם האויב חלש יותר`, 'good');
+          if (nid === 0) toast(`🔀 ההתקפה של ${ME.gen.name} נתקעה — ${there.gen.name} הופך למאמץ העיקרי בנתיב שלו, שם האויב חלש יותר`, 'good', 3);
         } else if (Math.abs(bL - curL) <= 4) {   // אין שם אף אחד — הזזה קטנה בלבד
           op.lanes[ME.id] = bL; ME.retarget = true;
-          if (nid === 0) toast(`🔀 ${ME.gen.name}: ההתקפה נתקעה — מזיז את המאמץ קצת ${bL > curL ? 'שמאלה' : 'ימינה'}, שם האויב חלש יותר`, 'good');
+          if (nid === 0) toast(`🔀 ${ME.gen.name}: ההתקפה נתקעה — מזיז את המאמץ קצת ${bL > curL ? 'שמאלה' : 'ימינה'}, שם האויב חלש יותר`, 'good', 3);
         }
       }
     }
@@ -1298,11 +1336,8 @@ function updateOp(op, dt) {
       tot += p; n++; if (here && !S.convoys.some(c => c.front === f.id && c.div != null)) { at += p; nAt++; }
       f.prepAt = here;
     }
-    if (n && (at >= tot * 0.7 || op.prepT > CFG.PREP_MAX_DAYS)) {
-      op.state = 'exec';
-      if (nid === 0) toast(`⚔ מבצע ${opName(op)}: יוצאים להתקפה — המטרה העיקרית: ${objName(op.main)}`, 'good');
-    }
-    op.status = `ריכוז כוחות · ${nAt}/${n} בנקודת הזינוק`;
+    if (n && shouldLaunch(op, at >= tot * 0.7)) launchOp(op);   // בונוס תכנון ושעת שין (command.js)
+    else op.status = `ריכוז כוחות · ${nAt}/${n} בנקודת הזינוק · יום ${Math.floor(op.prepT)}${prepBonus(op) ? ` · בונוס תכנון +${Math.round(prepBonus(op) * 100)}%` : op.prepT < PLAN.MIN ? ` · בונוס מיום ${PLAN.MIN}` : ''}`;
   }
   if (op.state === 'exec') {
     for (const f of act) {
@@ -1310,7 +1345,8 @@ function updateOp(op, dt) {
       if (f.planHold) { f.target = null; f.zone = []; f.defend = f.plan; }
       else if (f.target !== f.plan) { f.target = f.plan; f.defend = null; f.zoneT = 0; }
     }
-    op.status = `התקפה · מטרה עיקרית: ${objName(op.main)}`;
+    op.status = `התקפה · מטרה עיקרית: ${objName(op.main)}${planBonus(act[0]) ? ` · בונוס תכנון +${Math.round(planBonus(act[0]) * 100)}%` : ''}`;
+    opCoop(op);   // שיתוף פעולה: גנרל שהקדים את השכנים התקועים — ממתין (command.js)
   }
 }
 // ===================== התפשטות לשטח ניטרלי =====================
@@ -1319,7 +1355,7 @@ function expandCells(op) {
   const nid = op.n, C = CFG.EXPAND_CELL * G, cells = new Map(), o = S.owner, ter = S.terrain, ccw = Math.ceil(W / C), arr = [];
   for (let i = 0; i < o.length; i++) {
     if (o[i] !== -1) continue; const t = ter[i]; if (t === SNOW || TER[t].water) continue;
-    if (S.mnr && S.mnr[i] >= 0 && !minorHostile(S.minors[S.mnr[i]], nid)) continue;   // כפר שלא הכרזת עליו — לא שטח להתפשטות
+    if (S.mnr && S.mnr[i] >= 0 && !minorEnemy(S.minors[S.mnr[i]], nid)) continue;   // כפר שלא הכרזת עליו — לא שטח להתפשטות
     const x = i % W, y = (i / W) | 0, k = ((y / C) | 0) * ccw + ((x / C) | 0);
     let c = arr[k]; if (!c) { arr[k] = c = { key: ((x / C) | 0) + ',' + ((y / C) | 0), n: 0, front: [], tiles: [], cx: 0, cy: 0, pen: 0 }; cells.set(c.key, c); }
     c.n++; c.cx += x; c.cy += y; c.tiles.push(i); c.pen += Math.min(6, TER_PEN[t]);
@@ -1343,7 +1379,7 @@ function updateExpand(op, dt) {
   op.expT = (op.expT || 0) - dt;
   if (op.expT <= 0 || !op.cells) { op.expT = 2; expandCells(op); }
   op.objectives = [];
-  if (!op.cells.length) { op.status = 'הושלם'; S.nations[nid].noExpandUntil = S.time + 30; for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
+  if (!op.cells.length) { op.status = 'הושלם'; S.nations[nid].noExpandUntil = S.time + expandPause(S.nations[nid]); for (const f of gens) if (!f.retreating) { f.target = null; f.zone = []; f.defend = tileOf(...f.pos); } return; }
   op.status = `התפשטות · ${op.cells.reduce((a, c) => a + c.n, 0)} משבצות ניטרליות באזור`;
   const taken = new Map();
   for (const f of gens) if (f.cellKey) taken.set(f.cellKey, (taken.get(f.cellKey) || 0) + 1);
@@ -1417,22 +1453,57 @@ function updateFlight(f, dt) {
   f.defend = t; f.target = tgt;
   if (f.n === 0) toast('🪂 הצנחנים נחתו מאחורי קווי האויב', 'good');
 }
-// כיבוש: מרידות בערים שנכבשו לאחרונה בלי גנרל קרוב; אחרי INTEGRATE_DAYS השטח הופך לליבה
+// כיבוש (סבב 8): מד אי-שקט לכל עיר כבושה. עולה בלי צבא קרוב, בניתוק מהבירה ובקרבת צבא של האומה המקורית; יורד עם חיל מצב ועם הזמן.
+// מלא (100) → מרד: קם גנרל מורדים של האומה המקורית (אם היא חיה) — או עיר חופשית עם חיל מצב משלה שעוינת את הכובש.
+const UNREST = { BASE: 1.2, NOARMY: 1.6, CUT: 1.2, ENEMY: 1.2, GARRISON: -3, AGE: -0.012, REBEL_INF: 22 };
+function unrestParts(i) {
+  const b = S.buildings[i], o = S.owner[i], c = S.core[i]; if (!b || o < 0 || c === o) return null;
+  const [x, y] = XY(i), age = S.time - S.capDay[i], parts = [['כיבוש זר', UNREST.BASE]];
+  const near = r => S.fronts.some(f => f.n === o && f.kind === 'land' && unitCount(f.units) && hyp(f.pos[0] - x, f.pos[1] - y) < r) || S.divs.some(d => d.n === o && d.gar?.arr && hyp(d.gar.pos[0] - x, d.gar.pos[1] - y) < r * G);
+  if (near(4)) parts.push(['חיל מצב / גנרל בעיר', UNREST.GARRISON]); else if (!near(7)) parts.push(['אין צבא בסביבה', UNREST.NOARMY]);
+  if (!mainComp(o)[i]) parts.push(['מנותקת מהבירה', UNREST.CUT]);
+  if (c >= 0 && S.nations[c]?.alive && atWar(o, c) && S.fronts.some(f => f.n === c && f.kind === 'land' && unitCount(f.units) && hyp(f.pos[0] - x, f.pos[1] - y) < 10)) parts.push([`צבא של ${nm(c)} מתקרב`, UNREST.ENEMY]);
+  if (age > 0) parts.push(['הזמן מרגיע', Math.max(-2.5, age * UNREST.AGE)]);
+  return parts;
+}
 function occupationEffects() {
   eachBuilding((b, i) => {
     if (b.type !== 'city') return;
     const o = S.owner[i], c = S.core[i];
-    if (o < 0 || c < 0 || c === o || !S.nations[c].alive || S.time - S.capDay[i] > CFG.UNREST_DAYS) return;
-    const [x, y] = XY(i);
-    if (S.fronts.some(f => f.n === o && f.kind === 'land' && unitCount(f.units) && hyp(f.pos[0] - x, f.pos[1] - y) < 6)) return;
-    if (srand() >= CFG.REVOLT_CHANCE) return;
-    const to = c;
-    for (const k of [i, ...nb4(i)]) if (S.owner[k] === o && S.core[k] === c) { S.owner[k] = to; S.capDay[k] = S.time; if (to < 0) S.core[k] = -1; markTile(k); }
-    b.n = to; if (to < 0) delete S.buildings[i];
-    S.revolts = (S.revolts || 0) + 1;
-    if (o === 0 || c === 0) toast(`🔥 מרד! עיר ${o === 0 ? 'שכבשת' : 'שלך'} חזרה ל${to >= 0 ? nm(to) : 'מורדים'}`, o === 0 ? 'bad' : 'good');
+    if (o < 0 || c === o) { b.unrest = 0; return; }
+    const parts = unrestParts(i), g = parts.reduce((a, p) => a + p[1], 0);
+    b.unrest = clamp((b.unrest || 0) + g, 0, 100);
+    if (b.unrest >= 80 && !b.uWarn && o === 0) { b.uWarn = true; toast(`🔥 אי-שקט גבוה ב${cityName(i, b)} (${Math.round(b.unrest)}%) — שלח חיל מצב או גנרל לפני שתפרוץ מרידה`, 'bad', 1); }
+    if (b.unrest < 60) b.uWarn = false;
+    if (b.unrest < 100) return;
+    b.unrest = 30; S.revolts = (S.revolts || 0) + 1;
+    rebellion(i, o, c);
   });
   if (S.day % 10 === 0) for (let i = 0; i < S.owner.length; i++) { const o = S.owner[i]; if (o >= 0 && S.core[i] !== o && S.time - S.capDay[i] > CFG.INTEGRATE_DAYS) { S.core[i] = o; markTile(i); } }
+}
+// הסרת מבנה באמצע יום: מנקה את רשתות האספקה והלוגיסטיקה השמורות
+function dropBuilding(j) { delete S.buildings[j]; for (const k in _lg) delete _lg[k]; for (const k in _sn) delete _sn[k]; }
+function rebellion(i, o, c) {
+  const b = S.buildings[i], name = cityName(i, b), [x, y] = XY(i), R = 1.5 * G, tiles = [];
+  for (let yy = Math.max(0, y - R); yy <= Math.min(H - 1, y + R); yy++) for (let xx = Math.max(0, x - R); xx <= Math.min(W - 1, x + R); xx++) { const j = yy * W + xx; if (S.owner[j] === o && S.core[j] === c && hyp(xx - x, yy - y) <= R) tiles.push(j); }
+  const n = Math.round(UNREST.REBEL_INF * (b.lvl || 1) * 0.7 + 8);
+  if (c >= 0 && S.nations[c]?.alive) {
+    // האומה המקורית: העיר והסביבה חוזרות אליה, וקם גנרל מורדים שנלחם בכובש
+    for (const j of tiles) { S.lastOwner[j] = o; S.owner[j] = c; S.capDay[j] = S.time; markTile(j); }
+    b.n = c; const f = createFront(c, 'defend', srand, true);
+    if (f) { f.rebel = true; f.gen.name = 'מנהיג המרד ' + f.gen.name.replace(/^גנרל /, ''); f.pos = [x, y]; f.gen.trait = 'aggressive'; f.role = 'defend'; f.order = 'hold'; f.holdTile = i; f.auto = false;
+      const ns = S.nations[c]; ns.divSeq = (ns.divSeq || 0) + 1;
+      const d = { id: S.nextId++, n: c, num: ns.divSeq, type: 'inf', units: { ...zeroUnits(), inf: n }, loc: 'front', home: i, front: f.id, rebel: true, pos: [x, y] };
+      S.divs.push(d); syncFront(f); }
+    if (o === 0) toast(`🔥 מרד ב${name}! העיר חזרה ל${nm(c)} וקם גנרל מורדים`, 'bad', 1); else if (c === 0) toast(`🔥 מרד ב${name}: העיר חזרה אליך וקם גנרל מורדים`, 'good', 1);
+  } else {
+    // האומה המקורית כבר לא קיימת: עיר חופשית עם חיל מצב משלה, עוינת לכובש (לא תסכים לשכנוע ממנו זמן רב)
+    const id = S.minors.length, gar = Math.round(n * 0.8);
+    const m = { id, name: name, kind: (b.lvl || 1) >= 2 ? 'town' : 'village', town: i, tiles: 0, gar, max: gar, loss: 0, infl: {}, mis: {}, host: { [o]: S.time }, gifts: {}, alive: true, rebel: o, grudge: { [o]: S.time + 400 } };
+    for (const j of tiles) { S.lastOwner[j] = o; S.owner[j] = -1; S.core[j] = -1; S.mnr[j] = id; m.tiles++; markTile(j); }
+    dropBuilding(i); S.minors.push(m); view.ownerDirty = true;
+    if (o === 0) toast(`🔥 מרד ב${name}! העיר הכריזה על עצמה כעיר חופשית ונלחמת בך`, 'bad', 1);
+  }
 }
 // כיסים: יחידות מנותקות נשחקות; שטח אויב מבודד ללא צבא קורס לכובש שמסביב
 // פסגות: אי אפשר לתקוף אותן — רכס שלם עובר לבעלות מי שמקיף אותו מכל הצדדים (מתעדכן פעם ביום)

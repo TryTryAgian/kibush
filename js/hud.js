@@ -8,11 +8,13 @@ const MAP_MODES = [
   ['terrain', '⛰', 'שטח', 'כמה קשה לנוע ולתקוף בכל משבצת'],
   ['supply', '📦', 'אספקה', 'רמת האספקה בשטח שלך'],
   ['threat', '🎯', 'איום', 'הכוח שלך מול כוח האויב שאתה רואה או זוכר'],
+  ['unrest', '🔥', 'אי-שקט', 'ערים כבושות: כמה קרוב מרד (100% = מרד)'],
 ];
 const MM_LEGEND = {
   diplo: [['#5fe0ff', 'אתה'], ['#5ad07a', 'בעלי ברית'], ['#e04858', 'מלחמה'], ['#e8c83c', 'אי-התקפה'], ['#508ce6', 'סחר'], ['#9696a0', 'שלום']],
   terrain: [['#5ab45a', 'מישור — קל'], ['#c8c84a', 'יער'], ['#e8963c', 'גבעות'], ['#d23c3c', 'הרים — קשה מאוד'], ['#f0f0fa', 'שלג — חוסם']],
   supply: [['#46c85a', 'אספקה מלאה'], ['#e8c83c', 'חלקית'], ['#e04040', 'כמעט אין']],
+  unrest: [['#5ad07a', 'שקט'], ['#e8c83c', 'מתוח'], ['#ff5030', 'סף מרד']],
   threat: [['#3c8cff', 'הכוח שלך'], ['#b45ab4', 'מגע'], ['#ff3c3c', 'כוח אויב נראה'], ['#f0a0a0', 'אויב שנראה קודם (זיכרון)']],
 };
 const MM = { mode: 'normal', cv: null, sig: '', ver: 0, t: 0, cell: false };
@@ -27,6 +29,7 @@ function mmSig() {
     case 'terrain': return 't' + W + 'x' + H + (S.seed ?? '');
     case 'supply': return 's' + Math.floor(S.time) + ':' + (OWNV >> 6);
     case 'threat': return 'w' + WS.ver;
+    case 'unrest': return 'u' + S.day + ':' + OWNV;
   }
   return '';
 }
@@ -56,6 +59,12 @@ function mmCanvas() {
       let v = sup[k]; if (v < 0) { const cx = k % cw, cy = k / cw | 0; v = sup[k] = wsSupply(0, cx * G + G / 2, cy * G + G / 2); }
       put(i, v < 0.5 ? [224, Math.round(64 + v * 272), 60] : [Math.round(232 - (v - 0.5) * 324), 200, Math.round(60 + (v - 0.5) * 60)], o === 0 ? 150 : 95);
     }
+  } else if (MM.mode === 'unrest') {
+    // כל שטח כבוש (לא ליבה) צבוע לפי האי-שקט של העיר הכבושה הקרובה
+    const cs = []; eachBuilding((b, i) => { if (b.type === 'city' && S.owner[i] >= 0 && S.core[i] !== S.owner[i]) cs.push([...XY(i), (b.unrest || 0) / 100]); });
+    for (let i = 0; i < W * H; i++) { const o = S.owner[i]; if (o < 0 || S.core[i] === o) continue; const x = i % W, y = i / W | 0; let best = null, bd = 1e9;
+      for (const c of cs) { const d = Math.abs(c[0] - x) + Math.abs(c[1] - y); if (d < bd) { bd = d; best = c; } }
+      const u = best && bd < 8 * G ? best[2] : 0; put(i, u < 0.5 ? [90 + u * 2 * 142, 208 - u * 2 * 8, 122 - u * 2 * 62] : [232 + (u - 0.5) * 2 * 23, 200 - (u - 0.5) * 2 * 120, 60 - (u - 0.5) * 2 * 12], o === 0 ? 150 : 90); }
   } else if (MM.mode === 'threat') {
     const dd = wsView(0); if (dd) {
       let mx = 1; for (let k = 0; k < dd.own.length; k++) mx = Math.max(mx, dd.own[k], dd.en[k]);
@@ -94,7 +103,7 @@ function drawETA(f) {
 /* ---------- יומן אירועים ---------- */
 const LOG = [];
 const _toast = toast;
-toast = function (msg, kind = '') { if (S && !S.demo) { LOG.push({ t: S.time, msg, kind }); if (LOG.length > 80) LOG.shift(); } return _toast(msg, kind); };
+toast = function (msg, kind = '', level) { if (S && !S.demo) { LOG.push({ t: S.time, msg, kind }); if (LOG.length > 80) LOG.shift(); } return _toast(msg, kind, level); };
 function openLog() {
   modal(h('h2', {}, '📜 יומן אירועים'),
     LOG.length ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '3px' } }, ...LOG.slice().reverse().map(e => h('div', { class: 'logl ' + e.kind }, h('span', { class: 'dim' }, `יום ${fl(e.t)}`), ' ', e.msg)))

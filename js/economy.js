@@ -62,17 +62,20 @@ const finalWar = () => S.nations.filter(n => n.alive).length <= 2;   // שתי �
 function snowEff(n, tiles) { if (finalWar()) return 1; return clamp(Math.pow(n.startTiles * CFG.SNOW_REF / Math.max(1, tiles ?? counts()[n.id]), CFG.SNOW_EXP), CFG.SNOW_MIN, 1); }
 function occupiedCount(nid) { let c = 0; for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid && S.core[i] !== nid) c++; return c; }
 function dailyYield(nid, tilesCount) {
-  const n = S.nations[nid], y = { gold: 0, mat: 0, man: 0.5, know: 1.5 * mod(n, 'know') }, em = econMul(n);
+  const n = S.nations[nid], y = { gold: 0, mat: 0, man: 0.5, know: 3 * mod(n, 'know') }, em = econMul(n);
   const tiles = tilesCount ?? counts()[nid], se = snowEff(n, tiles), occ = occupiedCount(nid);
   y.gold += Math.floor(tiles / (8 * G * G)) * em;
+  const comp = mainComp(nid);
   eachBuilding((b, i) => {
     if (b.n !== nid || !done(b)) return;
-    const Y = BUILD[b.type].yield, e = tileEff(i, nid), lv = b.type === 'city' ? 1 + CFG.CITY_LVL_BONUS * ((b.lvl || 1) - 1) : 1;
+    const Y = BUILD[b.type].yield, e = tileEff(i, nid) * sectorBonus(i, nid, comp), dep = depositAt(i), lv = b.type === 'city' ? 1 + CFG.CITY_LVL_BONUS * ((b.lvl || 1) - 1) : 1;
     for (const k in Y) {
       let v = Y[k];
       if (v > 0) v *= e * lv;
       if (v > 0 && b.type === 'factory' && k === 'mat') v *= mod(n, 'mat');
-      if (v > 0 && b.type === 'city' && k === 'man') v *= mod(n, 'man');
+      if (v > 0 && b.type === 'city' && k === 'man') v *= mod(n, 'man') * (1 + farmBonus(i, nid)) * (dep?.k === 3 ? 1.5 : 1);   // חוות ועמק פורה
+      if (v > 0 && b.type === 'factory' && k === 'mat' && dep?.k === 1) v *= 2;   // ברזל
+      if (v > 0 && b.type === 'port' && dep?.k === 4) v *= 2;   // מפרץ מוגן
       if (v > 0 && b.type === 'city' && (k === 'gold' || k === 'mat')) v *= em;
       if (v > 0 && k === 'know') v *= mod(n, 'know');
       y[k] += v;
@@ -90,7 +93,7 @@ function dailyYield(nid, tilesCount) {
   return y;
 }
 // כוח אדם לא נצבר בלי סוף: תקרה לפי האוכלוסייה
-const manCap = nid => Math.round(population(nid) * CFG.MAN_CAP_POP + 200);
+const manCap = nid => Math.round(population(nid) * CFG.MAN_CAP_POP + 100);
 function population(nid) { let p = 0; eachBuilding(b => { if (b.n === nid && b.type === 'city' && done(b)) p += (b.lvl || 1) * CFG.CITY_POP; }); return p; }
 // שדרוג עיר: עלות ×הרמה, נבנה לאורך זמן; העיר ממשיכה לייצר בזמן השדרוג
 function upgradeCost(b) { const l = b.lvl || 1; return { gold: CFG.UPGRADE_GOLD * l, mat: CFG.UPGRADE_MAT * l }; }
@@ -171,5 +174,65 @@ function moveTrains(dt) {
     } else if (r.dir < 0 && r.t <= 0) { r.t = 0; r.dir = 1; }
   }
 }
-const availableTechs = n => Object.keys(TECH).filter(k => !n.tech.done[k] && TECH[k].req.every(r => n.tech.done[r]));
+// מחקר (סבב 8): התמחות בענף מוזילה (5% לכל מחקר בענף, עד 30%); מאוחר דורש אוניברסיטה; עמוק — 3 בענף; בלעדי — אוניברסיטה שמתמחה בו
+const doneInBranch = (n, b) => Object.keys(n.tech.done).filter(k => TECH[k]?.b === b).length;
+const techCost = (n, k) => Math.round(TECH[k].cost * (1 - Math.min(0.3, 0.05 * doneInBranch(n, TECH[k].b))) / 5) * 5;
+const unis = nid => { const l = []; eachBuilding((b, j) => { if (b.n === nid && b.type === 'university' && done(b)) l.push(b); }); return l; };
+const exclRival = k => TECH[k].excl ? Object.keys(TECH).find(o => o !== k && TECH[o].excl === TECH[k].excl) : null;
+function techLock(n, k) {
+  const T = TECH[k], us = unis(n.id);
+  if (T.excl) { const r = exclRival(k); if (n.tech.done[r] || n.tech.cur === r) return `נבחרה החלופה: ${TECH[r].name}`;
+    if (!us.some(b => !b.spec || b.spec === T.excl)) return `דורש אוניברסיטה פנויה להתמחות ב${EXCL[T.excl]}`; }
+  if (T.base >= TECH_LATE && !us.length) return 'מחקר מתקדם — דורש אוניברסיטה';
+  if (T.base >= TECH_DEEP && doneInBranch(n, T.b) < 3) return `מחקר עמוק — דורש 3 מחקרים בענף (יש ${doneInBranch(n, T.b)})`;
+  return null;
+}
+const availableTechs = n => Object.keys(TECH).filter(k => !n.tech.done[k] && TECH[k].req.every(r => n.tech.done[r]) && !techLock(n, k));
+// התחלת מחקר: בחירה בלעדית "תופסת" אוניברסיטה פנויה — ההתמחות שלה
+function startTech(n, k) {
+  n.tech.cur = k; n.tech.prog = 0; const ex = TECH[k]?.excl; if (!ex) return;
+  const us = unis(n.id); if (!us.some(b => b.spec === ex)) { const b = us.find(b => !b.spec); if (b) b.spec = ex; }
+}
+// השפעה של בחירה בלעדית — רק כל עוד האוניברסיטה המתמחה בידיך (נכבשה → ההתמחות כבויה)
+const SPEC = { t: -1, s: null, m: new Map() };
+function specOK(n, ex) { if (SPEC.t !== S.day || SPEC.s !== S) { SPEC.t = S.day; SPEC.s = S; SPEC.m.clear(); } const key = n.id + ex; let v = SPEC.m.get(key); if (v == null) { v = unis(n.id).some(b => b.spec === ex); SPEC.m.set(key, v); } return v; }
 
+
+/* ===================== כלכלה (סבב 8): מרבצים אזוריים, חוות, גזרות, כוח אדם ===================== */
+// מרבצים: ⛏ ברזל (גבעות) מפעל ×2 חומרים · 🛢 נפט (חול/חוף) הנחה 40% על שריון ומטוסים · 🌾 עמק פורה (עשב ליד נהר) עיר: כוח אדם ×1.5 · ⚓ מפרץ מוגן: נמל ×2
+const DEPOSIT = {
+  1: { k: 'iron', ic: '⛏', name: 'מרבץ ברזל', desc: 'מפעל כאן: חומרים ×2' },
+  2: { k: 'oil', ic: '🛢', name: 'שדה נפט', desc: 'בבעלותך: שריון ומטוסים זולים ב-40%' },
+  3: { k: 'fertile', ic: '🌾', name: 'עמק פורה', desc: 'עיר כאן: כוח אדם ×1.5' },
+  4: { k: 'harbor', ic: '⚓', name: 'מפרץ מוגן', desc: 'נמל כאן: הכנסה ×2' },
+};
+const DEP_R = 1.2;   // רדיוס מרבץ (יחידות)
+function genDeposits() {
+  const rnd = mulberry32((S.seed || 1) + 777), N = W * H, list = [], per = Math.max(3, Math.round(N / (G * G * 420)));
+  const ok = { 1: j => S.terrain[j] === HILLS, 2: j => S.terrain[j] === SAND || (isCoastal(j) && S.terrain[j] !== SNOW && S.terrain[j] !== MOUNT), 3: j => S.terrain[j] === GRASS && riverNear(j), 4: j => isCoastal(j) && S.terrain[j] !== MOUNT && featAt(j, 2)?.t === 'bay' };
+  for (const k of [1, 2, 3, 4]) {
+    let tries = 0, made = 0; const want = k === 4 ? Math.ceil(per / 2) : per;
+    while (made < want && tries++ < 4000) { const j = (rnd() * N) | 0; if (isWater(j) || !ok[k](j) || list.some(d => dist(d.tile, j) < 5)) continue;
+      const cap = Object.keys(S.buildings).some(i => S.buildings[i].capital && dist(+i, j) < 3); if (cap) continue; list.push({ k, tile: j }); made++; }
+  }
+  S.deposits = list;
+}
+const riverNear = j => { const [x, y] = XY(j); for (let dy = -G; dy <= G; dy += 2) for (let dx = -G; dx <= G; dx += 2) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < W && Y < H && riverAt(Y * W + X)) return true; } return false; };
+const depositAt = (j, k) => (S.deposits || []).find(d => (k == null || d.k === k) && dist(d.tile, j) <= DEP_R);
+const hasOil = nid => (S.deposits || []).some(d => d.k === 2 && S.owner[d.tile] === nid);
+// עלות יחידה: נפט מוזיל שריון ומטוסים
+function unitCost(n, t) { const c = UNITS[t].cost; if (!(t === 'ltank' || t === 'htank' || t === 'plane') || !hasOil(n.id)) return c; return { gold: Math.round(c.gold * 0.6), mat: Math.round(c.mat * 0.6), man: c.man }; }
+// חוות: אדמה פורייה (עשב) של האומה סביב העיר — מאיצה צמיחת אוכלוסייה (כוח אדם) עד +60%
+const FARMC = new Map();
+function farmBonus(i, nid) {
+  const key = i * 8 + nid, c = FARMC.get(key); if (c && c.d > S.day - 10 && c.s === S) return c.v;
+  const [x, y] = XY(i), R = Math.round(2.5 * G); let n = 0, tot = 0;
+  for (let yy = Math.max(0, y - R); yy <= Math.min(H - 1, y + R); yy += 2) for (let xx = Math.max(0, x - R); xx <= Math.min(W - 1, x + R); xx += 2) { const j = yy * W + xx; if ((xx - x) ** 2 + (yy - y) ** 2 > R * R || isWater(j)) continue; tot++; if (S.owner[j] === nid && (S.terrain[j] === GRASS || effTer(j) === GRASS) && !S.buildings[j]) n++; }
+  const v = Math.min(0.6, tot ? n / tot * 0.8 : 0); FARMC.set(key, { d: S.day, v, s: S }); return v;
+}
+// גזרה שתוואי המפתח שלה בידיך ומחובר לבירה: +10% תפוקה למבנים בה
+function sectorBonus(i, nid, comp) { const k = secOf(i); if (k == null || k < 0) return 1; const s = FEAT.secs[k]; return s.feat != null && S.owner[s.key] === nid && comp[s.key] ? 1.1 : 1; }
+// כוח אדם: כמה חיילים "במדים" מותר — אחוז הגיוס מהאוכלוסייה
+const MOB_POP = 0.4;
+const mobCap = nid => Math.round(population(nid) * MOB_POP * S.nations[nid].mob * mod(S.nations[nid], 'levy') + 60);
+function inUniform(nid) { const u = unitsOf(nid); let m = 0; for (const t of UKEYS) m += (u[t] || 0) * UNITS[t].cost.man; return Math.round(m); }

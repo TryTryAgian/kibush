@@ -289,5 +289,8 @@ function featLabels(project) {
     const o = S.owner[f.tile], col = o >= 0 ? S.nations[o].color : '#e8d8a0';
     drawLabel(wx, wy, featLabel(f), null, col);
   }
+  // מרבצים אזוריים (economy.js)
+  for (const d of S.deposits || []) { const D = DEPOSIT[d.k], [x, y] = XY(d.tile), wx = x * T + T / 2, wy = y * T + T / 2; if (!project(wx, wy)) continue; const o = S.owner[d.tile];
+    drawLabel(wx, wy, `${D.ic} ${D.name}`, z >= 1.4 ? D.desc : null, o >= 0 ? S.nations[o].color : '#d8c890'); }
   if (S.rivers && z >= 0.6) for (const r of S.rivers) { const j = r.tiles[(r.tiles.length * 0.45) | 0], [x, y] = XY(j), wx = x * T + T / 2, wy = y * T + T / 2 - 6; if (!project(wx, wy)) continue; drawLabel(wx, wy, '〰 ' + r.name, null, '#8cc8ff'); }
 }

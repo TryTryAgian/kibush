@@ -38,6 +38,7 @@ function sectorScan(nid) {
   }
   const mine = [], theirs = {};
   eachBuilding((b, j) => { if (!done(b) || !keyVal(b)) return; if (b.n === nid) mine.push([j, keyVal(b)]); else if (en.includes(b.n)) (theirs[b.n] = theirs[b.n] || []).push([j, keyVal(b)]); });
+  for (const d of S.deposits || []) { const o = S.owner[d.tile]; if (o === nid) mine.push([d.tile, 4]); else if (en.includes(o)) (theirs[o] = theirs[o] || []).push([d.tile, 4]); }   // מרבצים: יעדים ונכסים
   const auras = {}, out = [];
   for (const s of cells.values()) {
     let sx = 0, sy = 0; for (const t of s.tiles) { const [x, y] = XY(t); sx += x; sy += y; } sx /= s.tiles.length; sy /= s.tiles.length;
@@ -93,6 +94,7 @@ function hqPlan(nid) {
   const sectors = sectorScan(nid); n.hq.sectors = sectors; n.hq.risk = rateSectors(nid, sectors);
   for (const op of S.ops) {
     if (op.n !== nid) continue;
+    if (nid === 0 && !n.hqAuto && op.meTile != null) { hqRecommend(op, sectors); continue; }   // לשחקן: המלצה לאישור (command.js)
     if (chooseME(op, sectors, false) && op.main) {
       planOp(op);
       if (nid === 0) toast(`🧭 המטה: המאמץ העיקרי של מבצע ${opName(op)} עובר — ${op.meWhy}`, 'good');
@@ -203,7 +205,7 @@ function planDefense(nid) {
   // גנרל שיצא למבצע — התוכנית שלו מתבטלת; פקודת "החזק" — תוכנית סביב הנקודה שנבחרה
   let efL = null; const efLazy = () => efL || (efL = enemyField(nid, enemiesOf(nid)));
   for (const f of S.fronts) if (f.n === nid && f.kind === 'land') {
-    if ((f.role !== 'defend' && f.order !== 'hold') || (f.order && f.order !== 'hold') || (!f.order && f.dplan?.manual)) f.dplan = null;
+    if ((f.role !== 'defend' && f.order !== 'hold') || (f.order && f.order !== 'hold') || (!f.order && f.dplan?.manual && !f.dplan.user)) f.dplan = null;
     else if (f.order === 'hold' && f.holdTile != null && (!f.dplan || f.dplan.anchor !== f.holdTile)) f.dplan = makeDPlan(f, f.holdTile, efLazy(), { manual: true });
   }
   const defs = S.fronts.filter(f => f.n === nid && f.kind === 'land' && f.role === 'defend' && !f.retreating && !f.solo && !f.airborne && !f.order); if (!defs.length) return;

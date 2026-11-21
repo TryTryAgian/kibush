@@ -73,7 +73,7 @@ function bCount(nid, type) { let c = 0; eachBuilding(b => { if (b.n === nid && b
 function countBuilding(nid, type, onlyUnfinished) { let c = 0; eachBuilding(b => { if (b.n === nid && b.type === type && (!onlyUnfinished || !done(b))) c++; }); return c; }
 const hasTech = (n, t) => !!n.tech.done[t];
 const unlocked = (n, def) => !def.req || hasTech(n, def.req);
-function mod(n, key) { let m = 1; for (const t in n.tech.done) m += TECH[t].eff[key] || 0; return m; }
+function mod(n, key) { let m = 1; for (const t in n.tech.done) { const T = TECH[t]; if (!T) continue; const e = T.eff[key]; if (e && (!T.excl || specOK(n, T.excl))) m += e; } return m; }
 const unitCount = u => UKEYS.reduce((a, t) => a + (u[t] || 0), 0);
 const zeroUnits = () => Object.fromEntries(UKEYS.map(k => [k, 0]));
 const player = () => S.nations[0];
@@ -131,7 +131,8 @@ function loadTerrain(settings, seed) {
 }
 function newGame(settings) {
   const seed = settings.seed || (Math.random() * 1e9 | 0);
-  if (typeof G3 !== 'undefined') { G3.models.clear(); G3.towns?.clear?.(); }   // מודלים של המשחק הקודם
+  if (typeof G3 !== 'undefined') { G3.models.clear(); G3.towns?.clear?.(); }
+  if (typeof document !== 'undefined') document.getElementById('toasts')?.replaceChildren();   // הודעות של המשחק הקודם   // מודלים של המשחק הקודם
   const m = loadTerrain(settings, seed);
   S = { v: 10, rs: seed | 0, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
         terrain: m.terrain, owner: new Int8Array(W * H).fill(-1), buildings: {}, nations: [], diplo: {},
@@ -154,14 +155,14 @@ function newGame(settings) {
     S.buildings[j] = { type: 'camp', dt: 'inf', n: id, prog: 1, lvl: 1 }; claim(id, j, BUILD.camp.claim);
     const d = ensureDiv(j); d.units = { ...DIV_TYPES.inf.comp, ...zeroUnits(), inf: 12 };
   });
-  genMinors(); townBridges(); features(); sectors();   // חישוב חד-פעמי עכשיו — לא קפיצה ביום הראשון   // כפרים וערים ניטרליים על כל השטח הפנוי (minors.js)
+  genMinors(); townBridges(); features(); sectors(); genDeposits();   // חישוב חד-פעמי עכשיו — לא קפיצה ביום הראשון   // כפרים וערים ניטרליים על כל השטח הפנוי (minors.js)
   const c0 = counts(); S.nations.forEach(n => { n.startTiles = c0[n.id]; });
   Object.assign(ui, { tab: null, pick: null, sel: null, selFront: null });
   for (const k in compCache) delete compCache[k];
   view.railDirty = true;
   buildTerrainCanvas(); view.ownerDirty = true; spriteCache.clear(); SHEET.tinted.clear(); iconURLs = null;
   centerOn(caps[0]); save(); render();
-  toast(`כבוש ${Math.round(winR() * 100)}% מהיבשה. בנה מחנה צבאי ופתח מבצע`, 'good');
+  toast(`המטרה: ${Math.round(winR() * 100)}% מהיבשה (לפחות ${Math.round((winR() - WIN_PROT) * 100)}% שטח מלא, השאר מכפרים בחסותך). בנה מחנה צבאי ופתח מבצע`, 'good');
   for (const w of genWarn) toast(w, "bad");
 }
 
@@ -174,7 +175,8 @@ function newGame(settings) {
 // opt.own      — רק בשטח שלך (הנחת מסילות)
 const DIRS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
 const isOwnPort = (nid, i) => { const b = S.buildings[i]; return b && b.type === 'port' && b.n === nid && done(b); };
-function passable(nid, i) { const o = S.owner[i]; return o < 0 || o === nid || allied(nid, o); }
+// שטח כפר: עוברים רק אם הוא ידידותי (35%+), בחסותך, או שאתה במלחמה איתו (minors.js)
+function passable(nid, i) { const o = S.owner[i]; if (o < 0) { const k = S.mnr ? S.mnr[i] : -1; return k < 0 || nid < 0 || minorPass(S.minors[k], nid); } return o === nid || allied(nid, o); }
 const RAIL_COST = 0.3;
 function stepCost(nid, v) { return S.railMap[v] && !isWater(v) && (S.owner[v] === nid || allied(nid, S.owner[v])) ? RAIL_COST : MOVE_COST[S.terrain[v]] + riverCost(v); }
 class Heap {

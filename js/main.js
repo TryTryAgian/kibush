@@ -14,7 +14,7 @@ function unpackBytes(str, len) {
 const packArr = a => packBytes(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
 const unpackArr = (str, Type, n) => new Type(unpackBytes(str, n * Type.BYTES_PER_ELEMENT).buffer);
 function save() {
-  if (S?.demo || S?.scenario) return;   // תרחיש בדיקה לא נשמר; משחק הרקע של מסך הבית לא נשמר
+  if (S?.demo || S?.scenario || S?.tutorial) return;   // תרחיש בדיקה לא נשמר; משחק הרקע של מסך הבית לא נשמר
   try {
     const { terrain, owner, lastOwner, railMap, core, capDay, mnr, river, ...rest } = S;
     const cap = Uint8Array.from(capDay, v => clamp(Math.round(S.time - v), 0, 255));   // נשמר "לפני כמה ימים" (גם ערכים שליליים — כיבוש ותיק)

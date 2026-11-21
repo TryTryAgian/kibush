@@ -9,6 +9,7 @@ function snapTile(i, pred, r) {
   return best ?? i;
 }
 function onTap(i) {
+  if (ui.pick?.kind === 'dline') { lineTap(i); render(); return; }   // קו הגנה ידני (command.js)
   if (ui.pick?.kind === 'build') {
     if (ui.hint) i = snapTile(i, k => ui.hint.has(k), 1.2);
     const t = ui.pick.type, r = build(0, t, i, ui.pick.dt);
@@ -106,7 +107,7 @@ const endPtr = e => {
     AXDRAG = null; const i = screenToTile(e.clientX, e.clientY);
     if (e.type === 'pointerup' && i != null) {
       if (!gesture.moved) onTap(i);
-      else { const f = gesture.f, r = setAxis(f, i); if (!r.ok) toast(r.reason, 'bad'); else { toast(`➹ ${f.gen.name} תוקף בציר שציירת`, 'good'); render(); } }
+      else { const f = gesture.f, r = cpSpend(f, 1, 'ציר התקפה') ? setAxis(f, i) : { ok: false, reason: '' }; if (!r.ok) { if (r.reason) toast(r.reason, 'bad'); } else { toast(`➹ ${f.gen.name} תוקף בציר שציירת`, 'good'); render(); } }
     }
   }
   if (gesture?.type === 'pan' && !gesture.moved && e.type === 'pointerup' && S) { const i = screenToTile(e.clientX, e.clientY); if (i != null) onTap(i); }

@@ -53,9 +53,9 @@ function showMoment() {
     return r; }; }
 function momentsDaily() {
   if (!S || S.demo) return;
-  const c = counts(), share = c[0] / S.landTotal, w = winR();
+  const c = counts(), share = victoryShare(0, c).total, w = winR();
   if (!S.mNear && share >= w * 0.75) { S.mNear = true; bigMoment('🏆 הניצחון באופק', `אתה שולט ב-${Math.round(share * 100)}% — עוד ${Math.round((w - share) * 100)}% לניצחון`, '#ffd040'); }
-  const rival = S.nations.find(n => n.isAI && n.alive && c[n.id] / S.landTotal >= w * 0.7);
+  const rival = S.nations.find(n => n.isAI && n.alive && victoryShare(n.id, c).total >= w * 0.7);
   if (rival && !S.mRival) { S.mRival = rival.id; bigMoment('⚠ יריב מתקרב לניצחון', `${rival.name} שולטת ב-${Math.round(c[rival.id] / S.landTotal * 100)}% מהיבשה`, '#ff7050'); }
 }
 

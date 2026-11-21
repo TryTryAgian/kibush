@@ -288,3 +288,40 @@ function aiFortify(n) {
   n.fortT = S.time + 4;
 }
 function garrisonDefNear(o) { return garrisonDefNear_(o); }
+
+/* ---- מורדים: גנרל מורדים שהתרסק — מתפרק ---- */
+function rebelsDaily() {
+  for (let k = S.fronts.length - 1; k >= 0; k--) { const f = S.fronts[k]; if (!f.rebel) continue;
+    const ds = frontDivs(f); if (ds.every(d => divTotal(d) <= 0) || S.owner[f.holdTile] !== f.n && !f.engaged) {
+      for (const d of ds) { const i = S.divs.indexOf(d); if (i >= 0) S.divs.splice(i, 1); } S.fronts.splice(k, 1); } }
+}
+
+/* ---- פירוק ההגנה (שקיפות): למה קו מחזיק ---- */
+function tileDefenseParts(j) {
+  const o = S.owner[j], t = S.terrain[j], out = [], base = (1 + TER[t].def) * TER_CAP[t];
+  out.push([`שטח: ${TER[t].name}`, base.toFixed(1)]);
+  if (riverAt(j) === 1) out.push(['נהר (חציה תחת אש)', '×1.6']);
+  if (o < 0) { out.push(['כפר: חיל מצב', '+' + minorTileDef(j).toFixed(1)]); return out; }
+  out.push(['שטח שלך', '+' + (2 * TER_CAP[t]).toFixed(1)]);
+  const b = S.buildings[j]; if (b && done(b)) out.push([`מבנה: ${BUILD[b.type].name}${b.capital ? ' (בירה)' : ''}`, '+' + (BUILD[b.type].def * (b.type === 'fortress' ? mod(S.nations[o], 'fort') : 1) + (b.capital ? 6 : 0)).toFixed(1)]);
+  if (fortressAuras(o).some(a => cheb(a.i, j) <= a.r)) out.push(['בטווח ביצור / מחנה עם חיל מצב', '+' + (4 * mod(S.nations[o], 'fort')).toFixed(1)]);
+  const [x, y] = XY(j); for (const [gx, gy, bonus] of defNear(o)) if (hyp(gx - x, gy - y) <= 3) { out.push(['גנרל / משמר קרוב', '+' + bonus.toFixed(1)]); break; }
+  const wk = workAt(j); if (wk && manned(wk)) out.push([`שוחה מאוישת (שלב ${workLvl(wk)}${wk.wire >= 1 ? ' + תיל' : ''})`, '×' + (1 + workBonus(wk, o)).toFixed(2)]);
+  out.push(['סה״כ', tileDefense(j).toFixed(1)]);
+  return out;
+}
+function frontDefParts(f) {
+  const [x, y] = f.pos, out = [], t = S.terrain[tileOf(x, y)];
+  if (f.order === 'hold') out.push(['פקודת החזק', '×1.25']); else if (f.order === 'delay') out.push(['פקודת עכב', '×1.1']);
+  out.push([`שטח: ${TER[t].name}`, '×' + TER_DEF[t].toFixed(2)]);
+  const fd = featDef(f); if (fd !== 1) out.push(['תוואי שטח', '×' + fd.toFixed(2)]);
+  const wb = worksFrontBonus(f); if (wb !== 1) out.push(['שוחות של הקו', '×' + wb.toFixed(2)]);
+  if (fortressAuras(f.n).some(a => { const [ax, ay] = XY(a.i); return Math.max(Math.abs(ax - x), Math.abs(ay - y)) / G <= a.r; })) out.push(['בטווח ביצור', '×' + (1.5 * mod(S.nations[f.n], 'fort')).toFixed(2)]);
+  if (docDef(f) !== 1) out.push(['דוקטרינת חי״ר', '×' + docDef(f).toFixed(2)]);
+  const tr = TRAITS[f.gen.trait]?.def; if (tr) out.push([`תכונה: ${TRAITS[f.gen.trait].name}`, '×' + tr]);
+  if (f.supply === 'cut') out.push(['מנותק מאספקה', '×0.7']);
+  out.push(['רוחב קרב כאן', `${combatWidth(f)} אוגדות`]);
+  out.push(['סה״כ (בלי אספקה ותכונה)', '×' + fortBonus(f).toFixed(2)]);
+  return out;
+}
+const partsText = ps => ps.map(([a, b]) => `${b}  ${a}`).join('\n');

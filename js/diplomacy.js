@@ -20,6 +20,7 @@ function warBlock(a, b) {
   if (r.state === 'war') return 'כבר במלחמה';
   if (allied(a, b)) return 'בעלי ברית — בטל את הברית קודם';
   if (truceActive(a, b)) return `שביתת נשק עד יום ${fl(r.truce)}`;
+  if (r.noWarBy === a && S.time < (r.noWarUntil || 0)) return `הסכם השלום אוסר עליך מלחמה עד יום ${fl(r.noWarUntil)}`;
   if (a !== 0 && b === 0 && S.time < playerGrace()) return 'תקופת חסד';
   return null;   // הסכם אי-תקיפה לא חוסם — אפשר להפר אותו, במחיר
 }
@@ -89,24 +90,27 @@ function expectedOpposition(a, b, betrayal) {
 function declareWar(a, b, opt = {}) {
   const r = rel(a, b); if (r.state === 'war') return;
   const betrayal = napActive(a, b) || S.time - r.brokeAlly < 30, wasFriendly = r.op > 20 || hasTrade(a, b);
-  Object.assign(r, { state: 'war', trade: 0, ally: 0, nap: 0, truce: 0, op: Math.min(r.op, -50), since: S.time, g: {} });
+  Object.assign(r, { state: 'war', trade: 0, ally: 0, nap: 0, truce: 0, op: Math.min(r.op, -50), since: S.time, g: {}, ws: {}, u0: { [a]: unitCount(unitsOf(a)), [b]: unitCount(unitsOf(b)) } });
+  // מטרת מלחמה (peace.js): קובעת את תגובת העולם
+  if (!opt.joining) r.goal = { by: a, ...(opt.goal || (S.nations[a].isAI || a !== 0 ? aiWarGoal(a, b) : { k: 'sector' })) }; else r.goal = null;
+  const GK = r.goal ? WAR_GOALS[r.goal.k] : WAR_GOALS.sector;
   S.offers = S.offers.filter(o => !((o.from === a && o.to === b) || (o.from === b && o.to === a)));
   if (betrayal) for (const m of S.nations) if (m.id !== a) { const q = rel(a, m.id); q.op = Math.max(-100, q.op - 20); }
   if (!opt.joining) {
     // "חטוף ובקש שלום": חזרה למלחמה באותו יעד זמן קצר אחרי שלום — כולם רואים בזה תוקפנות
     if (r.lastPeace != null && S.time - r.lastPeace < 150) { addThreat(a, 20); addRep(a, -20, `חזרה למלחמה ב${nm(b)} זמן קצר אחרי שלום`); }
-    addThreat(a, CFG.THREAT_WAR + (betrayal ? 8 : 0));
+    addThreat(a, CFG.THREAT_WAR * GK.thr + (betrayal ? 8 : 0));
     if (betrayal) addRep(a, -30, `הפרת הסכם עם ${nm(b)}`);
     else if (wasFriendly) addRep(a, -8, `מתקפת פתע על ${nm(b)}`);
   }
   for (const m of S.nations) if (m.id !== a && m.id !== b) { const q = rel(a, m.id); q.op = Math.max(-100, q.op - 3); }
-  if (a === 0) toast(`⚔ הכרזת מלחמה על ${nm(b)}${betrayal ? ' (הפרת הסכם!)' : ''}`, 'bad');
-  else if (b === 0) toast(opt.joining ? `⚔ ${nm(a)} נכנסת למלחמה נגדך` : `⚔ ${nm(a)} הכריזה עליך מלחמה${betrayal ? ' והפרה את ההסכם!' : '!'}`, 'bad');
-  else if (betrayal) toast(`⚠ ${nm(a)} הפרה הסכם ותקפה את ${nm(b)}`);
+  if (a === 0) toast(`⚔ הכרזת מלחמה על ${nm(b)}${betrayal ? ' (הפרת הסכם!)' : ''} — ${goalText(r.goal)}`, 'bad', 2);
+  else if (b === 0) toast(opt.joining ? `⚔ ${nm(a)} נכנסת למלחמה נגדך` : `⚔ ${nm(a)} הכריזה עליך מלחמה${betrayal ? ' והפרה את ההסכם!' : '!'} — ${goalText(r.goal)}`, 'bad', 1);
+  else if (betrayal) toast(`⚠ ${nm(a)} הפרה הסכם ותקפה את ${nm(b)}`, '', 3);
   if (!opt.joining) {
     // בעלי ברית מצטרפים; אחרים שוקלים קואליציה — יותר אם הייתה בגידה
     for (const c of S.nations) {
-      const p = joinChance(c.id, a, b, betrayal); if (p <= 0) continue;
+      const p = joinChance(c.id, a, b, betrayal) * GK.coal; if (p <= 0) continue;
       if (c.id === 0) {
         if (allied(0, b)) { declareWar(0, a, { joining: true }); toast(`🛡 נכנסת למלחמה נגד ${nm(a)} כבעל ברית של ${nm(b)}`, 'bad'); }
         else if (p > 0.15 && !S.offers.some(o => o.kind === 'coalition' && o.target === a)) { S.offers.push({ from: b, to: 0, kind: 'coalition', target: a, gold: 0, t: S.time }); toast(`📜 ${nm(b)} קוראת לך להצטרף לקואליציה נגד ${nm(a)}`); }
@@ -122,16 +126,22 @@ function declareWar(a, b, opt = {}) {
   }
   if (a === 0 || b === 0 || ui.tab === 'diplo') render();   // מלחמה בין שתי אומות מחשב: בלי לבנות את כל הממשק מחדש
 }
-function makePeace(a, b, gold = 0) {
-  const r = rel(a, b); Object.assign(r, { state: 'peace', since: S.time, op: r.op + 20, cool: S.time + 10, truce: S.time + CFG.TRUCE_DAYS, lastPeace: S.time });
+function makePeace(a, b, gold = 0, terms) {
+  // תנאים (peace.js): בלי תנאים מפורשים — בין אומות מחשב המנצח בוחר; אחרת שלום לבן. שטח כבוש שלא נכלל — מוחזר
+  const sc = warScore(a, b), win = sc >= 0 ? a : b, lose = win === a ? b : a;
+  if (terms === undefined) terms = S.nations[a].isAI && S.nations[b].isAI && Math.abs(sc) >= 10 ? aiPeaceTerms(win, lose, Math.abs(sc) + warFatigue(a, b) * 0.3) : [];
+  const tw = terms?.win ?? win, tl = tw === a ? b : a, items = terms?.items ?? terms;
+  applyPeaceTerms(tw, tl, items);
+  if ((a === 0 || b === 0) && items?.length) toast(`📜 תנאי השלום: ${termsText(items)}`, tw === 0 ? 'good' : 'bad', 1);
+  const r = rel(a, b); r.goal = null; Object.assign(r, { state: 'peace', since: S.time, op: r.op + 20, cool: S.time + 10, truce: S.time + CFG.TRUCE_DAYS, lastPeace: S.time });
   for (const f of S.fronts) if ((f.n === a || f.n === b) && f.target != null && S.owner[f.target] === (f.n === a ? b : a)) { f.target = null; f.zone = []; f.prog = {}; }
   if (a === 0 || b === 0) toast(`🕊 נחתם שלום עם ${nm(a === 0 ? b : a)}${gold ? ` (${gold}💰)` : ''} — שביתת נשק ל-${CFG.TRUCE_DAYS} יום`, 'good');
 }
 const DEAL_DAYS = { trade: 'TRADE_DAYS', nap: 'NAP_DAYS', alliance: 'ALLY_DAYS' };
-function applyDeal(kind, a, b, gold = 0) {
+function applyDeal(kind, a, b, gold = 0, terms) {
   const r = rel(a, b);
   if (gold) { S.nations[a].res.gold -= gold; S.nations[b].res.gold += gold; r.op += gold / 20; }
-  if (kind === 'peace') makePeace(a, b, gold);
+  if (kind === 'peace') makePeace(a, b, gold, terms);
   else { const until = S.time + CFG[DEAL_DAYS[kind]]; if (kind === 'trade') r.trade = until; else if (kind === 'nap') r.nap = until; else { r.ally = until; r.nap = 0; } }
   r.op = Math.min(100, r.op + 10);
   if ((a === 0 || b === 0) && kind !== 'peace') toast(`🤝 ${DEALS[kind]} עם ${nm(a === 0 ? b : a)} ל-${CFG[DEAL_DAYS[kind]]} יום`, 'good');
@@ -150,10 +160,16 @@ function dealInvalid(kind, a, b) {
 // ניקוד מלחמה: משבצות שכל צד כבש מהשני מאז תחילת המלחמה
 const warGain = (r, nid) => (r.g && r.g[nid]) || 0;
 // האם המחשב (ai) מקבל הצעה מ-other. מחזיר {ok, why}
-function aiAccepts(kind, ai, other, gold) {
+function aiAccepts(kind, ai, other, gold, terms) {
   const r = rel(ai, other), P = PERS[S.nations[ai].pers], my = allianceBloc(ai), th = allianceBloc(other, ai);
+  if (kind === 'peace' && terms?.items?.length && terms.win === other) {
+    // תנאים שהצד השני דורש: מתקבלים אם הם בשווי הניקוד שלו (ועוד עייפות מלחמה)
+    const cost = termsCost(terms.items), sc = warScore(other, ai) + warFatigue(ai, other) + gold / 20;
+    return cost <= sc ? { ok: true } : { ok: false, why: `התנאים שווים ${cost} והניקוד שלכם ${Math.max(0, Math.round(sc))} — דרשו פחות` };
+  }
   if (kind === 'peace') {
     const age = S.time - r.since; if (age < 15) return { ok: false, why: 'המלחמה רק התחילה' };
+    if (warScore(ai, other) > 25 + warFatigue(ai, other) && !gold) return { ok: false, why: `אנחנו מנצחים (ניקוד ${warScore(ai, other)}) — נדרוש תנאים` };
     const winning = warGain(r, ai) - warGain(r, other), pr = my / Math.max(1, th);
     if (winning <= 0 && pr < 1.2 && !finalWar()) return { ok: true };
     if (finalWar() && !(winning < -40 && pr < 0.6)) return { ok: false, why: 'מלחמה עד הסוף' };
@@ -175,26 +191,26 @@ function aiAccepts(kind, ai, other, gold) {
   }
   return { ok: false, why: '' };
 }
-function propose(from, to, kind, gold = 0) {
+function propose(from, to, kind, gold = 0, terms) {
   const bad = dealInvalid(kind, from, to); if (bad) return { ok: false, reason: bad };
   if (gold > S.nations[from].res.gold) return { ok: false, reason: 'אין מספיק זהב' };
   const r = rel(from, to);
   if (!S.nations[to].isAI) {
     if (S.offers.some(o => o.from === from && o.kind === kind)) return { ok: false };
-    S.offers.push({ from, to, kind, gold, t: S.time });
+    S.offers.push({ from, to, kind, gold, t: S.time, terms });
     toast(`📜 ${nm(from)} מציעה ${DEALS[kind]}${gold ? ` ומשלמת ${gold}💰` : ''} — ראה בדיפלומטיה`); render();
     return { ok: true, pending: true };
   }
   r.cool = S.time + 8;
-  const ev = aiAccepts(kind, to, from, gold);
-  if (ev.ok) { applyDeal(kind, from, to, gold); return { ok: true }; }
+  const ev = aiAccepts(kind, to, from, gold, terms);
+  if (ev.ok) { applyDeal(kind, from, to, gold, terms); return { ok: true }; }
   r.op -= 2;
   return { ok: false, reason: `${nm(to)} דוחה: ${ev.why}`, demand: ev.demand };
 }
 function answerOffer(o, yes) {
   S.offers = S.offers.filter(x => x !== o);
   if (o.kind === 'coalition') { if (yes) { if (warBlock(0, o.target)) toast(warBlock(0, o.target), 'bad'); else { declareWar(0, o.target, { joining: true }); rel(0, o.from).op += 15; } } render(); return; }
-  if (yes) { if (dealInvalid(o.kind, o.from, o.to)) toast('ההצעה כבר לא בתוקף', 'bad'); else applyDeal(o.kind, o.from, o.to, Math.min(o.gold, S.nations[o.from].res.gold)); }
+  if (yes) { if (dealInvalid(o.kind, o.from, o.to)) toast('ההצעה כבר לא בתוקף', 'bad'); else applyDeal(o.kind, o.from, o.to, Math.min(o.gold, S.nations[o.from].res.gold), o.terms); }
   else rel(o.from, o.to).op -= 5;
   render();
 }
@@ -235,9 +251,11 @@ function borderLens() {
   if (_tr.s !== S || S.day - _tr.landDay >= 5 || ws !== _tr.warSig) { _tr.land.clear(); _tr.landDay = S.day; _tr.warSig = ws; }
   _tr.s = S; _tr.day = S.day;
   const n = S.nations.length, B = new Float32Array(n * n), O = S.owner, N = O.length;
-  for (let i = 0; i < N; i++) { const a = O[i]; if (a < 0) continue; let b;
-    if (i % W < W - 1 && (b = O[i + 1]) >= 0 && b !== a) { B[a * n + b]++; B[b * n + a]++; }
-    if (i < N - W && (b = O[i + W]) >= 0 && b !== a) { B[a * n + b]++; B[b * n + a]++; } }
+  // כפר בחסות נחשב שטח של המגן שלו — גבול משותף דרכו (minors.js)
+  const E = new Int8Array(N); for (let i = 0; i < N; i++) E[i] = O[i] >= 0 ? O[i] : effOwner(i);
+  for (let i = 0; i < N; i++) { const a = E[i]; if (a < 0) continue; let b;
+    if (i % W < W - 1 && (b = E[i + 1]) >= 0 && b !== a) { B[a * n + b]++; B[b * n + a]++; }
+    if (i < N - W && (b = E[i + W]) >= 0 && b !== a) { B[a * n + b]++; B[b * n + a]++; } }
   return _tr.border = B;
 }
 // מרחק יבשתי (במשבצות) מהשטח של a לשטח של b, בלי לעבור בשטח של מי שנלחם באחד מהם

@@ -304,7 +304,7 @@ const reliefAt = d => clamp(DEP.RELIEF + 0.2 * (ensureCmd(d).cau - 0.5) - 0.14 *
 function report(f, d, msg, kind = '', pop = false) {
   if (f.n !== 0) return;
   const line = `${d ? `אוגדה ${d.num} (${cmdTitle(ensureCmd(d))})` : f.gen.name}: ${msg}`;
-  if (pop) toast('📻 ' + line, kind); else if (typeof LOG !== 'undefined' && !S.demo) { LOG.push({ t: S.time, msg: '📻 ' + line, kind }); if (LOG.length > 80) LOG.shift(); }
+  if (typeof LOG !== 'undefined' && !S.demo) { LOG.push({ t: S.time, msg: '📻 ' + line, kind }); if (LOG.length > 80) LOG.shift(); }
 }
 // ניסיון: יום במגע, משבצת שנכבשה בגזרה. ונפילת מפקד (נדיר, בקרב קשה)
 function cmdDaily() {

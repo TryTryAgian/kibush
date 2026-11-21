@@ -15,7 +15,7 @@ function aiThink(n) {
   const P = PERS[n.pers];
   n.mob = clamp(P.mob[wars.length ? 1 : 0] + 0.15 * ((n.wants?.mil ?? 0.5) - 0.5), 0.15, 0.85);
   if (n.res.mat < 80 && n.res.gold > 300) importMat(nid, 60);
-  if (!n.tech.cur) { const av = availableTechs(n); n.tech.cur = P.tech.find(t => av.includes(t)) || av[0] || null; }
+  if (!n.tech.cur) { const av = availableTechs(n), k = P.tech.find(t => av.includes(t)) || av.find(t => !TECH[t].excl) || av[0] || null; if (k) startTech(n, k); }
   // בנייה לפי אישיות: משקל יורד עם כל מבנה קיים מאותו סוג (חוסך כסף לבחירה הראשונה)
   // בנייה: עד 4 מבנים בכל החלטה כשיש עודף כסף (כדי שהכלכלה תהפוך לכוח ולא תיערם)
   let saving = false;
@@ -57,7 +57,7 @@ function aiThink(n) {
     if (n.res.mat < 600) importMat(nid, 150);
     const c = own.find(i => S.buildings[i]?.type === 'city' && S.buildings[i].n === nid && done(S.buildings[i]) && (S.buildings[i].lvl || 1) < CFG.CITY_MAX_LVL && S.buildings[i].upg == null);
     if (c != null && canAfford(n, upgradeCost(S.buildings[c]))) upgradeCity(nid, c);
-    if (n.tech.cur && n.res.gold > 2600) { const T = TECH[n.tech.cur], need = T.cost - n.tech.prog, buy = Math.min(need, (n.res.gold - 2400) / 4); if (buy > 0) { n.res.gold -= buy * 4; n.tech.prog += buy; } }
+    if (n.tech.cur && n.res.gold > 2600) { const T = TECH[n.tech.cur], need = techCost(n, n.tech.cur) - n.tech.prog, buy = Math.min(need, (n.res.gold - 2400) / 4); if (buy > 0) { n.res.gold -= buy * 4; n.tech.prog += buy; } }
   }
   // שייטות: נמל מאמן ספינות רק לאומה ימית או במלחמה (ועד 3 שייטות)
   let navyOn = 0; eachBuilding(b => { if (b.n === nid && b.type === 'port') { const on = (n.pers === 'naval' || wars.length) && navyOn < 3; b.hold = !on; if (on) navyOn++; } });
@@ -132,7 +132,7 @@ function aiThink(n) {
     const bad = finalWar() ? lost > 40 && myBloc < allianceBloc(m.id, nid) * 0.5 : (lost > 15 && myBloc < allianceBloc(m.id, nid) * 0.8) || (age > CFG.WAR_TIRED_DAYS && Math.abs(lost) < 20);
     if (!bad || srand() > P.peaceTh * 0.4) continue;
     if (m.isAI) { const ev = aiAccepts('peace', m.id, nid, 0); if (ev.ok) propose(nid, m.id, 'peace'); else if (ev.demand && lost > 0 && n.res.gold > ev.demand) propose(nid, m.id, 'peace', ev.demand); }
-    else propose(nid, m.id, 'peace', lost > 0 ? Math.floor(Math.min(n.res.gold * 0.3, 300)) : 0);
+    else { const sc = warScore(nid, m.id); propose(nid, m.id, 'peace', sc < 0 && lost > 0 ? Math.floor(Math.min(n.res.gold * 0.3, 300)) : 0, sc >= 15 ? { win: nid, items: aiPeaceTerms(nid, m.id, sc) } : undefined); }
   }
   // הסכמים
   for (const m of S.nations) {

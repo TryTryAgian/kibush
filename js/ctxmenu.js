@@ -31,6 +31,10 @@ function ctxWheel(i, sx, sy, mode) {
   el.append(h('div', { class: 'cx-center' },
     h('button', { class: 'btn sm', title: mode === 'camp' ? 'חזרה למבנים' : 'מחנות צבא — כל מחנה בונה אוגדה', onclick: e => { e.stopPropagation(); ctxWheel(i, sx, sy, mode === 'camp' ? 'build' : 'camp'); } }, mode === 'camp' ? '🏗' : '⛺'),
     up ? h('button', { class: 'btn sm pri', title: `שדרוג עיר (${fmtCost(upgradeCost(b))})`, onclick: () => { const r = upgradeCity(0, i); toast(r || '⬆ העיר בשדרוג', r ? 'bad' : 'good'); ctxClose(); render(); } }, '⬆') : null));
+  // עיר כבושה: מד אי-שקט ומה מזיז אותו
+  const up_ = b && b.type === 'city' ? unrestParts(i) : null;
+  el.append(h('div', { class: 'cx-def', title: partsText(tileDefenseParts(i)) }, `🛡 הגנה ${tileDefense(i).toFixed(1)} ⓘ`));
+  if (up_) el.append(h('div', { class: 'cx-unrest', title: up_.map(([t, v]) => `${v > 0 ? '+' : ''}${v.toFixed(1)}/יום · ${t}`).join('\n') }, `🔥 אי-שקט ${Math.round(b.unrest || 0)}% (${up_.reduce((a, p) => a + p[1], 0) > 0 ? '▲' : '▼'})`));
   items.forEach((it, k) => {
     const a = -Math.PI / 2 + k / items.length * Math.PI * 2, x = Math.cos(a) * R, y = Math.sin(a) * R;
     // המשבצת המדויקת או הקרובה ביותר שמותר לבנות בה
@@ -61,13 +65,15 @@ function nationCtx(o, i) {
     ft ? h('div', { class: 'cx-feat' }, h('b', {}, featLabel(ft)), h('div', { class: 'dim', style: { fontSize: '11px' } }, FT[ft.t].why), h('button', { class: 'btn sm' + (war ? ' pri' : ''), onclick: act(seize) }, `🎯 מבצע לתפוס את ${ft.name}`)) : null,
     h('div', { class: 'cx-h', style: { borderColor: n.color } }, h('span', { class: 'dot', style: { background: n.color } }), ' ', n.name, n.ruler ? h('span', { class: 'dim' }, ` · ${n.ruler}`) : null),
     h('div', { class: 'dim' }, `${war ? '⚔ במלחמה איתך' : allied(0, o) ? '🛡 בעלת ברית' : napActive(0, o) ? '🤚 אי-תקיפה' : hasTrade(0, o) ? '🤝 סחר' : 'שלום'} · כוח ~${fl(powerEst(0, o))} (מודיעין ${il.txt})`),
+    (() => { const T = S.nations[o].tech, br = Object.keys(BRANCHES).map(b => [b, doneInBranch(S.nations[o], b)]).sort((a, b) => b[1] - a[1])[0], ex = Object.keys(T.done).filter(k => TECH[k]?.excl).map(k => TECH[k].name);
+      return br && br[1] ? h('div', { class: 'dim', style: { fontSize: '11px' } }, `🔬 מודיעין: ממקדת מחקר ב${BRANCHES[br[0]]}${ex.length ? ' · בחרה: ' + ex.join(', ') : ''}`) : null; })(),
     ap ? h('div', { class: 'dim' }, 'גישה: ', h('b', { style: { color: ap[1] } }, ap[0]), ` · דעה ${Math.round(opinion(o, 0))}`) : null,
-    war ? h('div', { class: 'cx-row' }, h('button', { class: 'btn sm pri', disabled: cool, onclick: act(() => doPropose(o, 'peace')) }, '🕊 הצע שלום'), h('button', { class: 'btn sm', disabled: cool || player().res.gold < 100, onclick: act(() => doPropose(o, 'peace', 100)) }, '🕊 +100💰'))
+    war ? h('div', { class: 'cx-row' }, h('button', { class: 'btn sm pri', disabled: cool, onclick: act(() => openPeaceTerms(o)) }, '📜 תנאי שלום'), h('button', { class: 'btn sm', disabled: cool, onclick: act(() => doPropose(o, 'peace')) }, '🕊 לבן'), h('button', { class: 'btn sm', disabled: cool || player().res.gold < 100, onclick: act(() => doPropose(o, 'peace', 100)) }, '🕊 +100💰'))
       : h('div', { class: 'cx-row' }, deal('trade', '🤝 סחר'), deal('nap', '🤚 אי-תקיפה'), deal('alliance', '🛡 ברית'),
           h('button', { class: 'btn sm', disabled: player().res.gold < 100, onclick: act(() => { player().res.gold -= 100; r.op = Math.min(100, r.op + 15); toast(`שלחת מתנה ל${n.name}`); }) }, '🎁 100💰')),
     h('div', { class: 'cx-row' },
       op ? h('button', { class: 'btn sm', onclick: act(() => { ui.tab = 'fronts'; }) }, '📋 המבצע נגדה') : h('button', { class: 'btn sm' + (war ? ' pri' : ''), title: war ? '' : 'מבצע מתכונן ונכנס לפעולה כשתהיה מלחמה', onclick: act(() => { createOp(0, o); ui.tab = 'fronts'; if (!war) toast(`📋 מבצע נגד ${n.name} מתכונן — יתחיל כשתכריז מלחמה`, ''); }) }, '📋 הכן מבצע נגדה'),
-      !war ? h('button', { class: 'btn sm warn', disabled: !!wb, title: wb || '', onclick: act(() => declareWar(0, o)) }, napActive(0, o) ? '⚔ הפר הסכם ותקוף' : '⚔ הכרז מלחמה') : null,
+      !war ? h('button', { class: 'btn sm warn', disabled: !!wb, title: wb || '', onclick: act(() => openWarGoal(o)) }, napActive(0, o) ? '⚔ הפר הסכם ותקוף' : '⚔ הכרז מלחמה') : null,
       h('button', { class: 'btn sm', onclick: act(() => { ui.tab = 'diplo'; }) }, '🤝 לדיפלומטיה')),
   ];
 }
@@ -78,7 +84,10 @@ function minorCtx(m) {
   const bar = (v, col) => h('div', { class: 'cx-bar' }, h('i', { style: { width: Math.min(100, v) + '%', background: col } }));
   return [
     h('div', { class: 'cx-h', style: { borderColor: host ? '#ff6a4a' : minorCol(m) } }, `${m.kind === 'town' ? '🏘' : '🏠'} ${minorKind(m)} ${m.name}`, h('span', { class: 'dim' }, ` · ${m.tiles} משבצות`)),
-    h('div', { class: 'dim' }, `🛡 חיל מצב ${Math.round(m.gar)}/${m.max}${host ? ' · ⚔ הכרזת עליו כיריב' : ''}`),
+    h('div', { class: 'dim' }, `🛡 חיל מצב ${Math.round(m.gar)}/${m.max}${host ? ' · ⚔ הכרזת עליו כיריב' : ''} · הכנסה ${minorIncome(m).toFixed(1)}💰/יום`),
+    m.lord != null ? h('div', { style: { fontSize: '12px', color: S.nations[m.lord].color } }, m.lord === 0 ? `${TIER_NAME[minorTier(m, 0)]}: משלם לך ${minorTier(m, 0) >= 3 ? 'את כל' : '45% מ'}הכנסתו · נחשב גבול שלך · מי שתוקף אותו נלחם בך` : `🛡 בחסות ${nm(m.lord)} — תקיפה שלו היא מלחמה עם ${nm(m.lord)}`) : null,
+    !host && m.lord !== 0 && minorTier(m, 0) === 1 ? h('div', { class: 'dim', style: { fontSize: '11px', color: '#8fe0a0' } }, '🤝 ידידותי: הצבא שלך יכול לעבור בשטחו') : null,
+    !host ? h('div', { class: 'dim', style: { fontSize: '10.5px' } }, `דרגות: 35% ידידותי (מעבר) · 50% חסות (45% מס, גבול) · 80% כל ההכנסה · 100% הטמעה`) : null,
     host ? h('div', { class: 'dim' }, 'מבצע ההתפשטות שלך יתקוף את השטח שלו. כשהעיר עצמה תיפול — כל האזור נכנע.') : h('div', {},
       h('div', { class: 'dim' }, `ההשפעה שלך: ${my}/${minorNeed(m)}${m.mis[0] ? ` · +${g.g.toFixed(1)} ליום` : ''}`), bar(my / minorNeed(m) * 100, '#5fe0ff'),
       ...g.parts.map(([t, v]) => h('div', { class: 'dim', style: { fontSize: '11px', color: typeof v === 'number' ? (v > 0.05 ? '#8fe0a0' : v < -0.05 ? '#ff9a80' : '') : '' } }, `${typeof v === 'number' ? (v > 0 ? '+' : '') + v.toFixed(1) : v} · ${t}`)),
@@ -88,7 +97,7 @@ function minorCtx(m) {
     h('div', { class: 'cx-row' },
       !host ? h('button', { class: 'btn sm' + (m.mis[0] ? ' on' : ' pri'), disabled: !m.mis[0] && (player().res.gold < misCost(0) * 5 || misCount(0) >= misMax(0)), title: !m.mis[0] && misCount(0) >= misMax(0) ? `מקסימום ${misMax(0)} משלחות במקביל (משלחת נוספת לכל 2 ערים)` : `${misCount(0)}/${misMax(0)} משלחות · הבאה תעלה ${misCost(0) + (m.mis[0] ? 0 : MINOR.MISSION_GOLD * 0.5 * (misCount(0) ? 1 : 0))}💰 ליום`, onclick: act(() => { m.mis[0] = !m.mis[0]; toast(m.mis[0] ? `🤝 שליחים יצאו ל${m.name} (${misCost(0)}💰 ליום)` : `השליחים חזרו מ${m.name}`, m.mis[0] ? 'good' : ''); }) }, m.mis[0] ? '🤝 החזר שליחים' : `🤝 שלח שליחים (${misCost(0) * (misCount(0) ? 1.5 : 1)}💰/יום)`) : null,
       !host ? h('button', { class: 'btn sm', disabled: player().res.gold < gc, onclick: act(() => { if (minorGift(m, 0)) toast(`🎁 מתנה ל${m.name}: +${g.reason ? MINOR.GIFT_INF : MINOR.GIFT_INF / 2} השפעה`, 'good'); }) }, `🎁 מתנה ${gc}💰`) : null,
-      !host ? h('button', { class: 'btn sm warn', onclick: act(() => { minorDeclare(m, 0); if (!S.ops.some(op => op.n === 0 && op.target === -1)) createOp(0, -1); ui.tab = 'fronts'; }) }, '⚔ תקוף') : h('button', { class: 'btn sm', onclick: act(() => { if (!S.ops.some(op => op.n === 0 && op.target === -1)) createOp(0, -1); ui.tab = 'fronts'; }) }, '📋 מבצע ההתפשטות'),
+      !host ? h('button', { class: 'btn sm warn', title: m.lord != null && m.lord !== 0 ? `זו מלחמה עם ${nm(m.lord)}` : '', onclick: act(() => { if (m.lord != null && m.lord !== 0 && !atWar(0, m.lord) && !confirm(`${m.name} בחסות ${nm(m.lord)} — תקיפה תכריז מלחמה על ${nm(m.lord)}. להמשיך?`)) return; minorDeclare(m, 0); if (!S.ops.some(op => op.n === 0 && op.target === -1)) createOp(0, -1); ui.tab = 'fronts'; }) }, '⚔ תקוף') : h('button', { class: 'btn sm', onclick: act(() => { if (!S.ops.some(op => op.n === 0 && op.target === -1)) createOp(0, -1); ui.tab = 'fronts'; }) }, '📋 מבצע ההתפשטות'),
       h('button', { class: 'btn sm', onclick: act(() => centerOnXY(tx, ty)) }, '📍')),
   ];
 }

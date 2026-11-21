@@ -26,7 +26,7 @@ const CFG = {
   PORT_RANGE: 9,               // טווח נחיתה מהים מנמל
   UNIT_UPKEEP: 0.1,            // זהב ליום לכל יחידה
   MAN_UPKEEP: 0.012,           // כוח אדם ליום לכל יחידה (חיילים מתחלפים, נפגעים, משמרות)
-  MAN_CAP_POP: 0.25,           // תקרת מאגר כוח האדם: רבע מהאוכלוסייה (+200)
+  MAN_CAP_POP: 0.12,           // תקרת מאגר כוח האדם: רבע מהאוכלוסייה (+200)
   GRACE_DAYS: 40,              // המחשב לא מכריז מלחמה לפני יום זה
   AI_THINK: 2,                 // כל כמה ימים המחשב מחליט
   NAP_DAYS: 120,               // אורך הסכם אי-תקיפה
@@ -44,12 +44,12 @@ const CFG = {
   UNREST_DAYS: 60,             // ימים עד שמבנה שנכבש מגיע לתפוקה המרבית
   INTEGRATE_DAYS: 150,         // אחרי כמה ימים שטח כבוש הופך לליבה
   REVOLT_CHANCE: 0.01,         // סיכוי יומי למרד בעיר שנכבשה לאחרונה, בלי גנרל קרוב
-  SNOW_REF: 2.2, SNOW_EXP: 0.35, SNOW_MIN: 0.5,   // תשואה פוחתת מעבר לפי 2.2 מהשטח ההתחלתי
+  SNOW_REF: 2.2, SNOW_EXP: 0.24, SNOW_MIN: 0.6,   // תשואה פוחתת מעבר לפי 2.2 מהשטח ההתחלתי
   THREAT_WARN: 40, THREAT_COAL: 60, THREAT_ALLY_LEAVE: 75,   // מד איום: אזהרה / קואליציה / בעלי ברית עוזבים
   THREAT_DECAY: 0.6, THREAT_DECAY_WAR: 0.2, THREAT_WAR: 4,     // דעיכה ליום (שלום/מלחמה), הכרזת מלחמה
   THREAT_TILE: 0.012, THREAT_KEY: 2.5, THREAT_CAP: 12,        // כיבוש משבצת / מבנה חשוב / בירה
   QUICK_WIN: 0.6, QUICK_GRACE: 15, QUICK_PGRACE: 35,           // משחק מהיר: יעד ניצחון ותקופות חסד
-  COALITION_SHARE: 0.45,       // מעל זה — האחרים חוששים ומתאחדים
+  COALITION_SHARE: 0.35,       // מעל זה — האחרים חוששים ומתאחדים
   // --- דיפלומטיה ---
   TRUCE_DAYS: 40, TRADE_DAYS: 150, ALLY_DAYS: 200,
   WAR_TIRED_DAYS: 140,         // מלחמה ארוכה מזה בלי הכרעה — עייפות
@@ -94,7 +94,7 @@ const CFG = {
   TILT_Z0: 1.6, TILT_Z1: 3.4, TILT_MAX: 50, H3: 2.2,   // תלת-ממד: המצלמה נוטה בין שני הזומים, עד זווית מרבית; גובה שטח ליחידת גובה
   UNIT_ZOOM: 1.4,              // מהזום הזה ומעלה רואים יחידות בודדות במקום סמל
   NEAR_CAMP: 16,               // מחנה "קרוב" לאזור מבצע (משבצות): ממנו נאספים הכוחות קודם
-  TECH_COST: 2.6,              // מכפיל עלות מחקר (קצב המשחק)            // זמן מרבי לריכוז כוחות לפני שלב
+  TECH_COST: 1.8,              // מכפיל עלות מחקר (קצב המשחק)            // זמן מרבי לריכוז כוחות לפני שלב
 };
 const SPEEDS = [0, 1, 2, 4];
 const SIZES = { small: [64 * G, 48 * G, 'קטנה'], medium: [88 * G, 66 * G, 'בינונית'], large: [112 * G, 84 * G, 'גדולה'] };
@@ -124,7 +124,7 @@ const BUILD = {
   city:       { name: 'עיר',        cost: { gold: 130, mat: 70 }, time: 10, yield: { gold: 6, mat: 1, man: 2 }, claim: 4, def: 4, spacing: 3, terrain: LAND_OK, desc: 'זהב, חומרים וכוח אדם' },
   camp:       { name: 'מחנה צבאי',  cost: { gold: 110, mat: 40 }, time: 8,  yield: { gold: -1 }, claim: 2, def: 4, spacing: 2, terrain: LAND_OK, desc: 'בסיס של אוגדה אחת — סוג המחנה קובע את סוג האוגדה' },
   factory:    { name: 'מפעל',       cost: { gold: 150, mat: 20 }, time: 10, yield: { mat: 4, gold: -1 }, claim: 1, def: 3, spacing: 1, terrain: [GRASS, SAND, HILLS], desc: 'חומרים · מאיץ אימון שריון, ארטילריה ונ״מ' },
-  university: { name: 'אוניברסיטה', cost: { gold: 150, mat: 90 }, time: 12, yield: { know: 3, gold: -2 }, claim: 1, def: 2, spacing: 3, terrain: LAND_OK, desc: 'ידע למחקר' },
+  university: { name: 'אוניברסיטה', cost: { gold: 150, mat: 90 }, time: 12, yield: { know: 4, gold: -2 }, claim: 1, def: 2, spacing: 3, terrain: LAND_OK, desc: 'ידע למחקר' },
   fortress:   { name: 'ביצור',      cost: { gold: 70, mat: 140 }, time: 10, yield: { gold: -2, mat: -0.2 }, claim: 2, def: 10, spacing: 2, aura: 3, terrain: [...LAND_OK, MOUNT], desc: 'הגנה ברדיוס 3' },
   port:       { name: 'נמל',        cost: { gold: 160, mat: 30 }, time: 10, yield: { gold: 2, mat: 1 }, claim: 2, def: 3, spacing: 3, coastal: true, terrain: [SAND, GRASS], desc: 'מסחר · אספקה בים · בסיס שייטת' },
   airport:    { name: 'שדה תעופה',  cost: { gold: 250, mat: 80 }, time: 14, yield: { gold: -3 }, claim: 2, def: 2, spacing: 6, terrain: [GRASS, SAND], req: 'aviation', desc: 'בסיס כנף אווירית' },
@@ -155,10 +155,15 @@ const TECH = {
   agri:       { b: 'econ',  name: 'חקלאות מתקדמת',      cost: 120, req: [],                        eff: { man: 0.25 },               desc: '+25% כוח אדם מערים' },
   industry:   { b: 'econ',  name: 'תעשייה כבדה',        cost: 160, req: [],                        eff: { mat: 0.3 },                desc: '+30% חומרים ממפעלים' },
   trade:      { b: 'econ',  name: 'כלכלת סחר',           cost: 160, req: [],                        eff: { trade: 0.5 },              desc: '+50% הכנסות מסחר' },
-  mass_prod:  { b: 'econ',  name: 'ייצור המוני',        cost: 380, req: ['industry'],              eff: { train: 0.3, mat: 0.2 },    desc: '+30% קצב אימון, +20% חומרים' },
+  mass_prod:  { b: 'econ',  name: 'ייצור המוני',        cost: 380, req: ['industry'], excl: 'industry', eff: { train: 0.3, mat: 0.2 },    desc: '+30% קצב אימון, +20% חומרים — יחידות זולות ומהירות' },
+  quality:    { b: 'econ',  name: 'ייצור איכות',        cost: 380, req: ['industry'], excl: 'industry', eff: { inf_atk: 0.1, inf_def: 0.1, cmdo_atk: 0.1, ltank_atk: 0.15, ltank_def: 0.15, htank_atk: 0.15, htank_def: 0.15, art_atk: 0.15, train: -0.2 }, desc: '+10–15% לכל היחידות היבשתיות, אימון איטי ב-20%' },
+  trade_econ: { b: 'econ',  name: 'כלכלת שוק',          cost: 420, req: ['trade'],    excl: 'econ', eff: { trade: 1 },               desc: 'הכנסות מסחר ×2' },
+  war_econ:   { b: 'econ',  name: 'כלכלת מלחמה',        cost: 420, req: ['industry'], excl: 'econ', eff: { mat: 0.4, train: 0.15 },   desc: '+40% חומרים, +15% קצב אימון' },
   research:   { b: 'econ',  name: 'מכוני מחקר',         cost: 420, req: ['science'],               eff: { know: 0.4 },               desc: '+40% ידע' },
   banking:    { b: 'econ',  name: 'בנקאות',             cost: 450, req: ['trade', 'agri'],         eff: { gold: 0.2 },               desc: '+20% זהב' },
   drill:      { b: 'inf',   name: 'אימון יסודי',        cost: 100, req: [],                        eff: { inf_atk: 0.2, inf_def: 0.2 }, desc: '+20% חי״ר' },
+  levee:      { b: 'inf',   name: 'גיוס המוני',         cost: 300, req: ['drill'], excl: 'army', eff: { levy: 0.5, man: 0.3 },   desc: 'תקרת הגיוס ×1.5, +30% כוח אדם' },
+  pro_army:   { b: 'inf',   name: 'צבא מקצועי',         cost: 300, req: ['drill'], excl: 'army', eff: { inf_def: 0.2, cmdo_def: 0.2, org: 0.3 }, desc: '+20% הגנת חי״ר וקומנדו, מורל מתאושש מהר' },
   commando:   { b: 'inf',   name: 'יחידות קומנדו',      cost: 260, req: ['drill'],                 eff: {},                          desc: 'פותח מחנה קומנדו' },
   marines:    { b: 'inf',   name: 'לוחמת נחיתה',        cost: 340, req: ['commando'],              eff: { landing: 1 },              desc: 'נחיתות בלי אבדות מהים' },
   elite:      { b: 'inf',   name: 'לוחמי עילית',        cost: 520, req: ['commando'],              eff: { cmdo_atk: 0.3, inf_atk: 0.15 }, desc: '+30% קומנדו, +15% חי״ר' },
@@ -166,12 +171,12 @@ const TECH = {
   motor:      { b: 'armor', name: 'מנוע בעירה',         cost: 140, req: [],                        eff: { reinforce: 0.1 },          desc: 'פותח מחנה שריון קל · +10% תנועה' },
   heavy_armor:{ b: 'armor', name: 'שריון כבד',          cost: 340, req: ['motor', 'industry'],     eff: {},                          desc: 'פותח מחנה שריון כבד' },
   armor:      { b: 'armor', name: 'שריון משופר',        cost: 460, req: ['heavy_armor'],           eff: { ltank_atk: 0.25, htank_atk: 0.25 }, desc: '+25% התקפת שריון' },
-  blitz:      { b: 'armor', name: 'דוקטרינת בזק',       cost: 560, req: ['armor', 'logistics'],    eff: { capture: 0.25, ltank_atk: 0.15 }, desc: '+25% מהירות כיבוש' },
+  blitz:      { b: 'armor', name: 'דוקטרינת בזק',       cost: 560, req: ['armor', 'logistics'], excl: 'doctrine',    eff: { capture: 0.25, ltank_atk: 0.15 }, desc: '+25% מהירות כיבוש' },
   artillery:  { b: 'art',   name: 'ארטילריה',           cost: 220, req: ['industry'],              eff: {},                          desc: 'פותח מחנה ארטילריה' },
   fort:       { b: 'art',   name: 'ביצורים מודרניים',   cost: 180, req: [],                        eff: { fort: 0.5 },               desc: '+50% הגנת ביצורים' },
   air_def:    { b: 'art',   name: 'הגנה אווירית',       cost: 280, req: ['artillery'],             eff: {},                          desc: 'פותח מחנה הגנה אווירית' },
   barrage:    { b: 'art',   name: 'הפגזה מרוכזת',       cost: 440, req: ['artillery'],             eff: { art_atk: 0.3 },            desc: '+30% ארטילריה' },
-  deep_def:   { b: 'art',   name: 'הגנה לעומק',         cost: 420, req: ['fort', 'artillery'],     eff: { fort: 0.4, inf_def: 0.15 }, desc: '+40% ביצורים, +15% הגנת חי״ר' },
+  deep_def:   { b: 'art',   name: 'הגנה לעומק',         cost: 420, req: ['fort', 'artillery'], excl: 'doctrine',     eff: { fort: 0.4, inf_def: 0.15 }, desc: '+40% ביצורים, +15% הגנת חי״ר' },
   radar:      { b: 'art',   name: 'מכ״ם',               cost: 500, req: ['air_def', 'aviation'],   eff: { anti_air: 1 },             desc: 'הגנה אווירית ×2 נגד מטוסים' },
   aviation:   { b: 'air',   name: 'תעופה',              cost: 320, req: ['motor', 'industry'],     eff: {},                          desc: 'פותח שדות תעופה וכנפיים' },
   bombers:    { b: 'air',   name: 'מפציצים',            cost: 480, req: ['aviation'],              eff: { plane_atk: 0.35 },         desc: '+35% התקפת מטוסים' },
@@ -184,7 +189,10 @@ const TECH = {
   rail_net:   { b: 'log',   name: 'רשת מסילות',         cost: 360, req: ['logistics', 'industry'], eff: { reinforce: 0.2, rail: 0.5 }, desc: '+50% הכנסה מרכבות' },
   staff:      { b: 'log',   name: 'מטה מבצעים',         cost: 520, req: ['generals'],              eff: { generals: 1, org: 0.5 },   desc: '+1 גנרל, מורל מתאושש מהר' },
 };
-for (const k in TECH) TECH[k].cost = Math.round(TECH[k].cost * CFG.TECH_COST / 10) * 10;   // קצב המחקר הכללי
+for (const k in TECH) { TECH[k].base = TECH[k].cost; TECH[k].cost = Math.round(TECH[k].cost * CFG.TECH_COST / 10) * 10; }   // קצב המחקר הכללי
+// בחירות בלעדיות (סבב 8): בוחרים אחת מכל זוג, והשנייה ננעלת. כל בחירה דורשת אוניברסיטה שמתמחה בה
+const EXCL = { doctrine: 'דוקטרינת לחימה', industry: 'תעשייה', econ: 'כלכלה', army: 'כוח אדם' };
+const TECH_LATE = 300, TECH_DEEP = 420;   // מחקר מאוחר דורש אוניברסיטה; עמוק — גם 3 מחקרים בענף   // קצב המחקר הכללי
 const TRAITS = {
   aggressive: { name: 'תוקפני',     desc: '+20% התקפה', atk: 1.2 },
   defensive:  { name: 'מגונן',      desc: '+30% הגנה', def: 1.3 },
@@ -219,16 +227,16 @@ const DEALS = { peace: 'הסכם שלום', trade: 'הסכם סחר', nap: 'הס
 const PERS = {
   aggr:   { culm: 0.8, defFirst: 2.5, name: 'תוקפני', warTh: 1.15, peaceTh: 0.5, risk: 1.25, join: 1.2, maxWars: 2, tradeP: 0.03, mob: [0.4, 0.7],
             build: { camp: 2, factory: 3, city: 2, university: 1, airport: 1.5, port: 0.8, fortress: 0.4, upgrade: 1.5 }, camps: { inf: 2, cmdo: 1, light: 3, heavy: 3, art: 1.5, aa: 0.5 },
-            tech: ['motor', 'drill', 'industry', 'logistics', 'heavy_armor', 'artillery', 'armor', 'commando', 'generals', 'blitz', 'science', 'aviation', 'bombers', 'mass_prod', 'air_def', 'agri', 'staff'] },
+            tech: ['motor', 'drill', 'industry', 'levee', 'mass_prod', 'war_econ', 'logistics', 'heavy_armor', 'artillery', 'armor', 'commando', 'generals', 'blitz', 'science', 'aviation', 'bombers', 'mass_prod', 'air_def', 'agri', 'staff'] },
   trade:  { culm: 1.1, defFirst: 1.2, name: 'סוחר', warTh: 1.8, peaceTh: 0.9, risk: 0.7, join: 0.8, maxWars: 1, tradeP: 0.12, mob: [0.25, 0.5],
             build: { city: 3, port: 3, university: 2, factory: 2, camp: 1, airport: 0.6, fortress: 0.5, upgrade: 3 }, camps: { inf: 3, cmdo: 0.5, light: 2, heavy: 1, art: 1.5, aa: 1 },
-            tech: ['trade', 'science', 'agri', 'industry', 'motor', 'logistics', 'banking', 'research', 'artillery', 'drill', 'air_def', 'fort', 'naval', 'generals', 'mass_prod', 'heavy_armor'] },
+            tech: ['trade', 'science', 'agri', 'trade_econ', 'industry', 'quality', 'pro_army', 'motor', 'logistics', 'banking', 'research', 'artillery', 'drill', 'air_def', 'fort', 'naval', 'generals', 'mass_prod', 'heavy_armor'] },
   turtle: { culm: 1.2, defFirst: 0.9, name: 'מתבצר', warTh: 2.0, peaceTh: 0.75, risk: 0.6, join: 0.7, maxWars: 1, tradeP: 0.05, mob: [0.35, 0.6],
             build: { fortress: 3, camp: 2, factory: 2, city: 2, university: 1.5, airport: 1, port: 0.6, upgrade: 2 }, camps: { inf: 3, cmdo: 0.3, light: 1, heavy: 1.5, art: 3, aa: 2 },
-            tech: ['fort', 'drill', 'industry', 'artillery', 'science', 'air_def', 'deep_def', 'barrage', 'motor', 'agri', 'logistics', 'heavy_armor', 'aviation', 'radar', 'generals'] },
+            tech: ['fort', 'drill', 'pro_army', 'industry', 'quality', 'war_econ', 'artillery', 'science', 'air_def', 'deep_def', 'barrage', 'motor', 'agri', 'logistics', 'heavy_armor', 'aviation', 'radar', 'generals'] },
   naval:  { culm: 1.0, defFirst: 1.6, name: 'ימי', warTh: 1.4, peaceTh: 0.65, risk: 1.0, join: 1.0, maxWars: 1, tradeP: 0.08, mob: [0.3, 0.55],
             build: { port: 3, factory: 2, city: 2, university: 1.5, camp: 1, airport: 1.5, fortress: 0.5, upgrade: 2 }, camps: { inf: 2, cmdo: 3, light: 2, heavy: 1, art: 1, aa: 1 },
-            tech: ['naval', 'trade', 'industry', 'drill', 'motor', 'commando', 'marines', 'logistics', 'escort', 'science', 'aviation', 'airborne', 'battleship', 'generals', 'artillery'] },
+            tech: ['naval', 'trade', 'trade_econ', 'industry', 'drill', 'pro_army', 'mass_prod', 'motor', 'commando', 'marines', 'logistics', 'escort', 'science', 'aviation', 'airborne', 'battleship', 'generals', 'artillery'] },
 };
 const PERS_ORDER = ['aggr', 'trade', 'turtle', 'naval'];
 
@@ -290,5 +298,13 @@ for (const k in UNITS) UNITS[k].spd *= G;
 
 // משחק מהיר: יעד נמוך יותר ותקופות חסד קצרות
 const winR = () => (typeof S !== 'undefined' && S?.settings?.quick) ? CFG.QUICK_WIN : CFG.WIN_RATIO;
+// ניצחון מורכב (סבב 8): לפחות (יעד−20%) שטח מלא שלך, ועוד עד 20% מכפרים בחסותך ועד 5% מכפרים ידידותיים — ביחד היעד
+const WIN_PROT = 0.2, WIN_FRIEND = 0.05;
+function victoryShare(nid, c) {
+  c = c || counts(); const L = Math.max(1, S.landTotal); let pt = 0, ft = 0;
+  for (const m of S.minors || []) if (m.alive) { if (m.lord === nid) pt += m.tiles; else if (minorTier(m, nid) === 1) ft += m.tiles; }
+  const own = c[nid] / L, prot = Math.min(WIN_PROT, pt / L), friend = Math.min(WIN_FRIEND, ft / L), w = winR();
+  return { own, prot, friend, total: own + prot + friend, ok: own >= w - WIN_PROT && own + prot + friend >= w };
+}
 const graceDays = () => S?.settings?.quick ? CFG.QUICK_GRACE : CFG.GRACE_DAYS;
 const playerGrace = () => S?.settings?.quick ? CFG.QUICK_PGRACE : CFG.PLAYER_GRACE;
