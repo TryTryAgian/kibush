@@ -52,6 +52,15 @@ const dist = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b); return Math.h
 const cheb = (a, b) => { const [ax, ay] = XY(a), [bx, by] = XY(b); return Math.max(Math.abs(ax - bx), Math.abs(ay - by)) / G; };
 const hyp = (dx, dy) => Math.hypot(dx, dy) / G;
 const tileOf = (x, y) => idx(clamp(Math.round(x), 0, W - 1), clamp(Math.round(y), 0, H - 1));
+// אינדקס משבצות לכל אומה: מעבר אחד על המפה לכל האומות, נבנה מחדש לכל היותר פעם ברבע יום (או כשאין שינויים — נשמר)
+const _tiles = { v: -1, s: null, t: -1, L: null };
+function tilesOf(nid) {
+  if (!(_tiles.s === S && (_tiles.v === OWNV || (S.time - _tiles.t < 0.25 && S.time >= _tiles.t)))) {
+    const L = S.nations.map(() => []), O = S.owner; for (let i = 0; i < O.length; i++) { const o = O[i]; if (o >= 0) L[o].push(i); }
+    _tiles.L = L; _tiles.v = OWNV; _tiles.s = S; _tiles.t = S.time;
+  }
+  return _tiles.L[nid] || [];
+}
 const _cnt = { v: -1, c: null, s: null, t: -1 };
 function counts() {   // מחושב לכל היותר פעם בעשירית יום (שינויי בעלות קורים כל הזמן במלחמה)
   if (_cnt.s === S && (_cnt.v === OWNV || (S.time - _cnt.t < 0.1 && S.time >= _cnt.t))) return _cnt.c.slice();
@@ -124,12 +133,13 @@ function newGame(settings) {
   const seed = settings.seed || (Math.random() * 1e9 | 0);
   if (typeof G3 !== 'undefined') { G3.models.clear(); G3.towns?.clear?.(); }   // מודלים של המשחק הקודם
   const m = loadTerrain(settings, seed);
-  S = { v: 10, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
+  S = { v: 10, rs: seed | 0, settings: { ...settings, seed }, seed, W, H, time: 0, day: 0, speed: 1, over: null, demo: !!settings.demo,
         terrain: m.terrain, owner: new Int8Array(W * H).fill(-1), buildings: {}, nations: [], diplo: {},
         fronts: [], convoys: [], offers: [], ops: [], rails: [], divs: [], nextId: 1, lastOwner: new Int8Array(W * H).fill(-1), railMap: new Uint8Array(W * H), core: new Int8Array(W * H).fill(-1), capDay: new Float32Array(W * H), lastWarDay: 0 };
   S.landTotal = S.terrain.reduce((a, t) => a + (TER[t].water ? 0 : 1), 0);
   genRivers();   // נהרות וגשרים (features.js)
   const caps = m.starts ? m.starts.slice(0, settings.ai + 1) : placeCapitals(settings.ai + 1, mulberry32(seed + 99));
+  const genWarn = []; if (caps.length < settings.ai + 1 && !settings.demo) genWarn.push(`⚠ המפה צפופה מדי: ${caps.length} אומות במקום ${settings.ai + 1}`);
   caps.forEach((ci, id) => {
     const p = NATION_PRESETS[id];
     S.nations.push({ id, name: p.name, color: p.color, isAI: id > 0, alive: true, mob: CFG.START.mob, pers: id > 0 ? PERS_ORDER[(id + seed) % 4] : null, divSeq: 0,
@@ -140,7 +150,7 @@ function newGame(settings) {
     // התחלה הוגנת: לכל אומה מחנה חי״ר מוכן עם אוגדה מלאה ליד הבירה
   caps.forEach((ci, id) => {
     const spots = []; for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === id && cheb(i, ci) >= 2 && cheb(i, ci) <= 3 && canBuild(id, 'camp', i, true).ok) spots.push(i);
-    const j = spots.sort((a, b) => dist(a, ci) - dist(b, ci))[0]; if (j == null) return;
+    const j = spots.sort((a, b) => dist(a, ci) - dist(b, ci))[0]; if (j == null) { if (!settings.demo) genWarn.push(`⚠ אין מקום למחנה התחלתי לאומה ${id + 1}`); return; }
     S.buildings[j] = { type: 'camp', dt: 'inf', n: id, prog: 1, lvl: 1 }; claim(id, j, BUILD.camp.claim);
     const d = ensureDiv(j); d.units = { ...DIV_TYPES.inf.comp, ...zeroUnits(), inf: 12 };
   });
@@ -152,6 +162,7 @@ function newGame(settings) {
   buildTerrainCanvas(); view.ownerDirty = true; spriteCache.clear(); SHEET.tinted.clear(); iconURLs = null;
   centerOn(caps[0]); save(); render();
   toast(`כבוש ${Math.round(winR() * 100)}% מהיבשה. בנה מחנה צבאי ופתח מבצע`, 'good');
+  for (const w of genWarn) toast(w, "bad");
 }
 
 /* ---------- 6. PATHFINDING ---------- */
@@ -172,22 +183,38 @@ class Heap {
   push(f, i) { const a = this.a; a.push([f, i]); let k = a.length - 1; while (k) { const p = (k - 1) >> 1; if (a[p][0] <= a[k][0]) break; [a[p], a[k]] = [a[k], a[p]]; k = p; } }
   pop() { const a = this.a, top = a[0], last = a.pop(); if (a.length) { a[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < a.length && a[l][0] < a[m][0]) m = l; if (r < a.length && a[r][0] < a[m][0]) m = r; if (m === k) break; [a[m], a[k]] = [a[k], a[m]]; k = m; } } return top; }
 }
+// ערימה על מערכים טיפוסיים (בלי מערך קטן לכל איבר) — ל-A* שרץ הרבה
+// אקראיות של הסימולציה מזרע שנשמר במשחק (S.rs) — אותו משחק מתנהג אותו דבר, ואפשר לשחזר באגים. (תצוגה וקול — Math.random)
+function srand() { if (!S) return Math.random(); let t = (S.rs = ((S.rs | 0) + 0x6D2B79F5) | 0); t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }
+class FHeap {
+  constructor(n = 4096) { this.k = new Float64Array(n); this.v = new Int32Array(n); this.size = 0; }
+  clear() { this.size = 0; }
+  push(f, i) { if (this.size === this.k.length) { const k2 = new Float64Array(this.size * 2), v2 = new Int32Array(this.size * 2); k2.set(this.k); v2.set(this.v); this.k = k2; this.v = v2; }
+    const K = this.k, V = this.v; let c = this.size++; while (c) { const p = (c - 1) >> 1; if (K[p] <= f) break; K[c] = K[p]; V[c] = V[p]; c = p; } K[c] = f; V[c] = i; }
+  pop() { const K = this.k, V = this.v, top = V[0], n = --this.size; if (n > 0) { const f = K[n], i = V[n]; let c = 0; for (;;) { const l = 2 * c + 1; if (l >= n) break; const r = l + 1, m = r < n && K[r] < K[l] ? r : l; if (K[m] >= f) break; K[c] = K[m]; V[c] = V[m]; c = m; } K[c] = f; V[c] = i; } return top; }
+}
+// מערכים משותפים ל-findPath עם "חותמת דור": במקום להקצות ולמלא 3 מערכים בגודל המפה בכל קריאה
+const PF = { N: 0, g: null, prev: null, st: null, cl: null, gen: 0, heap: new FHeap() };
+function pfArrays() {
+  const N = W * H; if (PF.N !== N) { PF.N = N; PF.g = new Float64Array(N); PF.prev = new Int32Array(N); PF.st = new Uint32Array(N); PF.cl = new Uint32Array(N); PF.gen = 0; }
+  if (++PF.gen > 4e9) { PF.st.fill(0); PF.cl.fill(0); PF.gen = 1; } PF.heap.clear(); return PF;
+}
 function findPath(nid, from, to, opt = {}) {
   if (from === to) return { tiles: [from], cum: [0], total: 0 };
-  const N = W * H, g = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
+  const P = pfArrays(), gen = P.gen, G_ = P.g, prev = P.prev, st = P.st, cl = P.cl, heap = P.heap;
+  const gv = i => st[i] === gen ? G_[i] : Infinity;
   const tx = to % W, ty = (to / W) | 0;
-  const hf = i => { const dx = Math.abs(i % W - tx), dy = Math.abs(((i / W) | 0) - ty); return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) * (opt.hw || 1.3); };   // A* ממושקל: מהיר בהרבה על רשת צפופה (מסלול כמעט אופטימלי)
-  const heap = new Heap();
-  g[from] = 0; heap.push(hf(from), from);
+  const hf = i => { const dx = Math.abs(i % W - tx), dy = Math.abs(((i / W) | 0) - ty); return (Math.max(dx, dy) + 0.414 * Math.min(dx, dy)) * (opt.hw || 1.3); };
+  st[from] = gen; G_[from] = 0; prev[from] = -1; heap.push(hf(from), from);
   let found = false, iter = 0;
   while (heap.size) {
-    const u = heap.pop()[1]; if (closed[u]) continue; closed[u] = 1;
+    const u = heap.pop(); if (cl[u] === gen) continue; cl[u] = gen;
     if (u === to) { found = true; break; }
     if (++iter > (opt.cap || 30000 * G * G)) break;
-    const ux = u % W, uy = (u / W) | 0, uw = isWater(u);
+    const ux = u % W, uy = (u / W) | 0, uw = isWater(u), gu = G_[u];
     for (const [dx, dy, m] of DIRS8) {
       const vx = ux + dx, vy = uy + dy; if (vx < 0 || vy < 0 || vx >= W || vy >= H) continue;
-      const v = vy * W + vx; if (closed[v]) continue;
+      const v = vy * W + vx; if (cl[v] === gen) continue;
       const vw = isWater(v); let pen = 1;
       if (opt.water) { if (!vw && v !== to) continue; }
       else if (vw) { if (!opt.sea) continue; if (!uw && !isOwnPort(nid, u) && !(opt.embarkAny && S.owner[u] === nid)) continue; }
@@ -198,8 +225,8 @@ function findPath(nid, from, to, opt = {}) {
         if (v !== to && !passable(nid, v)) { if (opt.hostile && atWar(nid, S.owner[v])) pen = 5; else continue; }
       }
       if (m > 1) { const a = uy * W + vx, b = vy * W + ux; if (isWater(a) !== vw || isWater(b) !== vw) continue; }
-      const c = g[u] + stepCost(nid, v) * m * pen;
-      if (c < g[v]) { g[v] = c; prev[v] = u; heap.push(c + hf(v), v); }
+      const c = gu + stepCost(nid, v) * m * pen;
+      if (c < gv(v)) { st[v] = gen; G_[v] = c; prev[v] = u; heap.push(c + hf(v), v); }
     }
   }
   if (!found) return null;

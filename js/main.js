@@ -17,12 +17,14 @@ function save() {
   if (S?.demo || S?.scenario) return;   // תרחיש בדיקה לא נשמר; משחק הרקע של מסך הבית לא נשמר
   try {
     const { terrain, owner, lastOwner, railMap, core, capDay, mnr, river, ...rest } = S;
-    const cap = Uint16Array.from(capDay, v => clamp(Math.round(v), 0, 65535));
+    const cap = Uint8Array.from(capDay, v => clamp(Math.round(S.time - v), 0, 255));   // נשמר "לפני כמה ימים" (גם ערכים שליליים — כיבוש ותיק)
     // מפות זמני ההגעה של המבצעים (landF) — חישוב זמני ענק; לא שומרים, מחושבים מחדש בטעינה
     for (const k of Object.keys(rest)) if (k[0] === '_') delete rest[k];   // מטמונים זמניים לא נשמרים
+    // זיכרון כוחות האויב שנראו (world.js) — מקוונטז לבייט אחד לתא
+    const wsMemSave = WS.s === S ? [...WS.mem.entries()].map(([k, M]) => { const ma = Math.max(1e-6, ...M.a), md = Math.max(1e-6, ...M.d), q = (A, mx) => packBytes(Uint8Array.from(A, v => { const r = clamp(v / mx, 0, 1); return r < 0.03 ? 0 : Math.round(r * 24) * 10; })); /* 25 רמות, ואפס מתחת ל-3% — דוחס טוב */ return { k, ma, md, a: q(M.a, ma), d: q(M.d, md) }; }) : null;
     const ops = rest.ops.map(({ landF, ...o }) => o);
     const divs = rest.divs.map(({ gf, ...d }) => d);
-    localStorage.setItem(CFG.SAVE_KEY, JSON.stringify({ ...rest, ops, divs, packed: 1, owner: packArr(owner), lastOwner: packArr(lastOwner), railMap: packArr(railMap), core: packArr(core), capDay: packArr(cap), mnr: mnr ? packArr(mnr) : null, river: river ? packArr(river) : null }));
+    localStorage.setItem(CFG.SAVE_KEY, JSON.stringify({ ...rest, wsMemSave, ops, divs, packed: 1, capAge: 2, owner: packArr(owner), lastOwner: packArr(lastOwner), railMap: packArr(railMap), core: packArr(core), capDay: packArr(cap), mnr: mnr ? (S.minors.length < 255 ? 'u8:' + packArr(Uint8Array.from(mnr, v => v + 1)) : packArr(mnr)) : null, river: river ? packArr(river) : null }));
   } catch (e) { if (!S.saveWarned) { S.saveWarned = true; toast('⚠ השמירה נכשלה — אין מספיק מקום באחסון של הדפדפן', 'bad'); } }
 }
 function load() {
@@ -31,8 +33,8 @@ function load() {
     const d = JSON.parse(raw); if (d.v !== 10) return false;
     const m = loadTerrain(d.settings, d.seed);
     const N = m.terrain.length, P = d.packed;
-    S = { ...d, terrain: m.terrain, owner: P ? unpackArr(d.owner, Int8Array, N) : Int8Array.from(d.owner), lastOwner: P ? unpackArr(d.lastOwner, Int8Array, N) : Int8Array.from(d.lastOwner), railMap: P ? unpackArr(d.railMap, Uint8Array, N) : Uint8Array.from(d.railMap), core: P ? unpackArr(d.core, Int8Array, N) : Int8Array.from(d.core), capDay: P ? Float32Array.from(unpackArr(d.capDay, Uint16Array, N)) : Float32Array.from(d.capDay) };
-    delete S.packed; S.mnr = d.mnr ? unpackArr(d.mnr, Int16Array, N) : null; S.river = d.river ? unpackArr(d.river, Uint8Array, N) : null;
+    S = { ...d, terrain: m.terrain, owner: P ? unpackArr(d.owner, Int8Array, N) : Int8Array.from(d.owner), lastOwner: P ? unpackArr(d.lastOwner, Int8Array, N) : Int8Array.from(d.lastOwner), railMap: P ? unpackArr(d.railMap, Uint8Array, N) : Uint8Array.from(d.railMap), core: P ? unpackArr(d.core, Int8Array, N) : Int8Array.from(d.core), capDay: P ? (d.capAge ? Float32Array.from(unpackArr(d.capDay, Uint8Array, N), v => d.time - (v >= 255 ? 999 : v)) : Float32Array.from(unpackArr(d.capDay, Uint16Array, N))) : Float32Array.from(d.capDay) };
+    delete S.packed; delete S.capAge; S.mnr = d.mnr ? (d.mnr.startsWith?.('u8:') ? Int16Array.from(unpackArr(d.mnr.slice(3), Uint8Array, N), v => v - 1) : unpackArr(d.mnr, Int16Array, N)) : null; S.river = d.river ? unpackArr(d.river, Uint8Array, N) : null;
     view.railDirty = true;
     for (const k in compCache) delete compCache[k];
     for (const op of S.ops) planOp(op);   // מחשבים מחדש את הציר ומפת ההגעה

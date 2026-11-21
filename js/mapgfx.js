@@ -320,12 +320,6 @@ const roadKey = () => { let k = 0; eachBuilding((b, j) => { if (done(b)) k += j 
 // ===================== מבנים =====================
 // כל מבנה מצויר פעם אחת לקנבס קטן (4 פיקסלים ליחידת עולם) ונשמר; בכל פריים מציירים רק את התמונה + אנימציות קטנות
 const BCACHE = new Map(), BPX = 4, BSZ = 22;
-function bArt(key, size, fn) {
-  if (BCACHE.has(key)) return BCACHE.get(key);
-  const c = document.createElement('canvas'); c.width = c.height = size * BPX; const x = c.getContext('2d');
-  x.imageSmoothingEnabled = false; x.scale(BPX, BPX); x.translate(size / 2, size / 2); fn(x);
-  c.wu = size; BCACHE.set(key, c); return c;
-}
 // עזרים לציור בקנבס המטמון (יחידות עולם)
 const R_ = (x, c, X, Y, w, h) => { x.fillStyle = c; x.fillRect(X, Y, w, h); };
 const SH = (x, X, Y, w, h) => { x.fillStyle = 'rgba(16,14,10,.42)'; x.fillRect(X + 0.7, Y + 0.7, w, h); };
@@ -342,90 +336,7 @@ function parked(x, t, nid, X, Y, ang, s) {   // כלי רכב חונה (ספרי
 }
 const CAMP_ROOF = { inf: '#7c8160', cmdo: '#5d6448', light: '#7a7a66', heavy: '#6e6a5a', art: '#7c7458', aa: '#6c7468' };
 const CAMP_VEH = { light: 'ltank', heavy: 'htank', art: 'art', aa: 'aa' };
-function artCamp(nid, kind) {
-  const col = S.nations[nid].color;
-  return bArt(`camp:${kind}:${nid}`, BSZ, x => {
-    SH(x, -9, -7, 18, 14); R_(x, '#666250', -9, -7, 18, 14);                    // מגרש
-    x.strokeStyle = '#34322a'; x.lineWidth = 0.3; x.setLineDash([0.6, 0.5]); x.strokeRect(-9, -7, 18, 14); x.setLineDash([]);   // גדר
-    for (let k = 0; k < 3; k++) { BOX(x, CAMP_ROOF[kind] || '#7c8160', -8, -6 + k * 3.4, 7.5, 2.4); R_(x, 'rgba(255,255,255,.12)', -8, -4.9 + k * 3.4, 7.5, 0.25); }   // מגורים
-    R_(x, '#8e8060', 0.5, -6, 7.5, 7); x.strokeStyle = 'rgba(40,36,28,.5)'; x.lineWidth = 0.2; x.strokeRect(0.5, -6, 7.5, 7);   // מגרש מסדרים
-    const veh = CAMP_VEH[kind];
-    if (veh) for (let k = 0; k < 3; k++) parked(x, veh, nid, 2.2 + k * 2.3, -3.2, -Math.PI / 2, kind === 'heavy' ? 3 : 2.6);
-    else for (let k = 0; k < 4; k++) { const tx = 1.4 + (k % 2) * 3.4, ty = -5.2 + (k >> 1) * 3; SH(x, tx, ty, 2.4, 1.8); R_(x, kind === 'cmdo' ? '#6a6e50' : '#b0a47e', tx, ty, 2.4, 1.8); R_(x, 'rgba(30,28,20,.45)', tx + 1.1, ty, 0.25, 1.8); }   // אוהלים
-    BOX(x, '#5a5850', -8, 3.5, 4, 2.6);                                          // מחסן
-    flag(x, col, 7, 5.5);
-    emblem(x, col, DIV_TYPES[kind]?.icon || 'inf', 1, 2.2);
-  });
-}
-function artFactory(nid) {
-  const col = S.nations[nid].color;
-  return bArt(`factory:${nid}`, BSZ, x => {
-    SH(x, -9, -7, 18, 14); R_(x, '#5e5c56', -9, -7, 18, 14);
-    // אולם ייצור עם גג משונן
-    SH(x, -8, -6, 11, 7.5);
-    for (let k = 0; k < 9; k++) R_(x, k & 1 ? '#5e5a50' : '#8f8a7c', -8 + k * 11 / 9, -6, 11 / 9 + 0.02, 7.5);
-    x.strokeStyle = 'rgba(20,18,14,.8)'; x.lineWidth = 0.25; x.strokeRect(-8, -6, 11, 7.5);
-    BOX(x, '#7a6050', 4, -6, 4.5, 4);                                            // משרדים (לבנים)
-    R_(x, col, 4, -6, 4.5, 0.7);                                                 // סוכך בצבע האומה
-    BOX(x, '#3a3632', 5, -1, 1.4, 1.4); BOX(x, '#3a3632', 7, -1, 1.4, 1.4);      // ארובות
-    for (let k = 0; k < 6; k++) R_(x, ['#7a6a4c', '#5a6a6a', '#6a5a4a'][k % 3], -7.5 + (k % 3) * 1.6, 3 + (k / 3 | 0) * 1.6, 1.3, 1.3);   // ארגזים
-    BOX(x, '#4c4a44', -2, 2.8, 5, 3.2);                                          // מחסן
-    R_(x, '#3e3c36', 4, 2.5, 5, 0.9); R_(x, '#3e3c36', 4, 4.4, 5, 0.9);          // מסוע
-  });
-}
-function artUniversity(nid) {
-  const col = S.nations[nid].color;
-  return bArt(`university:${nid}`, BSZ, x => {
-    SH(x, -9, -7, 18, 14); R_(x, '#5f6a40', -9, -7, 18, 14);                      // דשא
-    R_(x, '#a89a74', -0.6, -7, 1.2, 14); R_(x, '#a89a74', -9, -0.6, 18, 1.2);   // שבילים
-    BOX(x, '#c4b28c', -8, -6.5, 16, 3); BOX(x, '#c4b28c', -8, -3.5, 3, 7); BOX(x, '#c4b28c', 5, -3.5, 3, 7);   // בניין בצורת ח
-    x.fillStyle = 'rgba(16,14,10,.4)'; x.beginPath(); x.arc(0.5, -4.5, 2, 0, 7); x.fill();
-    x.fillStyle = '#8fa0a0'; x.beginPath(); x.arc(0, -5, 2, 0, 7); x.fill(); x.fillStyle = 'rgba(255,255,255,.3)'; x.beginPath(); x.arc(-0.6, -5.6, 0.8, 0, 7); x.fill();   // כיפה
-    for (let k = 0; k < 4; k++) { x.fillStyle = '#2c3424'; x.beginPath(); x.arc(-5 + (k % 2) * 10, 2 + (k >> 1) * 3.5, 1.2, 0, 7); x.fill(); }
-    flag(x, col, 7.5, 6);
-  });
-}
-function artFortress(nid) {
-  const col = S.nations[nid].color;
-  return bArt(`fortress:${nid}`, BSZ, x => {
-    const wall = '#857c66', dark = '#4e4838';
-    const star = () => { x.beginPath(); for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4 - Math.PI / 4, r = k & 1 ? 6.2 : 9.2; x.lineTo(Math.cos(a) * r, Math.sin(a) * r); } x.closePath(); };
-    x.save(); x.translate(0.8, 0.8); star(); x.fillStyle = 'rgba(16,14,10,.45)'; x.fill(); x.restore();
-    star(); x.fillStyle = wall; x.fill(); x.strokeStyle = dark; x.lineWidth = 0.5; x.stroke();
-    x.beginPath(); for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4 - Math.PI / 4, r = k & 1 ? 4.2 : 6.4; x.lineTo(Math.cos(a) * r, Math.sin(a) * r); } x.closePath(); x.fillStyle = '#6a634f'; x.fill();
-    for (const [X, Y] of [[-2.5, -2.5], [1, -2.5], [-2.5, 1], [1, 1]]) BOX(x, '#5a5444', X, Y, 1.6, 1.6);   // בונקרים
-    flag(x, col, -0.2, 0.6);
-  });
-}
-function artAirport(nid) {
-  const col = S.nations[nid].color;
-  return bArt(`airport:${nid}`, 26, x => {
-    SH(x, -12, -3, 24, 4.4); R_(x, '#3c3c3a', -12, -3, 24, 4.4);                  // מסלול
-    R_(x, '#d8d8d0', -11.5, -2.7, 23, 0.25); R_(x, '#d8d8d0', -11.5, 1.05, 23, 0.25);
-    for (let k = 0; k < 9; k++) R_(x, '#d8d8d0', -10.5 + k * 2.5, -0.95, 1.4, 0.3);
-    R_(x, '#4a4a46', -6, 1.4, 1.4, 3.6); R_(x, '#4a4a46', -6, 4.6, 14, 1.4);    // מסלול הסעה
-    for (let k = 0; k < 2; k++) { BOX(x, '#7a7a72', 1 + k * 4.4, 6, 3.8, 3.2); for (let j = 0; j < 4; j++) R_(x, 'rgba(30,30,28,.35)', 1.3 + k * 4.4 + j * 0.9, 6, 0.25, 3.2); }   // האנגרים
-    BOX(x, '#8a8270', -9, 5.5, 2, 2); R_(x, '#5fe0ff', -8.7, 5.8, 1.4, 0.5);    // מגדל פיקוח
-    parked(x, 'plane', nid, -3, 7.6, 0, 3.6);
-    R_(x, col, 1, 6, 3.8, 0.5);
-    flag(x, col, -11, 7.5);
-  });
-}
 // נמל: מצויר כשהמים מימין (+x), מסובב לכיוון המים בפועל
-function artPort(nid) {
-  const col = S.nations[nid].color;
-  return bArt(`port:${nid}`, BSZ, x => {
-    SH(x, -9, -7, 10, 14); R_(x, '#6a665c', -9, -7, 10, 14);                     // רציף
-    R_(x, '#8a8478', 0.5, -7, 0.8, 14);                                          // שפת הרציף
-    BOX(x, '#8a6e50', -8, -6, 5.5, 4); BOX(x, '#7e6448', -8, -1, 5.5, 4); R_(x, col, -8, -6, 5.5, 0.6);   // מחסנים
-    for (const Y of [-5, 3]) { SH(x, 1.3, Y, 7, 1.2); R_(x, '#7a6a4c', 1.3, Y, 7, 1.2); for (let k = 0; k < 7; k++) R_(x, 'rgba(30,24,16,.4)', 1.5 + k, Y, 0.2, 1.2); }   // מזחים
-    for (let k = 0; k < 4; k++) R_(x, ['#8a4a3a', '#3a5a6a', '#8a7a3a', '#5a6a4a'][k], -2 + (k % 2) * 1.5, 4 + (k >> 1) * 1.4, 1.2, 1.1);   // מכולות
-    x.strokeStyle = '#c8a040'; x.lineWidth = 0.5; x.beginPath(); x.moveTo(-1, -1); x.lineTo(-1, 2.5); x.moveTo(-1.3, -1); x.lineTo(3, -1); x.stroke();   // עגורן
-    // ספינה קשורה
-    x.save(); x.translate(4.8, -1.6); drawShipShape(x, col, 0, 6.5, true); x.restore();
-    flag(x, col, -8.5, 6.5);
-  });
-}
 function portAngle(i) {
   const [x0, y0] = XY(i); let vx = 0, vy = 0, R = 2 * G;
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const X = x0 + dx, Y = y0 + dy; if (X < 0 || Y < 0 || X >= W || Y >= H || !isWater(idx(X, Y))) continue; vx += dx; vy += dy; }
@@ -471,28 +382,6 @@ function drawBuilding(b, i, now) {
 const ROOFS = ['#c9b68c', '#b7a47c', '#a89670', '#d4c8a4', '#9c8c6c', '#bfae88', '#a07a60', '#8c6a54'];
 const TOWNC = new Map();
 const townRad = b => ((5 + (b.lvl || 1) * 2.6) * 1.35 + (b.capital ? 3 : 0)) * 1.3;
-function townArt(i, b) {
-  const key = i + ':' + (b.lvl || 1) + ':' + (b.capital ? 1 : 0);
-  if (TOWNC.has(key)) return TOWNC.get(key);
-  const rad = townRad(b), size = Math.ceil(rad * 2 + 6), lvl = b.lvl || 1, n = Math.round((6 + lvl * 6 + (b.capital ? 8 : 0)) * 3.2);
-  const c = document.createElement('canvas'); c.width = c.height = size * BPX; const x = c.getContext('2d'); x.imageSmoothingEnabled = false; x.scale(BPX, BPX); x.translate(size / 2, size / 2);
-  // רחובות: קווים מהמרכז
-  x.strokeStyle = 'rgba(150,146,130,.55)'; x.lineWidth = 0.9; x.beginPath();
-  const ns = 3 + lvl; for (let k = 0; k < ns; k++) { const a = hash01(i, k, 21) * 6.283; x.moveTo(0, 0); x.lineTo(Math.cos(a) * rad * 1.05, Math.sin(a) * rad * 0.85); } x.stroke();
-  const houses = [];
-  for (let k = 0; k < n; k++) {
-    const a = hash01(i, k, 11) * 6.283, r = Math.sqrt(hash01(k, i, 12)) * rad, hx = Math.round(Math.cos(a) * r * 2) / 2, hy = Math.round(Math.sin(a) * r * 0.82 * 2) / 2;
-    const w = 1.5 + (hash01(i + k, 3, 13) * 3 | 0) * 0.75 + (r < rad * 0.35 ? 0.75 : 0), h = 1.5 + (hash01(k, i + 3, 14) * 2 | 0) * 0.75;
-    houses.push([hx, hy, w, h, ROOFS[(hash01(i, k, 15) * ROOFS.length) | 0]]);
-  }
-  for (const [hx, hy, w, h] of houses) { x.fillStyle = 'rgba(20,18,12,.45)'; x.fillRect(hx + 0.6, hy + 0.6, w, h); }
-  for (const [hx, hy, w, h, col] of houses) { x.fillStyle = col; x.fillRect(hx, hy, w, h); x.fillStyle = 'rgba(255,255,255,.18)'; x.fillRect(hx, hy, w, 0.4); x.fillStyle = 'rgba(0,0,0,.18)'; x.fillRect(hx + w / 2 - 0.1, hy, 0.2, h); }
-  if (b.capital) {   // כיכר וארמון
-    x.fillStyle = 'rgba(20,18,12,.5)'; x.fillRect(-3.4, -3.4, 8, 8); x.fillStyle = '#b8b09a'; x.fillRect(-4, -4, 8, 8);
-    x.fillStyle = '#d8d0b8'; x.fillRect(-2.6, -2.6, 5.2, 5.2); x.fillStyle = '#9a927c'; x.fillRect(-1.6, -1.6, 3.2, 3.2); x.fillStyle = S.nations[b.n].color; x.fillRect(-0.6, -0.6, 1.2, 1.2);
-  }
-  c.wu = size; TOWNC.set(key, c); return c;
-}
 function drawTown(i, b) { const T = CFG.T, [x, y] = XY(i), c = townArt(i, b), s = c.wu; ctx.drawImage(c, x * T + T / 2 - s / 2, y * T + T / 2 - s / 2, s, s); }
 
 // ===================== רכבות =====================

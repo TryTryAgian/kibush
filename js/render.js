@@ -40,11 +40,6 @@ function drawCounter(X, Y, w, h, col, type, num, o = {}) {
 // --- זום קרוב: יחידות בודדות במבנה (מבט מלמעלה), פונות לכיוון התנועה או היעד ---
 const TD_SIZE = { htank: 5.2, ltank: 4.4, art: 4.4, aa: 4.2, truck: 4, inf: 2.8, cmdo: 2.8, ship: 6.5, plane: 5 };
 const TD_ORDER = ['htank', 'ltank', 'cmdo', 'inf', 'aa', 'art'];
-function tdSprite(t, nid, x, y, ang, s, anim) {
-  const key = t === 'plane' ? 'plane' : 'td_' + t, A = ATLAS[key]; if (!A) return;
-  const c = sprite(key, nid, anim && A[3] > 1 ? (view.anim | 0) % A[3] : 0), k = c.width / A[2];
-  ctx.save(); ctx.translate(x, y); ctx.rotate(t === 'plane' ? ang + Math.PI / 2 : ang); ctx.drawImage(c, -s / 2, -s / 2, s * k, s * k); ctx.restore();
-}
 function frontHeading(f) {
   let tx = null, ty = null;
   if (f.path) { const c = f.path.cum; for (let k = 0; k < f.path.tiles.length; k++) if (c[k] > f.pathT + 0.3) { [tx, ty] = XY(f.path.tiles[k]); tx += 0.5; ty += 0.5; break; } }
@@ -229,7 +224,7 @@ function draw() {
   // ספינות מסחר: זזות לפי זמן המשחק (עוצרות בהשהיה)
   if (TRADE.last != null && TRADE.s === S) updateTrade(vTime() - TRADE.last); else { TRADE.ships = []; TRADE.caravans = []; }
   TRADE.last = vTime(); TRADE.s = S;
-  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawBridges(ctx, vis); drawTrenches(ctx, vis); if (cam.zoom >= 0.9) { drawTracks(ctx, vis); for (const d of DECALS) if (inVis(d.x, d.y, 12)) drawCrater(ctx, d); } drawMinors(ctx, vis); drawMapMode(ctx); drawFog(ctx);
+  drawTradeShips(vis); drawCaravans(vis); drawPasses(ctx, vis); drawBridges(ctx, vis); drawWorks(ctx, vis); if (ui.selFront != null) drawDPlan(ctx, S.fronts.find(f => f.id === ui.selFront && f.n === 0)); if (cam.zoom >= 0.9) { drawTracks(ctx, vis); for (const d of DECALS) if (inVis(d.x, d.y, 12)) drawCrater(ctx, d); } drawMinors(ctx, vis); drawMapMode(ctx); drawFog(ctx);
   if (ui.pick?.kind === 'build' && ui.hint) {   // סימון משבצות לבנייה: תמונה אחת (פיקסל למשבצת), נבנית רק כשהסימון משתנה
     if (!view.hintCv || view.hintSrc !== ui.hint) {
       const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'), im = x.createImageData(W, H);
@@ -285,6 +280,7 @@ function draw() {
   ctx.textAlign = 'center';
   drawContact(inVis, now, fdt);   // עשן ואש מתחת ליחידות
   if (cam.zoom >= CFG.UNIT_ZOOM) drawBodies2D(fdt);
+  drawGarrisons(ctx, now, vis);
   for (const f of S.fronts) {
     const col = S.nations[f.n].color, mine = f.n === 0, cnt = unitCount(f.units), sel = mine && f.id === ui.selFront;
     if (mine && f.path && (sel || cam.zoom > 1)) {

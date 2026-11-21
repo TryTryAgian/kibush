@@ -10,8 +10,7 @@ function aiCampKind(n) {
 }
 function aiThink(n) {
   HQV = typeof n === 'number' ? n : n.id;
-  const nid = n.id, own = [];
-  for (let i = 0; i < S.owner.length; i++) if (S.owner[i] === nid) own.push(i);
+  const nid = n.id, own = tilesOf(nid).filter(i => S.owner[i] === nid);   // אינדקס משותף (core.js) במקום סריקת מפה לכל אומה
   const wars = S.nations.filter(m => m.alive && atWar(nid, m.id));
   const P = PERS[n.pers];
   n.mob = clamp(P.mob[wars.length ? 1 : 0] + 0.15 * ((n.wants?.mil ?? 0.5) - 0.5), 0.15, 0.85);
@@ -42,7 +41,7 @@ function aiThink(n) {
         upgradeCity(nid, cities[0]); built = true; break;
       }
       // דגימה: עד 400 משבצות אקראיות מהשטח (במקום לבדוק את כולן)
-      const pool = own.length > 400 ? Array.from({ length: 400 }, () => own[Math.random() * own.length | 0]) : own;
+      const pool = own.length > 400 ? Array.from({ length: 400 }, () => own[srand() * own.length | 0]) : own;
       let cand = []; for (const i of pool) { if (canBuild(nid, type, i, true).ok) cand.push(i); if (cand.length >= 16) break; }
       if (type === 'fortress' && wars.length) { const b = cand.filter(i => nb4(i).some(k => S.owner[k] >= 0 && atWar(nid, S.owner[k]))); if (b.length) cand = b; }
       if (!cand.length) continue;
@@ -53,12 +52,19 @@ function aiThink(n) {
     }
   if (!built || saving || n.res.gold < 500 + round * 300) break;
   }
+  // עודף זהב לא נערם (מחשב "סוחר" עם אלפי זהב ומחנות חי״ר בלבד): קונים חומרים, משדרגים ערים, וממנים מחקר — כדי לפתוח סוגי צבא נוספים
+  if (n.res.gold > 2000) {
+    if (n.res.mat < 600) importMat(nid, 150);
+    const c = own.find(i => S.buildings[i]?.type === 'city' && S.buildings[i].n === nid && done(S.buildings[i]) && (S.buildings[i].lvl || 1) < CFG.CITY_MAX_LVL && S.buildings[i].upg == null);
+    if (c != null && canAfford(n, upgradeCost(S.buildings[c]))) upgradeCity(nid, c);
+    if (n.tech.cur && n.res.gold > 2600) { const T = TECH[n.tech.cur], need = T.cost - n.tech.prog, buy = Math.min(need, (n.res.gold - 2400) / 4); if (buy > 0) { n.res.gold -= buy * 4; n.tech.prog += buy; } }
+  }
   // שייטות: נמל מאמן ספינות רק לאומה ימית או במלחמה (ועד 3 שייטות)
   let navyOn = 0; eachBuilding(b => { if (b.n === nid && b.type === 'port') { const on = (n.pers === 'naval' || wars.length) && navyOn < 3; b.hold = !on; if (on) navyOn++; } });
   // גנרלים: לפחות מגן אחד, השאר במבצע
-  const gens = landGenerals(nid), landN = divsOf(nid).filter(d => d.type !== 'navy' && d.type !== 'air').length, wantG = Math.min(maxGenerals(nid), Math.max(Math.min(6, 1 + Math.floor(S.time / 50)), Math.ceil(landN / GEN_DIVS)));
+  const gens = landGenerals(nid), landN = divsOf(nid).filter(d => d.type !== 'navy' && d.type !== 'air').length, wantG = Math.min(maxGenerals(nid), Math.max(Math.min(6, 1 + Math.floor(S.time / 50)), Math.ceil(landN / 7)));
   const freeD = divsOf(nid).filter(d => d.loc === 'camp' && d.front == null && d.type !== 'navy' && d.type !== 'air' && divStrength(d) >= 0.5).length;   // גנרל חדש רק כשיש אוגדות פנויות לתת לו
-  if (gens.length < wantG && freeD >= 1) createFront(nid, 'defend');
+  if (gens.length < wantG && freeD > homeReserveN(nid)) createFront(nid, 'defend');
   const ports = ownPorts(nid);
   let ops = S.ops.filter(o => o.n === nid);
   for (const op of ops) if ((op.target >= 0 && (!S.nations[op.target].alive || !atWar(nid, op.target))) || op.status === 'הושלם') cancelOp(op);
@@ -78,6 +84,7 @@ function aiThink(n) {
   }
   // התפשטות: שטח הפקר (לא הרים) או כפרים שהכרזנו עליהם כיריבים (minors.js)
   if (desired == null && (n.noExpandUntil || 0) <= S.time && S.owner.some((o, j) => o === -1 && !isWater(j) && S.terrain[j] !== SNOW && (S.mnr?.[j] >= 0 ? minorHostile(S.minors[S.mnr[j]], nid) : S.terrain[j] !== MOUNT))) desired = -1;
+  if (n.weak) { if (ops.length) { ops.forEach(cancelOp); if (S.nations[0] && atWar(0, nid)) toast(`🛡 ${n.name} נשחקה — עוברת להגנה ומבצרת את הגבול`); } desired = null; }   /* מצוקה: הגנה בלבד (defense.js) */
   if (desired != null && !ops.some(o => o.target === desired)) { ops.forEach(cancelOp); createOp(nid, desired); }
   const op = S.ops.find(o => o.n === nid);
   const all = landGenerals(nid);
@@ -110,7 +117,7 @@ function aiThink(n) {
     } else if (!wars.length && f.mission === 'blockade') { f.navTarget = null; f.mission = 'home'; }
   }
   // הצנחה על יעד חשוב בטווח
-  if (op && op.target >= 0 && wars.length && Math.random() < 0.3) {
+  if (op && op.target >= 0 && wars.length && srand() < 0.3) {
     const tgt = op.objectives.find(o => !o.done && o.type !== 'encircle' && paraCheck(nid, o.tile).ok);
     if (tgt) paradrop(nid, tgt.tile, op);
   }
@@ -123,7 +130,7 @@ function aiThink(n) {
     const r = rel(nid, m.id); if (r.cool > S.time) continue;
     const lost = warGain(r, m.id) - warGain(r, nid), age = S.time - r.since;
     const bad = finalWar() ? lost > 40 && myBloc < allianceBloc(m.id, nid) * 0.5 : (lost > 15 && myBloc < allianceBloc(m.id, nid) * 0.8) || (age > CFG.WAR_TIRED_DAYS && Math.abs(lost) < 20);
-    if (!bad || Math.random() > P.peaceTh * 0.4) continue;
+    if (!bad || srand() > P.peaceTh * 0.4) continue;
     if (m.isAI) { const ev = aiAccepts('peace', m.id, nid, 0); if (ev.ok) propose(nid, m.id, 'peace'); else if (ev.demand && lost > 0 && n.res.gold > ev.demand) propose(nid, m.id, 'peace', ev.demand); }
     else propose(nid, m.id, 'peace', lost > 0 ? Math.floor(Math.min(n.res.gold * 0.3, 300)) : 0);
   }
@@ -131,7 +138,7 @@ function aiThink(n) {
   for (const m of S.nations) {
     if (m.id === nid || !m.alive || atWar(nid, m.id)) continue;
     const r = rel(nid, m.id); if (r.cool > S.time) continue;
-    const roll = Math.random();
+    const roll = srand();
     const op = opinion(nid, m.id), tradeP = P.tradeP * (n.amb?.k === 'trade' ? 2.5 : 1);
     if (roll < tradeP && !dealInvalid('trade', nid, m.id) && op > -10) propose(nid, m.id, 'trade');
     else if (roll < 0.2 && nbs.has(m.id) && (n.pers === 'turtle' || powerEst(nid, m.id) > myPow * 1.2) && !dealInvalid('nap', nid, m.id)) propose(nid, m.id, 'nap');
@@ -154,14 +161,14 @@ function aiThink(n) {
     const ap = approach(nid, m.id), amb = n.amb, ax = n.axes || {};
     let score = myBloc / Math.max(1, opp) - opinion(nid, m.id) / 200 + (ap === 'hostile' ? 0.2 : ap === 'friend' ? -0.3 : 0) + (amb?.k === 'conquer' && amb.t === m.id ? 0.4 : 0) + (amb?.k === 'expand' && nbs.has(m.id) ? 0.12 : 0) + ((ax.aggr ?? 0.5) - 0.5) * 0.3 + (m.id === lead ? 0.4 : 0) + thr(m.id) / 100 * 0.6 + (S.nations.some(x => atWar(m.id, x.id)) ? 0.15 : 0) + pressure - (nbs.has(m.id) ? 0 : 0.2);
     score /= P.warTh * (betrayal ? 1.3 : 1) / P.risk;
-    score *= 1 + (Math.random() - 0.5) * 2 * aiErr(nid);   // רמת קושי: טעות בהערכת המצב
+    score *= 1 + (srand() - 0.5) * 2 * aiErr(nid);   // רמת קושי: טעות בהערכת המצב
     if (score > bs) { bs = score; best = { m, betrayal, opp }; }
   }
   if (best && bs > 1) { declareWar(nid, best.m.id); return; }
   // קיפאון ארוך מול בעלי ברית בלבד: החזק שוקל לבטל ברית עם שכן חלש (בגידה — תיספר אם יתקוף ב-30 הימים הקרובים)
   if (stalemate && n.idleDays > 60 && !best) {
     const ally = S.nations.find(m => m.alive && allied(nid, m.id) && nbs.has(m.id) && powerEst(nid, m.id) < myPow * 0.7);
-    if (ally && Math.random() < 0.15 * P.risk && myBloc / expectedOpposition(nid, ally.id, true) > 1.2) breakAlliance(nid, ally.id);
+    if (ally && srand() < 0.15 * P.risk && myBloc / expectedOpposition(nid, ally.id, true) > 1.2) breakAlliance(nid, ally.id);
   }
 }
 

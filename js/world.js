@@ -34,12 +34,14 @@ function wsBox(I, x0, y0, x1, y1) {
 }
 const wsNew = () => new Float32Array(WS.cw * WS.ch);
 function wsUpdate(force) {
-  if (!S) return;
+  if (!S || (typeof FOGSW !== 'undefined' && FOGSW.on)) return;
   if (!force && WS.s === S && S.time - WS.t < WS_DT && S.time >= WS.t) return;
   fogUpdate();
   const fresh = WS.s !== S, cw = Math.ceil(W / G), ch = Math.ceil(H / G), N = cw * ch, nn = S.nations.length;
   const dtd = fresh || S.time < WS.t ? 0 : S.time - WS.t, decay = Math.pow(0.5, dtd / WS_HALF);
-  if (fresh) { WS.mem = new Map(); WS.ter = null; WS.sup = new Map(); }
+  if (fresh) { WS.mem = new Map(); WS.ter = null; WS.sup = new Map();
+    // זיכרון האויב מהשמירה (wsMemSave) — כוחות שנראו לפני הטעינה לא נשכחים
+    if (S.wsMemSave) { for (const e of S.wsMemSave) { try { const q = (str, mx) => Float32Array.from(unpackBytes(str, N), v => v / 255 * mx); WS.mem.set(e.k, { a: q(e.a, e.ma), d: q(e.d, e.md) }); } catch (er) { } } delete S.wsMemSave; } }
   WS.s = S; WS.t = S.time; WS.cw = cw; WS.ch = ch; WS.ver++;
   // כוח גולמי לכל אומה ותא
   // מאגרים שממוחזרים בין עדכונים (בלי להקצות זיכרון מחדש כל רבע יום)
@@ -140,13 +142,13 @@ function intelUpdate() {
     if (!n.alive) continue;
     for (const m of S.nations) {
       if (!m.alive || m.id === n.id || allied(n.id, m.id)) continue;
-      const k = n.id + ':' + m.id, I = S.intel[k] || (S.intel[k] = { acc: INTEL_MIN, bias: (Math.random() * 2 - 1), bt: S.time + 15 + Math.random() * 20 });
+      const k = n.id + ':' + m.id, I = S.intel[k] || (S.intel[k] = { acc: INTEL_MIN, bias: (srand() * 2 - 1), bt: S.time + 15 + srand() * 20 });
       let vis = 0; for (const [f, p] of parts) if (f.n === m.id && seesFront(n.id, f)) vis += p;
       const vf = tot[m.id] > 0 ? vis / tot[m.id] : 0;
       const recon = (S.recon || []).some(z => (z.n === n.id || allied(n.id, z.n)) && z.until > S.time && S.owner[tileOf(z.x, z.y)] === m.id);
       const target = clamp(INTEL_MIN + 0.55 * vf + (recon ? 0.35 : 0) + (B[n.id * nn + m.id] > 0 ? 0.08 : 0), INTEL_MIN, 0.97);
       I.acc += (target - I.acc) * (target > I.acc ? 0.4 : 0.035);   // לומדים מהר, שוכחים לאט
-      if (S.time > I.bt) { I.bias = Math.random() * 2 - 1; I.bt = S.time + 20 + Math.random() * 25; }
+      if (S.time > I.bt) { I.bias = srand() * 2 - 1; I.bt = S.time + 20 + srand() * 25; }
     }
   }
 }

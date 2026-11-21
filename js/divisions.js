@@ -31,17 +31,18 @@ function deployFront(f, dt) {
   if (f.kind !== 'land' || f.flying) return;
   const ds = deployDivs(f); f.dep = ds.length;
   if (!ds.length) { f.sectors = null; f.secW = null; return; }
-  for (const d of ds) if (!d.pos || d.depF !== f.id) { d.pos = [f.pos[0] + (Math.random() - 0.5) * 0.6, f.pos[1] + (Math.random() - 0.5) * 0.6]; d.depF = f.id; d.line = undefined; }
+  for (const d of ds) if (!d.pos || d.depF !== f.id) { d.pos = [f.pos[0] + (srand() - 0.5) * 0.6, f.pos[1] + (srand() - 0.5) * 0.6]; d.depF = f.id; d.line = undefined; }
   const face = f.face = frontFace(f), [fx, fy] = face, px = -fy, py = fx;
   const lat = d => (d.pos[0] - f.pos[0]) * px + (d.pos[1] - f.pos[1]) * py, atk = d => divPow(d, 'atk');
   // קו ראשון / עתודה — יציב: משתנה רק כשמספר האוגדות משתנה או כשאוגדה בקו נשחקה
-  const nLine = Math.min(DEP.MAXLINE, ds.length);
+  const hasPlan = f.dplan && f.target == null && (f.role === 'defend' || f.order === 'hold');
+  const nLine = hasPlan ? Math.max(1, Math.min(planLine(f.dplan).length, ds.length - (ds.length >= 3 ? 1 : 0))) : Math.min(DEP.MAXLINE, ds.length);
   let line = ds.filter(d => d.line), res = ds.filter(d => !d.line);
   while (line.length < nLine && res.length) { res.sort((a, b) => atk(b) - atk(a)); const d = res.shift(); d.line = true; line.push(d); }
   while (line.length > nLine) { line.sort((a, b) => atk(a) - atk(b)); const d = line.shift(); d.line = false; res.push(d); }
   for (const w of line.filter(d => divStrength(d) < reliefAt(d))) {
     const r = res.filter(x => divStrength(x) > 0.6).sort((a, b) => divStrength(b) - divStrength(a))[0]; if (!r) break;
-    w.line = false; r.line = true; r.pos = [r.pos[0], r.pos[1]]; line[line.indexOf(w)] = r; res[res.indexOf(r)] = w;
+    w.line = false; r.line = true; r.bp = w.bp; w.bp = null; r.pos = [r.pos[0], r.pos[1]]; line[line.indexOf(w)] = r; res[res.indexOf(r)] = w;
     report(f, w, `נשחקנו (${Math.round(divStrength(w) * 100)}%) — יוצאים לעתודה, ${divName(r)} מחליפה אותנו בקו`, '', true);
   }
   line.sort((a, b) => lat(a) - lat(b));
@@ -72,16 +73,17 @@ function deployFront(f, dt) {
       }
       f.sectors = sec; f.secW = W_;
       for (const h of f.xtra || []) if (!f.zone.includes(h) && validTarget(f.n, h)) f.zone.push(h);   // הגבעה נכנסת לאזור ההתקפה
+    } else if (hasPlan) { planSlots(f, line, res, slot);   // תוכנית הגנה קבועה (defense.js): כל אוגדה בעמדה שלה
     } else {
       line.forEach((d, i) => { const o = (i - (line.length - 1) / 2) * DEP.GAP; slot.set(d, [f.pos[0] + px * o + fx * 0.25 * G, f.pos[1] + py * o + fy * 0.25 * G]); if (d.task?.k !== 'hold') d.taskSince = S.time; d.task = { k: 'hold', why: f.target != null ? 'נע עם הגנרל לאזור ההתקפה' : 'מחזיק את הקו מול האויב' }; });
     }
-    res.forEach((d, k) => { const o = (k - (res.length - 1) / 2) * 0.8 * G; slot.set(d, [f.pos[0] - fx * DEP.RES + px * o, f.pos[1] - fy * DEP.RES + py * o]); d.task = { k: 'reserve', why: 'מאחור — מחליפה אוגדה שנשחקת בקו' }; });
+    if (!hasPlan) res.forEach((d, k) => { const o = (k - (res.length - 1) / 2) * 0.8 * G; slot.set(d, [f.pos[0] - fx * DEP.RES + px * o, f.pos[1] - fy * DEP.RES + py * o]); d.task = { k: 'reserve', why: 'מאחור — מחליפה אוגדה שנשחקת בקו' }; });
   }
   // תנועה לעמדה — מהר מהגנרל (כדי לא לפגר), ובלי לחצות מים
   const sp = Math.max(1.5 * G, frontSpeed(f) * 1.8) * dt;
   for (const d of ds) {
     let s = slot.get(d); if (!s) continue;
-    { const ox = s[0] - f.pos[0], oy = s[1] - f.pos[1], ol = Math.hypot(ox, oy) / G; if (ol > DEP.MAXR) s = [f.pos[0] + ox / ol * DEP.MAXR, f.pos[1] + oy / ol * DEP.MAXR]; }   // לא מתרחקים מהמפקדה
+    { const ox = s[0] - f.pos[0], oy = s[1] - f.pos[1], ol = Math.hypot(ox, oy) / G; const MR = hasPlan ? 6 : DEP.MAXR; if (ol > MR) s = [f.pos[0] + ox / ol * MR, f.pos[1] + oy / ol * MR]; }   // לא מתרחקים מהמפקדה
     const [tx, ty] = slotSafe(f, s[0], s[1]), dx = tx - d.pos[0], dy = ty - d.pos[1], l = Math.hypot(dx, dy);
     if (l > 8 * G) { d.pos = [tx, ty]; continue; }   // רחוק מדי (הגיע עכשיו / קפיצה) — מתייצב
     if (l > 0.05) { const k = Math.min(1, sp / l); const nx = d.pos[0] + dx * k, ny = d.pos[1] + dy * k; if (depLand(nx, ny)) d.pos = [nx, ny]; else d.pos = [tx, ty]; }
@@ -110,7 +112,7 @@ function frontGap(f, g) {
 // אבדות: יורדות קודם מהאוגדה הקרובה לאויב שפגע (רוב האבדות), והשאר מהגדולות
 function lossOrder(f, ds, t) {
   const have = ds.filter(x => x.units[t] > 0); if (!have.length) return null;
-  if (f.hitXY && Math.random() < 0.75) { const [hx, hy] = f.hitXY, dd = d => d.pos ? hyp(d.pos[0] - hx, d.pos[1] - hy) : 99; return have.sort((a, b) => dd(a) - dd(b))[0]; }
+  if (f.hitXY && srand() < 0.75) { const [hx, hy] = f.hitXY, dd = d => d.pos ? hyp(d.pos[0] - hx, d.pos[1] - hy) : 99; return have.sort((a, b) => dd(a) - dd(b))[0]; }
   return have.sort((a, b) => b.units[t] - a.units[t])[0];
 }
 /* ---------- תצוגה ---------- */
@@ -196,7 +198,7 @@ function assignTasks(f, line, face) {
   if (!foe && f.taskK) { const pf = Object.values(f.taskK.by).find(b => b.k === 'fix')?.foe, g = pf != null && S.fronts.find(x => x.id === pf); if (g && unitCount(g.units) && hyp(g.pos[0] - cx, g.pos[1] - cy) < CFG.ENGAGE_R + 4) foe = g; }
   // הקצאה מחדש: פעם ביום, או כשהקו השתנה
   if (!f.taskK || f.taskK.ids !== ids || S.time > f.taskK.t) {
-    const K = { ids, t: S.time + 1, by: {} }, pool = line.slice(), take = (k, sc) => { if (pool.length < 2) return null; const d = Math.random() < aiErr(f.n) ? pool[(Math.random() * pool.length) | 0] : pool.slice().sort((a, b) => sc(b) - sc(a))[0]; /* רמת קושי: לפעמים בוחרים אוגדה לא מתאימה */ if (!d || sc(d) <= 0) return null; pool.splice(pool.indexOf(d), 1); K.by[d.id] = { k }; return d; };
+    const K = { ids, t: S.time + 1, by: {} }, pool = line.slice(), take = (k, sc) => { if (pool.length < 2) return null; const d = srand() < aiErr(f.n) ? pool[(srand() * pool.length) | 0] : pool.slice().sort((a, b) => sc(b) - sc(a))[0]; /* רמת קושי: לפעמים בוחרים אוגדה לא מתאימה */ if (!d || sc(d) <= 0) return null; pool.splice(pool.indexOf(d), 1); K.by[d.id] = { k }; return d; };
     const art = pool.find(d => d.type === 'art'); if (art && pool.length >= 2) { pool.splice(pool.indexOf(art), 1); K.by[art.id] = { k: 'support' }; }
     const hill = findHill(f, cx, cy); if (hill != null) { const d = take('hill', d => atk(d) * (FIT.hill[d.type] ?? 0.5)); if (d) K.by[d.id].hill = hill; }
     if (z.length >= 5) {
@@ -310,7 +312,7 @@ function cmdDaily() {
     if (d.contact) c.xp += 1.5;
     if (d.capN) { c.xp += d.capN * 0.5; d.capN = 0; }
     if (cmdLvl(c) > before) report(f, d, `הועלה לדרגת ${CMD_RANK[cmdLvl(c)]} ${'★'.repeat(cmdLvl(c))}`, 'good');
-    if (d.contact && divStrength(d) < 0.6 && Math.random() < 0.02) {
+    if (d.contact && divStrength(d) < 0.6 && srand() < 0.02) {
       const old = cmdTitle(c); d.cmd = null; ensureCmd(d); d.taskSince = S.time;
       report(f, d, `${old} נפל בקרב. ${cmdTitle(d.cmd)} מקבל את הפיקוד`, 'bad', true);
     }

@@ -53,10 +53,10 @@ function threatDaily() {
     for (const c of S.nations) {
       if (!c.isAI || !c.alive || c.id === x.id || atWar(c.id, x.id)) continue;
       // בעלי ברית של מעצמה מאיימת מאוד עוזבים את הברית
-      if (allied(c.id, x.id)) { if (thr(x.id) >= CFG.THREAT_ALLY_LEAVE && Math.random() < 0.15 + k * 0.3) breakAlliance(c.id, x.id); continue; }
+      if (allied(c.id, x.id)) { if (thr(x.id) >= CFG.THREAT_ALLY_LEAVE && srand() < 0.15 + k * 0.3) breakAlliance(c.id, x.id); continue; }
       if (warBlock(c.id, x.id) || S.time < graceDays()) continue;
       const p = (0.08 + k * 0.35) * PERS[c.pers].join * (militaryPower(c.id) > powerEst(c.id, x.id) ? 0.6 : 1);
-      if (Math.random() < p) {
+      if (srand() < p) {
         declareWar(c.id, x.id, { joining: true, coalition: true });
         toast(x.id === 0 ? `🤝⚔ ${c.name} מצטרפת לקואליציה נגדך (מד איום ${Math.round(thr(0))})` : `🤝 ${c.name} מצטרפת לקואליציה נגד ${x.name}`, x.id === 0 ? 'bad' : '');
         break;
@@ -112,15 +112,15 @@ function declareWar(a, b, opt = {}) {
         else if (p > 0.15 && !S.offers.some(o => o.kind === 'coalition' && o.target === a)) { S.offers.push({ from: b, to: 0, kind: 'coalition', target: a, gold: 0, t: S.time }); toast(`📜 ${nm(b)} קוראת לך להצטרף לקואליציה נגד ${nm(a)}`); }
         continue;
       }
-      if (napActive(c.id, a) && p < 1 && Math.random() > p) continue;
-      if (Math.random() < p) {
+      if (napActive(c.id, a) && p < 1 && srand() > p) continue;
+      if (srand() < p) {
         const wasAlly = allied(c.id, b);
         declareWar(c.id, a, { joining: true });
         if (a === 0 || b === 0 || c.id === 0 || !wasAlly) toast(wasAlly ? `🛡 ${c.name} מצטרפת למלחמה לצד ${nm(b)}` : `🤝 ${c.name} מצטרפת לקואליציה נגד ${nm(a)}`, b === 0 ? 'good' : a === 0 ? 'bad' : '');
       }
     }
   }
-  render();
+  if (a === 0 || b === 0 || ui.tab === 'diplo') render();   // מלחמה בין שתי אומות מחשב: בלי לבנות את כל הממשק מחדש
 }
 function makePeace(a, b, gold = 0) {
   const r = rel(a, b); Object.assign(r, { state: 'peace', since: S.time, op: r.op + 20, cool: S.time + 10, truce: S.time + CFG.TRUCE_DAYS, lastPeace: S.time });
@@ -132,11 +132,10 @@ function applyDeal(kind, a, b, gold = 0) {
   const r = rel(a, b);
   if (gold) { S.nations[a].res.gold -= gold; S.nations[b].res.gold += gold; r.op += gold / 20; }
   if (kind === 'peace') makePeace(a, b, gold);
-  else if (kind === 'coalition') { declareWar(b, r.target ?? a, { joining: true }); }
   else { const until = S.time + CFG[DEAL_DAYS[kind]]; if (kind === 'trade') r.trade = until; else if (kind === 'nap') r.nap = until; else { r.ally = until; r.nap = 0; } }
   r.op = Math.min(100, r.op + 10);
-  if ((a === 0 || b === 0) && kind !== 'peace' && kind !== 'coalition') toast(`🤝 ${DEALS[kind]} עם ${nm(a === 0 ? b : a)} ל-${CFG[DEAL_DAYS[kind]]} יום`, 'good');
-  render();
+  if ((a === 0 || b === 0) && kind !== 'peace') toast(`🤝 ${DEALS[kind]} עם ${nm(a === 0 ? b : a)} ל-${CFG[DEAL_DAYS[kind]]} יום`, 'good');
+  if (a === 0 || b === 0 || ui.tab === 'diplo') render();
 }
 function dealInvalid(kind, a, b) {
   const r = rel(a, b);

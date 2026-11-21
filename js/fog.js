@@ -5,6 +5,7 @@
 const FOG = { s: null, t: -1, cw: 0, ch: 0, vis: [], cv: null, ver: 0 };
 const fogOn = () => !!S && !S.demo && S.settings?.fog !== false;
 function fogUpdate(force) {
+  if (typeof FOGSW !== 'undefined' && FOGSW.on) return;   // בזמן הציור S.fronts מסונן לפי מה שהשחקן רואה — לא מחשבים ראייה מרשימה כזו
   if (!S) return;
   if (!force && FOG.s === S && S.time - FOG.t < 0.5 && S.time >= FOG.t) return;
   const cw = Math.ceil(W / G), ch = Math.ceil(H / G), N = cw * ch, nn = S.nations.length;

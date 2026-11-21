@@ -9,7 +9,7 @@ function step(dt) {
   S.convoys = S.convoys.filter(c => {
     c.t += c.spd * dt;
     const [x, y] = pathPos(c.path, c.t), here = tileOf(x, y);
-    if (c.mode === 'sea' && isWater(here) && !c.units.ship && !c.safe && seaThreat(c.n, x, y, 2)) { if (mod(S.nations[c.n], 'escort') > 1 && Math.random() < 0.6) { c.safe = true; return true; } if (c.n === 0) toast(`⚓ שיירה של ${c.cnt} יחידות טובעה!`, 'bad'); convoyLost(c); return false; }
+    if (c.mode === 'sea' && isWater(here) && !c.units.ship && !c.safe && seaThreat(c.n, x, y, 2)) { if (mod(S.nations[c.n], 'escort') > 1 && srand() < 0.6) { c.safe = true; return true; } if (c.n === 0) toast(`⚓ שיירה של ${c.cnt} יחידות טובעה!`, 'bad'); convoyLost(c); return false; }
     if (c.mode === 'air' && !c.hit && (c.units.plane || isWater(here) || S.owner[here] !== c.n) && aaThreat(c.n, x, y, 3) >= 2) { c.hit = true; for (const t of UKEYS) c.units[t] = Math.floor((c.units[t] || 0) / 2); c.cnt = unitCount(c.units); if (c.n === 0) toast('✈ רכבת אווירית נפגעה מהגנה אווירית', 'bad'); if (!c.cnt) return false; }
     if (c.t < c.path.total) { const u = convoyUpdate(c, dt); if (u === 'dead') { convoyLost(c); return false; } if (u === 'arrive') { convoyArrive(c); return false; } return true; }
     // סוף הקטע: אם הגנרל זז — ממשיכים אליו (רדיפה), אחרת מגיעים
@@ -24,6 +24,7 @@ function step(dt) {
   for (const f of S.fronts.slice()) { syncFront(f); if ((f.solo || f.airborne) && !f.flying && !frontDivs(f).length && !S.convoys.some(c => c.front === f.id)) S.fronts.splice(S.fronts.indexOf(f), 1); }
   for (const f of S.fronts) deployFront(f, dt);   // פריסת האוגדות סביב כל גנרל (divisions.js)
   minorsStep(dt);   // קרבות מול חילות מצב של כפרים (minors.js)
+  garrisonStep(dt);   // שגרת משמר (defense.js)
   for (const n of S.nations) {
     if (!n.alive) continue;
     // מפוזר בין האומות כדי שלא כולן יחשבו באותו צעד
@@ -36,15 +37,16 @@ function step(dt) {
   if (S.scenAtk) scenTick();
 }
 function daily() {
-  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily(); sectorsDaily(); digDaily();
+  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily(); sectorsDaily(); worksDaily();
   const c = counts();
   for (const n of S.nations) {
     if (!n.alive) continue;
     const y = dailyYield(n.id, c[n.id]);
     for (const k in y) n.res[k] = Math.max(0, n.res[k] + y[k]);
+    n.res.man = Math.min(n.res.man, Math.max(manCap(n.id), 0));
     n.last = { ...y, gold: y.gold + (n.railToday || 0) }; n.railLast = n.railToday || 0; n.railToday = 0;
     shortages(n);
-    allocateDivisions(n.id);
+    if (n.isAI) { weakCheck(n); aiFortify(n); } allocateDivisions(n.id); garrisonDaily(n);
     if (n.tech.cur) {
       const T = TECH[n.tech.cur], use = Math.min(T.cost - n.tech.prog, n.res.know);
       n.res.know -= use; n.tech.prog += use;

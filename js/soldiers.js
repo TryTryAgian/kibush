@@ -19,8 +19,8 @@ function coverNear(x, y) {
     const b = S.buildings[i]; if (b && b.type === 'city') for (const [ox, oy] of [[-3, -3], [3, -3], [-3, 3], [3, 3], [0, -4], [0, 4]]) out.push([(xx + 0.5) * T + ox, (yy + 0.5) * T + oy, 'wall']);
   }
   for (const w of WRECKS) if (w.tank && Math.abs(w.x - x) < 14 && Math.abs(w.y - y) < 14) out.push([w.x, w.y, 'wreck']);
-  for (const d of S.divs) if (d.dig > 0.3 && d.digAt) { const X = (d.digAt[0] + 0.5) * T, Y = (d.digAt[1] + 0.5) * T; if (Math.abs(X - x) > 30 || Math.abs(Y - y) > 30) continue;
-    const hd = d.digH || 0, fx = Math.cos(hd), fy = Math.sin(hd), L = 6 + 12 * d.dig; for (let s = -L / 2; s <= L / 2; s += 1.6) out.push([X + fx * 4 - fy * s, Y + fy * 4 + fx * s, 'trench']); }
+  for (const w of S.works || []) if (w.lvl > 0.3) { const X = w.x * T, Y = w.y * T; if (Math.abs(X - x) > 30 || Math.abs(Y - y) > 30) continue;   // שוחות (defense.js)
+    const fx = Math.cos(w.h), fy = Math.sin(w.h), L = 6 + 6 * Math.min(3, w.lvl); for (let s = -L / 2; s <= L / 2; s += 1.6) out.push([X - fy * s, Y + fx * s, 'trench']); }
   return out;
 }
 const isTank = t => t === 'ltank' || t === 'htank' || t === 'art' || t === 'aa';

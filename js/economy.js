@@ -85,9 +85,12 @@ function dailyYield(nid, tilesCount) {
   const army = unitsOf(nid); let matUp = 0; for (const t of UKEYS) matUp += army[t] * UNITS[t].matUp;
   y.gold -= unitCount(army) * CFG.UNIT_UPKEEP + occ * CFG.OCC_GOLD;
   y.mat -= matUp;
-  n.econ = { se, occ, occCost: occ * CFG.OCC_GOLD, matUp, pop: population(nid) };
+  const manUp = unitCount(army) * CFG.MAN_UPKEEP; y.man -= manUp;
+  n.econ = { se, occ, occCost: occ * CFG.OCC_GOLD, matUp, manUp, pop: population(nid), manCap: manCap(nid) };
   return y;
 }
+// כוח אדם לא נצבר בלי סוף: תקרה לפי האוכלוסייה
+const manCap = nid => Math.round(population(nid) * CFG.MAN_CAP_POP + 200);
 function population(nid) { let p = 0; eachBuilding(b => { if (b.n === nid && b.type === 'city' && done(b)) p += (b.lvl || 1) * CFG.CITY_POP; }); return p; }
 // שדרוג עיר: עלות ×הרמה, נבנה לאורך זמן; העיר ממשיכה לייצר בזמן השדרוג
 function upgradeCost(b) { const l = b.lvl || 1; return { gold: CFG.UPGRADE_GOLD * l, mat: CFG.UPGRADE_MAT * l }; }
@@ -102,7 +105,7 @@ function importRate(nid) { const ports = ownPorts(nid); if (!ports.length) retur
 function importMat(nid, amount) { const n = S.nations[nid], rate = importRate(nid), a = Math.floor(Math.min(amount, n.res.gold / rate)); if (a <= 0) return 0; n.res.gold -= a * rate; n.res.mat += a; return a; }
 // מחסור: אין זהב → עריקות ומורל יורד; אין חומרים → ציוד מתבלה
 function shortages(n) {
-  const loseFrac = (types, f) => { const hit = u => { for (const t of types) if (u[t] > 0 && Math.random() < 0.6) u[t] -= Math.max(1, Math.round(u[t] * f)); };
+  const loseFrac = (types, f) => { const hit = u => { for (const t of types) if (u[t] > 0 && srand() < 0.6) u[t] -= Math.max(1, Math.round(u[t] * f)); };
     eachBuilding(b => { if (b.n === n.id && b.stock) hit(b.stock); }); for (const d of S.divs) if (d.n === n.id && d.loc === 'camp') hit(d.units); for (const g of S.fronts) if (g.n === n.id) hit(g.units); };
   if (n.res.gold <= 0 && (n.last.gold || 0) < 0) { loseFrac(['inf'], 0.01); for (const g of S.fronts) if (g.n === n.id) g.org = Math.max(0, (g.org ?? 1) - 0.03); if (n.id === 0 && S.day % 7 === 0) toast('⚠ אין זהב: חיילים עורקים. הורד גיוס או בנה/שדרג ערים', 'bad'); }
   if (n.res.mat <= 0 && (n.last.mat || 0) < 0) { loseFrac(['ltank', 'htank', 'art', 'plane', 'ship', 'aa'], 0.01); if (n.id === 0 && S.day % 7 === 0) toast('⚠ אין חומרים: הציוד מתבלה. בנה מפעלים או ייבא חומרים', 'bad'); }

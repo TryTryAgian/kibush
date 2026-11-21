@@ -179,7 +179,7 @@ function garrisons(nid, x, y, r, hostileTo) {
   for (const d of S.divs) {
     if (d.loc !== 'camp' || d.front != null || d.type === 'air' || d.type === 'navy' || !divTotal(d)) continue;
     if (hostileTo != null ? !atWar(hostileTo, d.n) : d.n !== nid) continue;
-    const [bx, by] = XY(d.home); if (hyp(bx - x, by - y) > r) continue;
+    const [bx, by] = d.gar?.arr ? d.gar.pos : XY(d.home); if (hyp(bx - x, by - y) > r) continue;
     if (!d.gf) d.gf = { n: d.n, kind: 'land', units: d.units, loss: zeroUnits(), gen: { trait: 'logistic' }, pos: [bx, by], supply: 'ok', org: 0.6, garrison: true };   // בלי בונוס גנרל; כוח ~70%
     d.gf.units = d.units; d.gf.pos = [bx, by]; d.gf.n = d.n; out.push(d.gf);
   }
@@ -200,6 +200,12 @@ function ownShare(nid, x, y, r = 3 * G) { let o = 0, t = 0; for (let dy = -r; dy
 function planDefense(nid) {
   HQV = nid;
   const n = S.nations[nid];
+  // גנרל שיצא למבצע — התוכנית שלו מתבטלת; פקודת "החזק" — תוכנית סביב הנקודה שנבחרה
+  let efL = null; const efLazy = () => efL || (efL = enemyField(nid, enemiesOf(nid)));
+  for (const f of S.fronts) if (f.n === nid && f.kind === 'land') {
+    if ((f.role !== 'defend' && f.order !== 'hold') || (f.order && f.order !== 'hold') || (!f.order && f.dplan?.manual)) f.dplan = null;
+    else if (f.order === 'hold' && f.holdTile != null && (!f.dplan || f.dplan.anchor !== f.holdTile)) f.dplan = makeDPlan(f, f.holdTile, efLazy(), { manual: true });
+  }
   const defs = S.fronts.filter(f => f.n === nid && f.kind === 'land' && f.role === 'defend' && !f.retreating && !f.solo && !f.airborne && !f.order); if (!defs.length) return;
   const en = enemiesOf(nid);
   const camps = []; eachBuilding((b, j) => { if (b.n === nid && done(b) && b.type === 'camp') camps.push(j); });
@@ -223,8 +229,16 @@ function planDefense(nid) {
   const holders = defs.filter(f => !strikers.includes(f));
   const ranked = sectors.slice().sort((a, b) => b.risk - a.risk);
   const zones = defenseZones(nid, en, sectors, defs), plan = assignHolders(nid, holders, zones);
+  // עקביות: גנרל עם תוכנית הגנה נשאר בגזרה שלו. עובר רק כשאיום במקום אחר גדול פי 2 במשך 3 ימים (defense.js)
+  for (const f of holders) if (f.dplan && !f.dplan.manual) {
+    const z0 = zones.find(z => z.kind === 'border' && dist(z.tile, f.dplan.sector) <= 8), cur = plan.get(f);
+    if (!z0) { f.dplan = null; continue; }
+    if (cur && cur !== z0 && cur.kind === 'incursion') { f.swN = 0; continue; }   // חדירה לשטח — מגיבים מיד
+    if (cur && cur !== z0) { if (cur.p > z0.p * DEF.SWITCH) { f.swN = (f.swN || 0) + 1; if (f.swN >= DEF.SWITCH_DAYS) { const lb = leaveBehind(f); if (nid === 0 && lb) toast(`🛡 ${divName(lb)} נשארת לאייש את הקו הקודם`); f.dplan = null; f.swN = 0; if (nid === 0) toast(`🛡 ${f.gen.name} עובר לגזרה מאוימת יותר — הקו הקודם נשאר עם השוחות שלו`); continue; } } plan.set(f, z0); }
+    else f.swN = 0;
+  }
   for (const f of holders) {
-    const s0 = plan.get(f) || ranked[0], s = mobile && s0.posture === 'hold' ? { ...s0, posture: 'delay' } : s0;
+    const s0 = plan.get(f) || ranked[0], s = s0;   // (הוסר: posture 'hold' לא קיים)
     f.atCamp = false; f.defRole = s.posture; f.sector = s.tile; f.zoneKind = s.kind;
     // חדירה לשטח שלנו: מגינים על המבנה החשוב הקרוב לצבא האויב (או תוקפים אותו כשאנחנו חזקים מספיק)
     if (s.kind === 'incursion') {
@@ -233,6 +247,12 @@ function planDefense(nid) {
       f.target = null; f.zone = []; f.defend = s.guard ?? s.tile; continue;
     }
     const [fx, fy] = f.pos, local = wsEnemy(nid, fx, fy, 6, 'atk');
+    // תוכנית הגנה קבועה: מחזיקים את הקו. נפרץ / סכנת כיתור → נסיגה לקו השני המוכן (לא לשטח פתוח)
+    if (f.dplan) {
+      const p = f.dplan;
+      if (!p.fb && f.engaged && ownShare(nid, fx, fy) < CFG.ENCIRCLE_SHARE) { p.fb = true; if (nid === 0) toast(`↩ ${f.gen.name}: הקו נפרץ — נסיגה מסודרת לקו השני`, 'bad'); }
+      f.target = null; f.zone = []; f.defend = planAnchorTile(p); continue;
+    }
     // השהיה: מחזיקים עד שהיחס נשבר, ואז נסוגים צעד אחד — לא יותר עמוק מהמבנה החשוב הקרוב
     if (s.posture === 'delay') { if (f.engaged && frontPower(f, 'def') < local * CFG.DELAY_BREAK) f.delayD = Math.min(14, (f.delayD || 0) + CFG.DELAY_STEP); }
     else f.delayD = 0;
@@ -249,7 +269,7 @@ function planDefense(nid) {
     if (s.posture !== 'delay') { const [sx, sy] = XY(spot), R = 4 * G; for (let y = Math.max(0, sy - R); y <= Math.min(H - 1, sy + R); y++) for (let x = Math.max(0, sx - R); x <= Math.min(W - 1, sx + R); x++) { const j = y * W + x; if (S.lastOwner[j] === nid && en.includes(S.owner[j])) { const d = dist(j, spot); if (d <= 4 && d < ld) { ld = d; lost = j; } } } }
     const localDef = lost != null ? enemyPowerNear(nid, lost, 5) : 0;
     if (lost != null && frontPower(f, 'atk') > localDef * CFG.CA_RATIO + 2) { f.target = lost; f.defend = null; }
-    else { f.target = null; f.zone = []; f.defend = spot; }
+    else { f.target = null; f.zone = []; f.defend = spot; if (s.kind !== 'incursion' && s.posture !== 'delay' && s.posture !== 'screen') f.dplan = makeDPlan(f, spot, ef, { sector: s.tile }); }
   }
   if (!reserve) return;
   strikers.forEach((r, k) => strike(nid, r, k, ranked, en, ef, mobile));

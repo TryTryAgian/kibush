@@ -25,6 +25,8 @@ const CFG = {
   ENGAGE_R: 4,                 // מרחק בו צבאות נלחמים
   PORT_RANGE: 9,               // טווח נחיתה מהים מנמל
   UNIT_UPKEEP: 0.1,            // זהב ליום לכל יחידה
+  MAN_UPKEEP: 0.012,           // כוח אדם ליום לכל יחידה (חיילים מתחלפים, נפגעים, משמרות)
+  MAN_CAP_POP: 0.25,           // תקרת מאגר כוח האדם: רבע מהאוכלוסייה (+200)
   GRACE_DAYS: 40,              // המחשב לא מכריז מלחמה לפני יום זה
   AI_THINK: 2,                 // כל כמה ימים המחשב מחליט
   NAP_DAYS: 120,               // אורך הסכם אי-תקיפה
@@ -123,7 +125,7 @@ const BUILD = {
   camp:       { name: 'מחנה צבאי',  cost: { gold: 110, mat: 40 }, time: 8,  yield: { gold: -1 }, claim: 2, def: 4, spacing: 2, terrain: LAND_OK, desc: 'בסיס של אוגדה אחת — סוג המחנה קובע את סוג האוגדה' },
   factory:    { name: 'מפעל',       cost: { gold: 150, mat: 20 }, time: 10, yield: { mat: 4, gold: -1 }, claim: 1, def: 3, spacing: 1, terrain: [GRASS, SAND, HILLS], desc: 'חומרים · מאיץ אימון שריון, ארטילריה ונ״מ' },
   university: { name: 'אוניברסיטה', cost: { gold: 150, mat: 90 }, time: 12, yield: { know: 3, gold: -2 }, claim: 1, def: 2, spacing: 3, terrain: LAND_OK, desc: 'ידע למחקר' },
-  fortress:   { name: 'ביצור',      cost: { gold: 120, mat: 60 }, time: 10, yield: { gold: -2, mat: -0.2 }, claim: 2, def: 10, spacing: 2, aura: 3, terrain: [...LAND_OK, MOUNT], desc: 'הגנה ברדיוס 3' },
+  fortress:   { name: 'ביצור',      cost: { gold: 70, mat: 140 }, time: 10, yield: { gold: -2, mat: -0.2 }, claim: 2, def: 10, spacing: 2, aura: 3, terrain: [...LAND_OK, MOUNT], desc: 'הגנה ברדיוס 3' },
   port:       { name: 'נמל',        cost: { gold: 160, mat: 30 }, time: 10, yield: { gold: 2, mat: 1 }, claim: 2, def: 3, spacing: 3, coastal: true, terrain: [SAND, GRASS], desc: 'מסחר · אספקה בים · בסיס שייטת' },
   airport:    { name: 'שדה תעופה',  cost: { gold: 250, mat: 80 }, time: 14, yield: { gold: -3 }, claim: 2, def: 2, spacing: 6, terrain: [GRASS, SAND], req: 'aviation', desc: 'בסיס כנף אווירית' },
 };

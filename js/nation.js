@@ -44,7 +44,7 @@ function pickAmbition(n) {
   opts.push(['expand', ax.expand * 1.1, { goal: Math.min(60, Math.round((share * 100 + 10) / 5) * 5) }]);
   if (ownPorts(n.id).length && n.pers === 'naval') opts.push(['navy', 1.3, {}]);
   if (!nbs.length) opts.push(['fortify', ax.caution * 0.6, {}]);
-  const tot = opts.reduce((a, o) => a + o[1], 0); let x = Math.random() * tot;
+  const tot = opts.reduce((a, o) => a + o[1], 0); let x = srand() * tot;
   for (const [k, w, extra] of opts) { x -= w; if (x <= 0) return { k, since: S.time, ...extra }; }
   return { k: 'expand', since: S.time, goal: 30 };
 }

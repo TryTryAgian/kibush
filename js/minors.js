@@ -156,7 +156,7 @@ function minorsDaily() {
 }
 // המחשב: שליחים לכפרים שכנים (לפי חמדנות ונאמנות), תקיפה כשהוא תוקפני או צריך שטח
 function aiMinors(n) {
-  if ((n.minT || 0) > S.time) return; n.minT = S.time + 3 + Math.random() * 2;
+  if ((n.minT || 0) > S.time) return; n.minT = S.time + 3 + srand() * 2;
   const nid = n.id, ax = n.axes || { aggr: 0.5, greed: 0.5, trust: 0.5 }, near = S.minors.filter(m => m.alive && minorBorder(m, nid));
   if (!near.length) return;
   const wars = S.nations.some(m => m.alive && atWar(nid, m.id)), active = near.filter(m => m.mis[nid]).length;
@@ -165,10 +165,10 @@ function aiMinors(n) {
     const c = near.filter(m => !m.mis[nid] && !minorHostile(m, nid)).sort((a, b) => ((b.infl[nid] || 0) + b.tiles / 40) - ((a.infl[nid] || 0) + a.tiles / 40))[0];
     if (c) c.mis[nid] = true;
   }
-  if (n.res.gold > 400 && Math.random() < 0.3) { const c = near.find(m => m.mis[nid] && (m.infl[nid] || 0) > 40); if (c) minorGift(c, nid); }
+  if (n.res.gold > 400 && srand() < 0.3) { const c = near.find(m => m.mis[nid] && (m.infl[nid] || 0) > 40); if (c) minorGift(c, nid); }
   const hostile = S.minors.some(m => m.alive && minorHostile(m, nid));
   const want = (ax.aggr - 0.35) + (n.amb?.k === 'expand' || n.amb?.k === 'conquer' ? 0.25 : 0) + (n.res.gold < 80 ? 0.15 : 0) - (wars ? 0.6 : 0);
-  if (!hostile && want > 0 && Math.random() < want && landGenerals(nid).some(f => unitCount(f.units) > 6)) {
+  if (!hostile && want > 0 && srand() < want && landGenerals(nid).some(f => unitCount(f.units) > 6)) {
     const t = near.filter(m => !m.mis[nid] || (m.infl[nid] || 0) < 30).sort((a, b) => a.gar - b.gar)[0];
     if (t) minorDeclare(t, nid);
   }

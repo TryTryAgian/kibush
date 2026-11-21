@@ -4,9 +4,10 @@
 let liveFns = [];
 // מרענן את הלשונית/הפאנל כשמצב הדברים שמוצגים בו משתנה (בלי שצריך ללחוץ שוב)
 function watch(sig) { let last = sig(); return live(el => { const s = sig(); if (s !== last) { last = s; setTimeout(render, 0); } }, 'span', { style: { display: 'none' } }); }
-function live(fn, tag = 'span', props) { const el = h(tag, props); liveFns.push(() => fn(el)); fn(el); return el; }
-function updateLive() { for (const f of liveFns) f(); }
-function bar(fn) { const el = h('div', { class: 'bar' }, h('i')), upd = () => { el.firstChild.style.width = clamp(fn() * 100, 0, 100) + '%'; }; liveFns.push(upd); upd(); return el; }
+function live(fn, tag = 'span', props) { const el = h(tag, props), u = () => fn(el); u.el = el; liveFns.push(u); fn(el); return el; }
+// עדכון חי: פונקציות של אלמנטים שכבר לא בדף (חלון שנסגר) נזרקות — לא מצטברות עד ה-render הבא
+function updateLive() { liveFns = liveFns.filter(f => !f.el || f.el.isConnected || !f.el.ownerDocument); for (const f of liveFns) f(); }
+function bar(fn) { const el = h('div', { class: 'bar' }, h('i')), upd = () => { el.firstChild.style.width = clamp(fn() * 100, 0, 100) + '%'; }; upd.el = el; liveFns.push(upd); upd(); return el; }
 
 function render() {
   if (!S) return;
@@ -96,6 +97,8 @@ function buildTab() {
 function divWhere(d) {
   if (d.loc === 'moving') return '🚚 בדרך';
   const f = d.front != null && S.fronts.find(x => x.id === d.front);
+  if (!f && d.gar) return d.gar.arr ? `🛡 משמר: ${garName(d)} (עוד ${Math.max(0, Math.ceil(d.gar.until - S.time))} ימים)` : `🚶 יוצא למשמר: ${garName(d)}`;
+  if (!f && d.rest > S.time) return '⛺ מנוחה אחרי משמר';
   if (f) return f.solo ? `🎯 ${f.status}` : f.kind === 'navy' ? `⚓ ${f.gen.name}` : `🎖 ${f.gen.name}`;
   return S.nations.some(m => m.alive && atWar(d.n, m.id)) ? '🛡 חיל מצב — מגן על סביבת המחנה' : '⛺ במחנה';
 }
@@ -118,7 +121,7 @@ function armyTab() {
     h('div', { class: 'card' },
       h('div', { class: 'uline' }, h('b', { class: 'nm' }, '📣 גיוס'), live(el => el.textContent = `${Math.round(p.mob * 100)}% · אימון ×${(0.5 + 1.5 * p.mob).toFixed(2)} · כלכלת ערים ×${econMul(p).toFixed(2)}`, 'span', { class: 'dim' })),
       h('input', { type: 'range', min: CFG.MOB_MIN * 100, max: CFG.MOB_MAX * 100, step: 5, value: Math.round(p.mob * 100), dir: 'ltr', oninput: e => { p.mob = +e.target.value / 100; updateLive(); } }),
-      live(el => { const e = p.econ || {}; el.textContent = `👥 אוכלוסייה ${e.pop || 0} · 🏭 ${bCount(0, 'factory')} מפעלים (מאיצים שריון, ארטילריה ונ״מ) · דלק וחלפים ${(e.matUp || 0).toFixed(1)}⚙ ליום`; }, 'div', { class: 'dim' })),
+      live(el => { const e = p.econ || {}; el.textContent = `👥 אוכלוסייה ${e.pop || 0} (כוח אדם עד ${e.manCap || 0}, צבא צורך ${(e.manUp || 0).toFixed(1)}/יום) · 🏭 ${bCount(0, 'factory')} מפעלים (מאיצים שריון, ארטילריה ונ״מ) · דלק וחלפים ${(e.matUp || 0).toFixed(1)}⚙ ליום`; }, 'div', { class: 'dim' })),
     h('h3', {}, 'אוגדות', h('span', { class: 'dim' }, `${ds.length} · ${ds.filter(d => d.loc === 'camp' && d.front == null).length} בעתודה`)),
     ds.length ? null : h('div', { class: 'dim' }, 'אין אוגדות. בנה מחנה בלשונית בנייה — כל מחנה מקים ומאמן אוגדה אחת.'),
     ...ds.map(divCard),
@@ -135,7 +138,7 @@ function genIcon(f) {
   return { reserve: '🛡', depth: '🧱', screen: '👁', delay: '⏳' }[f.defRole] || '🛡';
 }
 const shortStatus = f => (f.status || '').split(' — ')[0].split(' · ')[0].slice(0, 24);
-function miniBar(fn, col) { const i = h('i'), el = h('span', { class: 'mbar' }, i), up = () => { const v = clamp(fn(), 0, 1); i.style.width = v * 100 + '%'; i.style.background = col(v); }; liveFns.push(up); up(); return el; }
+function miniBar(fn, col) { const i = h('i'), el = h('span', { class: 'mbar' }, i), up = () => { const v = clamp(fn(), 0, 1); i.style.width = v * 100 + '%'; i.style.background = col(v); }; up.el = el; liveFns.push(up); up(); return el; }
 function genCard(f) {
   const p = player(), sel = f.id === ui.selFront, tr = TRAITS[f.gen.trait];
   const lvlCol = v => v > 0.6 ? '#5ad07a' : v > 0.3 ? '#e8b820' : '#e04848';
@@ -166,11 +169,14 @@ function genCard(f) {
       // למה כל אוגדה עושה מה שהיא עושה (שלב 3ב)
       f.kind === 'land' ? live(el => { const ds = frontDivs(f).filter(d => d.loc === 'front' && d.task && !['move', 'reserve', 'hold'].includes(d.task.k)); el.style.display = ds.length ? '' : 'none'; el.textContent = ds.map(d => `${TASKS[d.task.k].ic} ${d.num}: ${d.task.why}`).join('\n'); }, 'div', { class: 'dim tasks' }) : null,
       f.kind === 'land' ? live(el => { const ds = frontDivs(f).filter(d => d.loc === 'front'); el.style.display = ds.length ? '' : 'none'; el.textContent = '🎖 ' + ds.map(d => { const c = ensureCmd(d); return `${d.num}: ${cmdTitle(c)} ${cmdStars(c)} (${cmdTraits(c)})${d.taskSince != null && S.time - d.taskSince < 0.6 - 0.12 * cmdLvl(c) ? ' ⏳ מתארגן' : ''}`; }).join('\n🎖 '); }, 'div', { class: 'dim tasks' }) : null,
-      capped(f) ? live(el => { const c = genLoad(f); el.textContent = `אוגדות ${c}/${GEN_DIVS}${c >= GEN_DIVS ? ' · מלא' : ''}`; }, 'div', { class: 'dim' }) : null,
+      f.kind === 'land' && !f.solo ? live(el => { const st = planStage(f); el.style.display = st ? '' : 'none'; if (!st) return; const p = f.dplan, nm = ['חפוז', 'שוחה רדודה', 'שוחה מלאה', 'קו מקושר'][Math.min(3, Math.floor(st.lvl + 0.01))];
+        el.textContent = `🛡 קו הגנה${p.name ? ' · ' + p.name : ''}${p.fb ? ' · בקו השני' : ''} — ${st.n} עמדות · הכנה: ${nm} (${st.lvl.toFixed(1)}/3)${st.wired ? ` · תיל ${Math.round(st.wired * 100)}%` : ''}`; }, 'div', { class: 'dim' }) : null,
+      f.kind === 'land' && !f.solo && f.n === 0 ? live(el => { const p = f.dplan; el.style.display = p && !p.wireBought ? '' : 'none'; if (!p) return; const c = wireCost(f); el.textContent = `🧷 גדר תיל לקו (${c.gold}💰 ${c.mat}🧱) — +15% הגנה, מאט את התוקף`; el.disabled = !canAfford(player(), c); }, 'button', { class: 'btn sm', onclick: e => { e.stopPropagation(); const err = buyWire(f); toast(err || `🧷 ${f.gen.name}: פורסים גדר תיל לאורך הקו`, err ? 'bad' : ''); render(); } }) : null,
+      capped(f) ? live(el => { const c = genLoad(f); el.textContent = `אוגדות ${c}/${genCap(f)}${c >= genCap(f) ? ' · מלא' : ''}`; }, 'div', { class: 'dim' }) : null,
       f.auto || f.solo ? null : h('div', { class: 'row wrap' }, Object.keys(DIV_TYPES).filter(k => (f.kind === 'navy') === (k === 'navy')).map(k => {
         const free = divsOf(0).filter(d => d.type === k && d.loc === 'camp' && d.front == null);
         if (!free.length) return null;
-        return h('button', { class: 'btn sm', disabled: !free.length, onclick: e => { e.stopPropagation(); const ft = tileOf(...f.pos); const d = free.sort((a, b) => dist(a.home, ft) - dist(b.home, ft))[0]; if (genFull(f) && k !== 'air') toast(`ל${f.gen.name} כבר ${GEN_DIVS} אוגדות — מנה גנרל נוסף`, 'bad'); else if (!sendDivision(d, f)) toast('אין נתיב אספקה', 'bad'); render(); } }, `+ ${DIV_TYPES[k].name} (${free.length})`);
+        return h('button', { class: 'btn sm', disabled: !free.length, onclick: e => { e.stopPropagation(); const ft = tileOf(...f.pos); const d = free.sort((a, b) => dist(a.home, ft) - dist(b.home, ft))[0]; if (genFull(f) && k !== 'air') toast(`ל${f.gen.name} כבר ${genCap(f)} אוגדות — מנה גנרל נוסף`, 'bad'); else if (!sendDivision(d, f)) toast('אין נתיב אספקה', 'bad'); render(); } }, `+ ${DIV_TYPES[k].name} (${free.length})`);
       })),
       h('div', { class: 'row wrap' }, ...genActions(f))] : null);
 }

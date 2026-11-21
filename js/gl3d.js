@@ -492,7 +492,7 @@ function g3GroundTexture(now) {
     if (ui.pick?.kind === 'build' && view.hintCv) ctx.drawImage(view.hintCv, 0, 0, W * T, H * T);
     for (const f of S.fronts) if (f.kind === 'land' && f.zone?.length) { const col = S.nations[f.n].color; for (const j of f.zone) { const [x, y] = XY(j), p = Math.min(1, (f.prog[j] || 0) / (tileDefense(j) * CFG.TILE_DEF_K)); ctx.globalAlpha = 0.14 + 0.4 * p; ctx.fillStyle = col; ctx.fillRect(x * T, y * T, T, T); } ctx.globalAlpha = 1; }
     drawTracks(ctx, fp); for (const d of DECALS) { if (d.x < fp.x0 - 20 || d.x > fp.x1 + 20 || d.y < fp.y0 - 20 || d.y > fp.y1 + 20) continue; drawCrater(ctx, d); }
-    drawPasses(ctx, null); drawBridges(ctx, null); drawTrenches(ctx, null); drawMinors(ctx, null, true); drawMapMode(ctx); drawFog(ctx);
+    drawPasses(ctx, null); drawBridges(ctx, null); drawWorks(ctx, null); drawMinors(ctx, null, true); drawMapMode(ctx); drawFog(ctx);
     for (const op of S.ops) if (op.n === 0) for (const o of op.objectives) { if (o.done) continue; const [x, y] = XY(o.tile), cx = x * T + T / 2, cy = y * T + T / 2, r = o.main ? 12 : 7; ctx.strokeStyle = o.main || o.custom ? '#ffd84a' : o.type === 'encircle' ? '#ff9a3c' : '#ff4f6a'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.stroke(); }
     if (ui.sel != null) { const [x, y] = XY(ui.sel); ctx.strokeStyle = '#5fe0ff'; ctx.lineWidth = 1; ctx.strokeRect(x * T + 0.5, y * T + 0.5, T - 1, T - 1); }
   } finally { ctx = main; }
@@ -576,6 +576,7 @@ function g3Scene(now) {
   for (const s of TRADE.ships || []) { const [x, y] = pathPos(s.path, s.t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy) || fogHide(s.n, x, y)) continue; const [x2, y2] = pathPos(s.path, clamp(s.t + s.dir * 0.4, 0, s.path.total)); add('ship', s.n, wx, wy, Math.atan2(y2 - y, x2 - x), s.len / 9, 0.1, true); }
   for (const r of S.rails) { for (let k = 0; k < 4; k++) { const t = clamp(r.t - r.dir * k * 0.6 * RAIL_COST, 0, r.path.total), [x, y] = pathPos(r.path, t), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) continue; const [x2, y2] = pathPos(r.path, clamp(t + r.dir * 0.3 * RAIL_COST, 0, r.path.total)), [x1, y1] = pathPos(r.path, clamp(t - r.dir * 0.3 * RAIL_COST, 0, r.path.total)); add(k ? 'wagon' : 'loco', r.n, wx, wy, Math.atan2(y2 - y1, x2 - x1), 1, 0.3); } }
   eachBuilding((b, i) => { if (b.type !== 'airport' || !done(b)) return; const [x, y] = XY(i), wx = x * T + T / 2, wy = y * T + T / 2; if (!inF(wx, wy)) return; add('plane', b.n, wx - 1.8, wy + 7.4, -Math.PI / 2, 1, 0.9); add('plane', b.n, wx + 6, wy - 1.6, 0, 0.95, 0.9); });
+  for (const d of S.divs) { const g = d.gar; if (!g) continue; const X = g.pos[0] * T, Y = g.pos[1] * T; if (!inF(X, Y) || (fogOn() && d.n !== 0 && fogHide(d.n, g.pos[0], g.pos[1]))) continue; const h = g.h || 0; for (let k = 0; k < 4; k++) add(g.arr ? 'infK' : 'inf', d.n, X + Math.cos(h + 1.57) * (k - 1.5) * 1.7, Y + Math.sin(h + 1.57) * (k - 1.5) * 1.7, h, 1.3); }   // חיל משמר
   for (const b of BODIES) { if (!inF(b.x, b.y)) continue; b.t += view.fdt || 0; if (b.t > 30) continue; add('body', b.n, b.x, b.y, b.ang, 1.3); }
   for (const w of WRECKS) if (w.tank) { const k = 'wreck:x'; let g = groups.get(k); if (!g) groups.set(k, g = { t: 'wreck', n: -1, a: [] }); g.a.push(w.x, w.y, g3H(w.x, w.y), w.ang || 0, 0.8, 1, 1, 1); }
   return { items, groups };
@@ -591,7 +592,7 @@ function draw3D(now, fdt) {
   for (let q = G3.ownI || 0; q < OWNLOG.a.length; q++) if (inFp(OWNLOG.a[q])) G3.ownCh = (G3.ownCh || 0) + 1; G3.ownI = OWNLOG.a.length;
   // רק גנרלים שאזור הקרב שלהם על המסך משפיעים על החתימה
   const zs = S.fronts.reduce((a, f) => a + (f.zone?.length && inFp(f.zone[0]) ? f.zone[0] + f.zone.length * 7 + Math.round(Object.values(f.prog || {}).reduce((x, y) => x + y, 0) * 3) : 0), 0);
-  const sig = [G3.ownCh, DECALS.length, TRACKS.length >> 4, S.divs.reduce((a, d) => a + Math.round((d.dig || 0) * 4), 0), ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty, fogOn() ? FOG.ver : 0, MM.mode, MM.ver].join('|');
+  const sig = [G3.ownCh, DECALS.length, TRACKS.length >> 4, (S.worksV || 0) + (S.works || []).reduce((a, w) => a + Math.round(w.lvl * 3) + (w.wire >= 1 ? 1 : 0), 0), ui.sel, ui.pick?.kind, view.hintSrc?.size, zs, S.ops.reduce((a, o) => a + o.objectives.length, 0), TERR.cityKey?.length, view.railDirty, fogOn() ? FOG.ver : 0, MM.mode, MM.ver].join('|');
   if (G3.gT === 0 || (sig !== G3.gSig && now - G3.gT > 900) || now - G3.gT > 6000) { G3.gSig = sig; g3GroundTexture(now); }
   const sun = sunState(), VP = camMatrix(), LVP = lightMatrix(sun, G3.fp), sc = g3Scene(now), trees = g3Trees(), lines = g3Fx(fdt, now), PL = g3Lights(sun);
   const passes = [['sh', G3.sh], ['lit', G3.lit]];
