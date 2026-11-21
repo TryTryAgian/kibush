@@ -209,6 +209,9 @@ function sectorsDaily() {
   const secs = sectors();
   for (const s of secs) {
     const o = S.owner[s.key]; if (o < 0 || !S.nations[o]?.alive) { s.owner = -1; continue; }
+    // רק אם תוואי המפתח מחובר לשטח המרכזי של האומה — תוואי בתוך כיס לא "מושך" את הגזרה
+    // (אחרת: כיס נופל לאויב, הגזרה מחזירה אותו, הוא שוב כיס ונופל — לולאה יומית)
+    const mc = mainComp(o); if (!mc[s.key]) continue;
     let mine = 0; for (const j of s.tiles) if (S.owner[j] === o) mine++;
     if (mine < s.n * 0.5 || mine === s.n) { s.owner = mine === s.n ? o : -1; continue; }
     const enemyArmy = S.fronts.filter(g => g.kind === 'land' && g.n !== o && atWar(o, g.n) && unitCount(g.units) && !g.flying);
@@ -217,13 +220,14 @@ function sectorsDaily() {
       if (got >= cap) break;
       const p = S.owner[j]; if (p === o || S.buildings[j] || isWater(j)) continue;
       if (p >= 0 ? !atWar(o, p) : (S.mnr && S.mnr[j] >= 0)) continue;
-      if (!nb4(j).some(k => S.owner[k] === o)) continue;
-      const [x, y] = XY(j); if (enemyArmy.some(g => hyp(g.pos[0] - x, g.pos[1] - y) < 2.5)) continue;
+      if (!nb4(j).some(k => S.owner[k] === o && mc[k])) continue;   // רק בהמשך לשטח המחובר
+      if (p >= 0 && S.time - S.capDay[j] < 20) continue;   /* נכבש בקרב לאחרונה — הגזרה לא מבטלת את הכיבוש */
+      const [x, y] = XY(j); if (enemyArmy.some(g => hyp(g.pos[0] - x, g.pos[1] - y) < 6)) continue;   /* שטח במחלוקת — מכריעים בקרב */
       if (p >= 0) gotE++; captureTile(o, j); got++;
     }
     if (gotE && s.owner !== o) {
       const f = s.feat != null ? featById(s.feat) : null, prevO = s.lastO;
-      if (f && (o === 0 || s.lastO === 0) && s.toastT !== Math.floor(S.time)) { s.toastT = Math.floor(S.time); const [fx, fy] = XY(f.tile); if (typeof floatText === 'function') floatText(fx + 0.5, fy, o === 0 ? `✔ ${f.name}: הגזרה נופלת` : `✖ ${f.name}: הגזרה אבדה`, o === 0 ? '#5ad07a' : '#ff6060'); }
+      if (f && (o === 0 || s.lastO === 0) && s.annO !== o) { s.annO = o;   /* פעם אחת לכל החלפת בעלים — לא כל יום */ const [fx, fy] = XY(f.tile); if (typeof floatText === 'function') floatText(fx + 0.5, fy, o === 0 ? `✔ ${f.name}: הגזרה נופלת` : `✖ ${f.name}: הגזרה אבדה`, o === 0 ? '#5ad07a' : '#ff6060'); }
       s.lastO = o; void prevO;
     }
   }

@@ -325,3 +325,14 @@ function frontDefParts(f) {
   return out;
 }
 const partsText = ps => ps.map(([a, b]) => `${b}  ${a}`).join('\n');
+
+/* ---- גנרל "תקוע" בשטח של אומה שאינו במלחמה איתה (אחרי שלום, כניעה או העברת שטח) — חוזר לשטח שלו ---- */
+function strandedDaily() {
+  for (const f of S.fronts) {
+    if (f.kind !== 'land' || f.flying || !f.pos) continue; const o = S.owner[tileOf(f.pos[0], f.pos[1])];
+    if (o < 0 || o === f.n || allied(f.n, o) || atWar(f.n, o)) continue;
+    const t = nearestOwn(f.n, f.pos[0], f.pos[1], true); if (t == null) continue;
+    f.pos = XY(t); for (const d of frontDivs(f)) if (d.pos) d.pos = [f.pos[0], f.pos[1]];
+    f.target = null; f.zone = []; f.path = null; f.stuck = 0; f.retarget = true;
+  }
+}

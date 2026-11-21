@@ -251,14 +251,14 @@ function planDefense(nid) {
     if (s.kind === 'incursion') {
       const e = s.army, strong = e && frontPower(f, 'atk') > frontPower(e, 'def') * CFG.CA_RATIO;
       if (strong) { const t = nearEnemyTile(nid, e.pos, f.pos); if (t != null) { f.target = t; f.defend = null; continue; } }
-      f.target = null; f.zone = []; f.defend = s.guard ?? s.tile; continue;
+      f.target = null; f.zone = []; f.defend = okDef(f, s.guard ?? s.tile); continue;
     }
     const [fx, fy] = f.pos, local = wsEnemy(nid, fx, fy, 6, 'atk');
     // תוכנית הגנה קבועה: מחזיקים את הקו. נפרץ / סכנת כיתור → נסיגה לקו השני המוכן (לא לשטח פתוח)
     if (f.dplan) {
       const p = f.dplan;
       if (!p.fb && f.engaged && ownShare(nid, fx, fy) < CFG.ENCIRCLE_SHARE) { p.fb = true; if (nid === 0) toast(`↩ ${f.gen.name}: הקו נפרץ — נסיגה מסודרת לקו השני`, 'bad'); }
-      f.target = null; f.zone = []; f.defend = planAnchorTile(p); continue;
+      f.target = null; f.zone = []; f.defend = okDef(f, planAnchorTile(p)); if (f.defend !== planAnchorTile(p)) f.dplan = null; continue;
     }
     // השהיה: מחזיקים עד שהיחס נשבר, ואז נסוגים צעד אחד — לא יותר עמוק מהמבנה החשוב הקרוב
     if (s.posture === 'delay') { if (f.engaged && frontPower(f, 'def') < local * CFG.DELAY_BREAK) f.delayD = Math.min(14, (f.delayD || 0) + CFG.DELAY_STEP); }
@@ -276,7 +276,7 @@ function planDefense(nid) {
     if (s.posture !== 'delay') { const [sx, sy] = XY(spot), R = 4 * G; for (let y = Math.max(0, sy - R); y <= Math.min(H - 1, sy + R); y++) for (let x = Math.max(0, sx - R); x <= Math.min(W - 1, sx + R); x++) { const j = y * W + x; if (S.lastOwner[j] === nid && en.includes(S.owner[j])) { const d = dist(j, spot); if (d <= 4 && d < ld) { ld = d; lost = j; } } } }
     const localDef = lost != null ? enemyPowerNear(nid, lost, 5) : 0;
     if (lost != null && frontPower(f, 'atk') > localDef * CFG.CA_RATIO + 2) { f.target = lost; f.defend = null; }
-    else { f.target = null; f.zone = []; f.defend = spot; if (s.kind !== 'incursion' && s.posture !== 'delay' && s.posture !== 'screen') { f.dplan = makeDPlan(f, spot, ef, { sector: s.tile }); if (nid === 0) askLine(f); } }
+    else { f.target = null; f.zone = []; f.defend = okDef(f, spot); if (f.defend !== spot) continue; if (s.kind !== 'incursion' && s.posture !== 'delay' && s.posture !== 'screen') { f.dplan = makeDPlan(f, spot, ef, { sector: s.tile }); if (nid === 0) askLine(f); } }
   }
   if (!reserve) return;
   strikers.forEach((r, k) => strike(nid, r, k, ranked, en, ef, mobile));

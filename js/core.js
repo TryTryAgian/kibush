@@ -176,7 +176,9 @@ function newGame(settings) {
 const DIRS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
 const isOwnPort = (nid, i) => { const b = S.buildings[i]; return b && b.type === 'port' && b.n === nid && done(b); };
 // שטח כפר: עוברים רק אם הוא ידידותי (35%+), בחסותך, או שאתה במלחמה איתו (minors.js)
-function passable(nid, i) { const o = S.owner[i]; if (o < 0) { const k = S.mnr ? S.mnr[i] : -1; return k < 0 || nid < 0 || minorPass(S.minors[k], nid); } return o === nid || allied(nid, o); }
+// PASS_FORCE: גנרל שתקוע יותר מ-4 ימים (למשל במובלעת) עובר גם בשטח כפר שאינו ידידותי — מעבר כפוי
+let PASS_FORCE = false;
+function passable(nid, i) { const o = S.owner[i]; if (o < 0) { const k = S.mnr ? S.mnr[i] : -1; return k < 0 || nid < 0 || PASS_FORCE || minorPass(S.minors[k], nid); } return o === nid || allied(nid, o); }
 const RAIL_COST = 0.3;
 function stepCost(nid, v) { return S.railMap[v] && !isWater(v) && (S.owner[v] === nid || allied(nid, S.owner[v])) ? RAIL_COST : MOVE_COST[S.terrain[v]] + riverCost(v); }
 class Heap {

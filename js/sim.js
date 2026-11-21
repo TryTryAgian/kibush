@@ -68,7 +68,7 @@ function daily() {
     r.op = clamp(r.op * 0.993, -100, 100);
   }
   threatDaily();
-  pocketEffects(); occupationEffects(); rebelsDaily(); snowFlip();
+  pocketEffects(); occupationEffects(); rebelsDaily(); strandedDaily(); opsStallDaily(); snowFlip();
   for (const n of S.nations) if (n.alive) checkCapitulation(n);
   const c2 = counts();
   S.nations.forEach(n => {

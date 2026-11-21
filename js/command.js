@@ -251,3 +251,6 @@ function drawDecisions(c) {
     c.save(); c.strokeStyle = hl ? '#fff' : '#ffd060'; c.lineWidth = (hl ? 3 : 2) / z; c.setLineDash([5 / z, 3 / z]); c.beginPath(); c.arc((x + 0.5) * T, (y + 0.5) * T, (hl ? 22 : 16) / Math.max(0.5, z), 0, 7); c.stroke(); c.restore();
     drawLabel((x + 0.5) * T, (y + 0.5) * T - 20 / Math.max(0.5, z), d.kind === 'axis' ? `${k + 1}` : o.label.split(' ')[0], null, '#ffd060'); });
 }
+
+// מבצע של אומת מחשב שלא השיג דבר 60 יום — מבוטל (הגנרלים מתפנים למשימות אחרות)
+function opsStallDaily() { for (const op of S.ops.slice()) if (op.n !== 0 && S.nations[op.n]?.isAI && op.state === 'exec' && S.time - (op.lastGain ?? op.t0 ?? S.time) > 60) cancelOp(op); }
