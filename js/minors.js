@@ -9,7 +9,7 @@
 // גם המחשב משחק בזה: שולח שליחים ותוקף כפרים לפי האופי שלו.
 // S.mnr[i] = מספר הכפר שהמשבצת שלו (או -1). המשבצת עצמה נשארת owner = -1 עד שמישהו לוקח אותה.
 // איזון (סבב 6): שליחים איטיים יותר, מחיר עולה עם כל משלחת נוספת, תקרת משלחות לפי ערים, וכפרים חוששים מאומה גדולה
-const MINOR = { BASE: 1.3, SHARE0: 0.18, SPACING: 7, MAXR: 8, MIN_TILES: 24, MISSION_GOLD: 3, GIFT_GOLD: 60, GIFT_INF: 12, JOIN: 100, LEAD: 10, DECAY: 0.3, REGEN: 0.2, REP_R: 22 };
+const MINOR = { BASE: 0.7, INDEP: 0.5, INDEP_T: 0.8, SHARE0: 0.18, SPACING: 7, MAXR: 8, MIN_TILES: 24, MISSION_GOLD: 3, GIFT_GOLD: 60, GIFT_INF: 8, JOIN: 100, LEAD: 10, DECAY: 0.3, REGEN: 0.2, REP_R: 22 };
 const MN_PRE_V = ['כפר', 'מושב', 'נווה', 'גבעת', 'עין', 'בית', 'מצפה', 'תל', 'נאות', 'שדה'], MN_PRE_T = ['קריית', 'רמת', 'מעלה', 'עיר'];
 const MN_SUF = ['אלון', 'שחר', 'הדס', 'ארז', 'תמר', 'רימון', 'זית', 'אורן', 'נחל', 'סלע', 'אביב', 'גפן', 'דגן', 'ענבר', 'שקד', 'יערה', 'אשל', 'ברוש', 'צור', 'לוטם', 'נטף', 'רותם', 'כרמל', 'חרוב', 'דליה', 'יובל', 'עומר', 'רעים', 'אגמון', 'שניר'];
 const minorAt = j => S.mnr && j != null && S.mnr[j] >= 0 ? S.minors[S.mnr[j]] : null;
@@ -84,22 +84,44 @@ function minorDeclare(m, nid) {
 const giftCost = (m, nid) => Math.round(MINOR.GIFT_GOLD * (1 + 0.5 * (m.gifts[nid] || 0)));
 function minorGift(m, nid) {
   const n = S.nations[nid], c = giftCost(m, nid); if (!m.alive || minorHostile(m, nid) || n.res.gold < c) return false;
-  n.res.gold -= c; m.gifts[nid] = (m.gifts[nid] || 0) + 1; m.infl[nid] = Math.min(minorNeed(m), (m.infl[nid] || 0) + MINOR.GIFT_INF); return true;
+  n.res.gold -= c; m.gifts[nid] = (m.gifts[nid] || 0) + 1; m.infl[nid] = Math.min(minorNeed(m), (m.infl[nid] || 0) + MINOR.GIFT_INF * (minorGain(m, nid).reason ? 1 : 0.5)); return true;   /* מתנה בלי סיבה אמיתית — חצי */
 }
 // כמה השפעה ביום מקבלת האומה בכפר עם שליחים (גם להסבר בממשק)
+// עיקרון (סבב 7): כפר חופשי רוצה להישאר חופשי. שליחים לבד כמעט לא מזיזים אותו — צריך סיבה:
+//   🛡 הגנה: אומה אחרת מאיימת עליו (צבא ליד הגבול, תקפה כפרים שכנים, ענקית, תוקפנית) — הוא מחפש מגן חזק מספיק
+//   ⚔ כוח הזרוע: הצבא שלך עומד ליד העיר שלו וחזק בהרבה מחיל המצב
+//   💰 קשרי מסחר ופיתוח — דחיפה קטנה בלבד
+const MPOW = { d: -1, s: null, p: [] };
+const natPow = id => { if (MPOW.d !== S.day || MPOW.s !== S) { MPOW.d = S.day; MPOW.s = S; MPOW.p = S.nations.map(n => n.alive ? divsOf(n.id).filter(d => d.type !== 'navy' && d.type !== 'air').reduce((a, d) => a + divPow(d, 'def'), 0) : 0); } return MPOW.p[id] || 0; };
+// כמה הכפר חושש מאומה o (0..3) — ולמה
+function minorFear(m, o) {
+  const n = S.nations[o]; if (!n?.alive) return { f: 0, why: null }; const [tx, ty] = XY(m.town); let f = 0, why = [];
+  if (S.minors.some(x => x !== m && x.host?.[o] && dist(x.town, m.town) < MINOR.REP_R)) { f += 1.5; why.push('תוקפת כפרים בסביבה'); }
+  if (minorHostile(m, o)) { f += 2; why.push('הכריזה עליו כיריב'); }
+  const pw = wsOwn(o, tx, ty, 6); if (pw > m.gar * 4) { f += Math.min(1.2, pw / (m.gar * 10 + 1)); why.push('צבא ליד הגבול'); }
+  if (minorBorder(m, o) && ((n.axes?.aggr || 0.5) > 0.6 || S.nations.some(x => x.alive && atWar(o, x.id)))) { f += 0.5; why.push('תוקפנית'); }
+  const sh = minorShare(o); if (sh > MINOR.SHARE0) { f += Math.min(1, (sh - MINOR.SHARE0) * 5); why.push('ענקית'); }
+  return { f: Math.min(3, f), why: why.join(', ') };
+}
 function minorGain(m, nid) {
-  const parts = [['שליחים', MINOR.BASE]], [tx, ty] = XY(m.town);
-  if (minorBorder(m, nid)) parts.push(['גבול משותף', 1.5]);
-  const pw = wsOwn(nid, tx, ty, 5); if (pw > 0) parts.push(['צבא קרוב', Math.min(2, pw / (m.gar * 6 + 1))]);
-  const tr = S.nations.filter(o => o.alive && hasTrade(nid, o.id)).length; if (tr) parts.push(['מוניטין של סחר', Math.min(1.2, tr * 0.4)]);
-  const rep = S.minors.filter(o => !o.alive && o.joinedTo === nid).length; if (rep) parts.push(['כפרים שכבר הצטרפו', Math.min(0.6, rep * 0.3)]);
-  const sh = minorShare(nid); if (sh > MINOR.SHARE0) parts.push(['אתה כבר גדול — חוששים ממך', -Math.min(3, (sh - MINOR.SHARE0) * 9)]);
-  if (rep >= 4) parts.push(['עייפות: כבר הצטרפו אליך רבים', -Math.min(1.5, (rep - 3) * 0.2)]);
-  if (S.minors.some(o => o.host?.[nid] && dist(o.town, m.town) < MINOR.REP_R)) parts.push(['פחד: תקפת כפר קרוב', -1.5]);
-  let g = parts.reduce((a, p) => a + p[1], 0); if (m.kind === 'town') { g *= 0.7; parts.push(['עיר — קשה יותר לשכנע', '×0.7']); }
+  const parts = [['שליחים', MINOR.BASE]], [tx, ty] = XY(m.town), border = minorBorder(m, nid);
+  parts.push([m.kind === 'town' ? 'עיר חופשית — רוצה להישאר עצמאית' : 'כפר חופשי — רוצה להישאר עצמאי', -(m.kind === 'town' ? MINOR.INDEP_T : MINOR.INDEP)]);
+  if (border) parts.push(['גבול משותף', 0.4]);
+  // 🛡 הגנה מפני אומה אחרת שמאיימת — רק אם אנחנו חזקים מספיק כדי להגן (ביחס לאיום) וקרובים
+  let best = null; for (const o of S.nations) { if (o.id === nid || !o.alive) continue; const fr = minorFear(m, o.id); if (fr.f > 0.3 && (!best || fr.f > best.f)) best = { ...fr, o: o.id }; }
+  if (best && (border || minorDist(m, nid) <= 6) && !minorHostile(m, nid)) { const k = clamp(natPow(nid) / Math.max(1, natPow(best.o)), 0.25, 1.2); parts.push([`מחפשים הגנה מפני ${nm(best.o)} (${best.why})`, best.f * k]); }
+  // ⚔ כוח הזרוע: הצבא שלך ליד העיר שלהם
+  const pw = wsOwn(nid, tx, ty, 5); if (pw > m.gar * 3) parts.push(['הצבא שלך בפתח — כוח הזרוע', Math.min(2.5, pw / (m.gar * 6 + 1))]);
+  // 💰 מסחר ופיתוח — דחיפה קטנה
+  const tr = S.nations.filter(o => o.alive && hasTrade(nid, o.id)).length; if (tr) parts.push(['מסחר ושגשוג', Math.min(0.5, tr * 0.2)]);
+  const rep = S.minors.filter(o => !o.alive && o.joinedTo === nid).length; if (rep) parts.push(['כפרים שהצטרפו ומרוצים', Math.min(0.3, rep * 0.1)]);
+  const sh = minorShare(nid); if (sh > MINOR.SHARE0) parts.push(['אתה כבר גדול — חוששים לאבד את עצמאותם', -Math.min(2, (sh - MINOR.SHARE0) * 6)]);
+  if (rep >= 4) parts.push(['עייפות: כבר הצטרפו אליך רבים', -Math.min(1, (rep - 3) * 0.15)]);
+  if (S.minors.some(o => o.host?.[nid] && dist(o.town, m.town) < MINOR.REP_R)) parts.push(['פחד: תקפת כפר קרוב', -1]);
+  let g = parts.reduce((a, p) => a + p[1], 0);
   // מרחק: כפר רחוק מהשטח שלך כמעט לא שומע עליך ולא רוצה להצטרף לממלכה רחוקה
-  if (!minorBorder(m, nid)) { const d = minorDist(m, nid), k = clamp(1.25 - d / 16, 0.1, 1); if (k < 1) { g *= k; parts.push([`רחוק מהשטח שלך (${Math.round(d)} יח׳)`, `×${k.toFixed(2)}`]); } }
-  return { g: Math.max(0.3, g), parts };
+  if (!border) { const d = minorDist(m, nid), k = clamp(1.25 - d / 16, 0.1, 1); if (k < 1 && g > 0) { g *= k; parts.push([`רחוק מהשטח שלך (${Math.round(d)} יח׳)`, `×${k.toFixed(2)}`]); } }
+  return { g: Math.max(0.05, g), parts, reason: parts.some(p => typeof p[1] === 'number' && p[1] > 0.5 && /הגנה|כוח הזרוע/.test(p[0])) };
 }
 // מרחק מהעיר של הכפר למשבצת הקרובה של האומה (ביחידות; פעם ביום)
 function minorDist(m, nid) {
@@ -162,12 +184,15 @@ function aiMinors(n) {
   const wars = S.nations.some(m => m.alive && atWar(nid, m.id)), active = near.filter(m => m.mis[nid]).length;
   const maxMis = Math.min(misMax(nid), 1 + (ax.greed > 0.6 ? 1 : 0) + (n.amb?.k === 'trade' ? 1 : 0));
   if (active < maxMis && n.res.gold > 90 + active * 60) {
-    const c = near.filter(m => !m.mis[nid] && !minorHostile(m, nid)).sort((a, b) => ((b.infl[nid] || 0) + b.tiles / 40) - ((a.infl[nid] || 0) + a.tiles / 40))[0];
-    if (c) c.mis[nid] = true;
+    // שליחים רק למי שיש לו סיבה להקשיב (מפחד ממישהו אחר / הצבא שלנו בפתח)
+    const c = near.filter(m => !m.mis[nid] && !minorHostile(m, nid)).map(m => [m, minorGain(m, nid).g]).filter(([, g]) => g >= 0.5).sort((a, b) => (b[1] * 40 + (b[0].infl[nid] || 0) + b[0].tiles / 40) - (a[1] * 40 + (a[0].infl[nid] || 0) + a[0].tiles / 40))[0];
+    if (c) c[0].mis[nid] = true;
   }
+  for (const m of near) if (m.mis[nid] && minorGain(m, nid).g < 0.25 && (m.infl[nid] || 0) < minorNeed(m) * 0.7) m.mis[nid] = false;   // לא מתקדם — מחזירים את השליחים
   if (n.res.gold > 400 && srand() < 0.3) { const c = near.find(m => m.mis[nid] && (m.infl[nid] || 0) > 40); if (c) minorGift(c, nid); }
   const hostile = S.minors.some(m => m.alive && minorHostile(m, nid));
-  const want = (ax.aggr - 0.35) + (n.amb?.k === 'expand' || n.amb?.k === 'conquer' ? 0.25 : 0) + (n.res.gold < 80 ? 0.15 : 0) - (wars ? 0.6 : 0);
+  const noReason = !near.some(m => !minorHostile(m, nid) && minorGain(m, nid).g >= 0.5);
+  const want = (ax.aggr - 0.35) + (noReason ? 0.3 : 0) + (n.amb?.k === 'expand' || n.amb?.k === 'conquer' ? 0.25 : 0) + (n.res.gold < 80 ? 0.15 : 0) - (wars ? 0.6 : 0);
   if (!hostile && want > 0 && srand() < want && landGenerals(nid).some(f => unitCount(f.units) > 6)) {
     const t = near.filter(m => !m.mis[nid] || (m.infl[nid] || 0) < 30).sort((a, b) => a.gar - b.gar)[0];
     if (t) minorDeclare(t, nid);

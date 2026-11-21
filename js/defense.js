@@ -121,7 +121,11 @@ function garrisonTargets(nid) {
 }
 function garrisonDaily(n) {
   const nid = n.id, idle = divsOf(nid).filter(d => d.loc === 'camp' && d.front == null && d.type !== 'navy' && d.type !== 'air');
-  for (const d of idle) if (d.gar && (S.time > d.gar.until || S.owner[d.gar.t] !== nid)) { d.gar = null; d.rest = S.time + DEF.GAR_REST; }   // סוף משמרת → מנוחה בבסיס
+  for (const d of idle) { const g = d.gar; if (!g || g.back) continue;
+    if (S.time > g.until || S.owner[g.t] !== nid) {   // סוף משמרת → נוסעים חזרה לבסיס במשאיות, ואז מנוחה
+      const p = findPath(nid, tileOf(g.pos[0], g.pos[1]), d.home, { cap: 40000 }), [hx, hy] = XY(d.home);
+      if (!p || p.tiles.some(isWater)) { d.gar = null; d.rest = S.time + DEF.GAR_REST; continue; }
+      Object.assign(g, { back: true, arr: false, to: [hx + 0.5, hy + 0.5], path: Array.from(p.tiles).filter((_, i, a) => i % 3 === 0 || i === a.length - 1), k: 0, until: Infinity }); } }
   const onDuty = idle.filter(d => d.gar).length, max = Math.ceil(idle.length * DEF.GAR_SHARE);
   if (onDuty >= max) return;
   const ready = idle.filter(d => !d.gar && (d.rest || 0) <= S.time && divStrength(d) >= 0.6); if (!ready.length) return;
@@ -139,18 +143,26 @@ function garrisonStep(dt) {
   for (const d of S.divs) {
     const g = d.gar; if (!g) continue;
     if (d.loc !== 'camp' || d.front != null) { d.gar = null; continue; }
-    const [tx, ty] = g.to, sp = 1.6 * G * dt;
-    // הליכה לאורך מסלול יבשתי (נקודות ביניים) ואז אל העמדה
-    let wx = tx, wy = ty; if (g.path && g.k < g.path.length) { const [px, py] = XY(g.path[g.k]); wx = px + 0.5; wy = py + 0.5; if (hyp(wx - g.pos[0], wy - g.pos[1]) < 0.6) { g.k++; continue; } }
-    const dx = wx - g.pos[0], dy = wy - g.pos[1], l = Math.hypot(dx, dy), far = g.path && g.k < g.path.length;
-    if (far || l > 0.3) { const k = Math.min(1, sp / Math.max(l, 1e-6)); g.pos = [g.pos[0] + dx * k, g.pos[1] + dy * k]; g.arr = false; if (!far && hyp(tx - g.pos[0], ty - g.pos[1]) <= 0.3) g.path = null; }
+    const [tx, ty] = g.to;
+    // נסיעה במשאיות לאורך מסלול יבשתי (נקודות ביניים) ואז אל העמדה — כל התנועה של הצעד מנוצלת, בלי עצירות בנקודות הביניים
+    let left = CFG.TRUCK_SPD * dt, moved = false;
+    while (left > 1e-4) {
+      const far = g.path && g.k < g.path.length; let wx = tx, wy = ty; if (far) { const [px, py] = XY(g.path[g.k]); wx = px + 0.5; wy = py + 0.5; }
+      const dx = wx - g.pos[0], dy = wy - g.pos[1], l = Math.hypot(dx, dy);
+      if (!far && l <= 0.3) break;
+      const m = Math.min(l, left); if (l > 1e-6) { g.pos = [g.pos[0] + dx / l * m, g.pos[1] + dy / l * m]; g.hd = Math.atan2(dy, dx); } left -= m; moved = true;
+      if (far && m >= l - 1e-6) g.k++;
+    }
+    if (moved) { g.arr = false; if (hyp(tx - g.pos[0], ty - g.pos[1]) <= 0.3) g.path = null; }
+    if (moved && hyp(tx - g.pos[0], ty - g.pos[1]) > 0.3) continue;
+    else if (g.back) { d.gar = null; d.rest = S.time + DEF.GAR_REST; continue; }
     else { g.arr = true; const w = workOpen(d.n, tx, ty, g.h ?? (g.h = threatHeading(d.n, g.t, null))); w.occT = S.time; w.eng = false; }
     if (g.arr) { const e = S.fronts.find(f => f.kind === 'land' && atWar(d.n, f.n) && unitCount(f.units) && hyp(f.pos[0] - tx, f.pos[1] - ty) < 1.5 && frontPower(f, 'atk') > divPow(d, 'def') * 3);
       if (e) { for (const t of UKEYS) d.units[t] = Math.floor((d.units[t] || 0) * 0.8); d.gar = null; d.rest = S.time + DEF.GAR_REST; if (d.n === 0) toast(`🛡 ${divName(d)}: כוח אויב גדול מתקרב — המשמר נסוג לבסיס`, 'bad'); } }
   }
 }
 // חיל המצב מחזק את השטח סביבו (כמו גנרל מגן קטן)
-function garrisonDefNear(o) { const l = []; for (const d of S.divs) if (d.n === o && d.gar?.arr) l.push([d.gar.pos[0], d.gar.pos[1], Math.min(6, divPow(d, 'def') * 0.06)]); return l; }
+function garrisonDefNear_(o) { const l = []; for (const d of S.divs) if (d.n === o && d.gar?.arr) l.push([d.gar.pos[0], d.gar.pos[1], Math.min(6, divPow(d, 'def') * 0.06)]); return l; }
 const garName = d => { if (!d.gar) return null; const b = S.buildings[d.gar.t], ft = featAt(d.gar.t, 1); return b?.type === 'fortress' ? 'ביצור' : ft ? ft.name : 'קו הגנה'; };
 
 /* ---- ציור ---- */
@@ -189,7 +201,8 @@ function drawGarrisons(c, now, vis) {
   const T = CFG.T, z = view.cam.zoom;
   for (const d of S.divs) { const g = d.gar; if (!g) continue; const X = g.pos[0] * T, Y = g.pos[1] * T; if (vis && (X < vis.x0 - 10 || X > vis.x1 + 10 || Y < vis.y0 - 10 || Y > vis.y1 + 10)) continue;
     if (fogOn() && d.n !== 0 && fogHide(d.n, g.pos[0], g.pos[1])) continue;
-    if (z >= CFG.UNIT_ZOOM) { const h = g.h || 0; for (let k = 0; k < 3; k++) tdSprite('inf', d.n, X + Math.cos(h + 1.57) * (k - 1) * 1.6, Y + Math.sin(h + 1.57) * (k - 1) * 1.6, h, 0.7, !g.arr); }
+    if (z >= CFG.UNIT_ZOOM) { if (!g.arr) { const h = g.hd || 0; for (let k = 0; k < 3; k++) tdSprite('truck', d.n, X - Math.cos(h) * k * 4.2, Y - Math.sin(h) * k * 4.2, h, TD_SIZE.truck, true); }   /* שיירת משאיות */
+      else { const h = g.h || 0; for (let k = 0; k < 3; k++) tdSprite('inf', d.n, X + Math.cos(h + 1.57) * (k - 1) * 1.6, Y + Math.sin(h + 1.57) * (k - 1) * 1.6, h, 0.7, false); } }
     else if (z >= 0.5) { c.fillStyle = S.nations[d.n].color; c.beginPath(); c.arc(X, Y, Math.max(1.5, 3 / z), 0, 7); c.fill(); c.strokeStyle = '#000'; c.lineWidth = 0.6 / z; c.stroke(); } }
 }
 
@@ -216,7 +229,7 @@ function armyRatio(nid) {
 }
 // כמה אוגדות נשארות בבית כעתודה (במשמר/במחנה). במצוקה — יותר; בפריצה — משתחררות כולן
 function homeReserveN(nid) {
-  const n = S.nations[nid]; if (!n.isAI || underBreach(nid)) return 0;
+  const n = S.nations[nid]; if (!n.isAI || S.scenario || underBreach(nid)) return 0;
   const L = divsOf(nid).filter(d => d.type !== 'navy' && d.type !== 'air').length; if (L < 4) return 0;
   return Math.max(1, Math.round(L * (n.weak ? 0.3 : 0.18)));
 }
@@ -274,3 +287,4 @@ function aiFortify(n) {
   }
   n.fortT = S.time + 4;
 }
+function garrisonDefNear(o) { return garrisonDefNear_(o); }

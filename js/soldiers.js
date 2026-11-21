@@ -67,7 +67,8 @@ function sqUpdate(u, f, dt, now) {
     } else { s.cov = null; want = f.role === 'defend' && !u.mv ? 'kneel' : 'stand'; }
     if (s.stun > now) want = 'prone';
     const dx = tx - s.x, dy = ty - s.y, d = Math.hypot(dx, dy);
-    if (d > 0.25) { const spd = s.stun > now ? 0 : d > 7 ? SPD.run * 2.2 : want === 'prone' ? SPD.crawl : d > 2 ? SPD.run : SPD.walk; const m = Math.min(d, spd * dt); s.x += dx / d * m; s.y += dy / d * m; s.st = want === 'prone' ? 'prone' : d > 0.8 ? 'run' : want; if (s.st === 'run') s.ang = Math.atan2(dy, dx); }
+    if (d > 40) { s.x = tx - dx / d * 3; s.y = ty - dy / d * 3; continue; }   /* נשאר הרחק מאחור (המחלקה זזה מהר) — מצטרף */
+    if (d > 0.25) { const spd = s.stun > now ? 0 : Math.max(d > 7 ? SPD.run * 2.2 : want === 'prone' ? SPD.crawl : d > 2 ? SPD.run : SPD.walk, d > 3 ? d * 2.2 : 0); const m = Math.min(d, spd * dt); s.x += dx / d * m; s.y += dy / d * m; s.st = want === 'prone' ? 'prone' : d > 0.8 ? 'run' : want; if (s.st === 'run') s.ang = Math.atan2(dy, dx); }
     else { s.st = want; }
     if (s.st !== 'run') { let da = hd - s.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); s.ang += clamp(da, -6 * dt, 6 * dt); }
   }

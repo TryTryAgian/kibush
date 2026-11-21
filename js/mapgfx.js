@@ -254,16 +254,10 @@ function roadGeom(a, b) {
   ROADG.geo.set(k, geo); return geo;
 }
 function railSegments() {
-  const segs = [];
-  for (let i = 0; i < S.railMap.length; i++) if (S.railMap[i]) {
-    const [x, y] = XY(i);
-    for (const [dx, dy] of [[1, 0], [0, 1], [1, 1], [-1, 1]]) {
-      const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= W || Y >= H || !S.railMap[idx(X, Y)]) continue;
-      if (dx && dy && (S.railMap[idx(x + dx, y)] || S.railMap[idx(x, y + dy)])) continue;
-      segs.push([x, y, X, Y]);
-    }
-  }
-  return segs;
+  // כל מסילה = עקומה רכה (railGeo) — אותה עקומה שהרכבת נוסעת עליה; קטעים משותפים מצוירים פעם אחת בערך (חפיפה לא מזיקה)
+  const seen = new Set(), out = [];
+  for (const r of S.rails) { const key = Math.min(r.a, r.b) + ':' + Math.max(r.a, r.b); if (seen.has(key)) continue; seen.add(key); const g = railGeo(r); out.push(g.pts); }
+  return out;
 }
 // ציור כבישים ומסילות על הקשר נתון (בסקירה — לקנבס; בזום קרוב — וקטורי, רק מה שבמסך)
 function strokeInfra(c, roads, segs, vis) {
@@ -277,8 +271,15 @@ function strokeInfra(c, roads, segs, vis) {
   }
   c.setLineDash([1.2, 1.6]); c.strokeStyle = 'rgba(225,215,170,.55)'; c.lineWidth = 0.18; c.beginPath(); for (const r of vr) if (r[2] === 2.4) trace(r); c.stroke(); c.setLineDash([]);
   c.lineCap = 'butt';
-  const pass = (lw, col, dash) => { c.lineWidth = lw; c.strokeStyle = col; c.setLineDash(dash); c.beginPath(); for (const [a, b, X, Y] of segs) { if (!inV(a, b, X, Y)) continue; c.moveTo(a * T + h, b * T + h); c.lineTo(X * T + h, Y * T + h); } c.stroke(); };
-  pass(4.2, '#3a362e', [0.8, 1.4]); pass(1.8, '#2a2a28', []); pass(0.5, '#b8b4a8', []);
+  // מסילה: סוללת חצץ, אדנים, ושני פסי פלדה מקבילים
+  const vl = segs.filter(p => { let X0 = 1e9, X1 = -1e9, Y0 = 1e9, Y1 = -1e9; for (const [x, y] of p) { if (x < X0) X0 = x; if (x > X1) X1 = x; if (y < Y0) Y0 = y; if (y > Y1) Y1 = y; } return inV(X0 - 0.5, Y0 - 0.5, X1 - 0.5, Y1 - 0.5); });
+  const line = (p, off) => { for (let i = 0; i < p.length; i++) { const a = p[Math.max(0, i - 1)], b = p[Math.min(p.length - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = -(b[1] - a[1]) / l * off, ny = (b[0] - a[0]) / l * off, X = p[i][0] * T + nx, Y = p[i][1] * T + ny; i ? c.lineTo(X, Y) : c.moveTo(X, Y); } };
+  const pass = (lw, col, dash, off = 0) => { c.lineWidth = lw; c.strokeStyle = col; c.setLineDash(dash); c.beginPath(); for (const p of vl) line(p, off); c.stroke(); };
+  c.lineJoin = 'round';
+  pass(3.6, 'rgba(30,28,24,.35)', []); pass(2.9, '#8a8274', []); pass(2.3, '#9d9686', []);   // סוללה
+  pass(2.5, '#4a3a2a', [0.45, 0.75]);   // אדנים
+  pass(0.32, '#2c2c2c', [], 0.62); pass(0.32, '#2c2c2c', [], -0.62);   // פסים
+  pass(0.14, '#d8d6d0', [], 0.66); pass(0.14, '#d8d6d0', [], -0.58);   // ברק הפלדה
   c.setLineDash([]);
 }
 // בזום קרוב: כבישים ומסילות בחלקים (כמו השטח) — כל חלק מצייר רק את הקטעים שעוברים בו, ונשמר עד השינוי הבא
@@ -292,7 +293,7 @@ function bucketInfra() {
       }
   };
   for (const r of view.roads) { let X0 = 1e9, X1 = -1e9, Y0 = 1e9, Y1 = -1e9; for (const [x, y] of r[3].pts) { X0 = Math.min(X0, x); X1 = Math.max(X1, x); Y0 = Math.min(Y0, y); Y1 = Math.max(Y1, y); } add('roads', r, X0, Y0, X1, Y1); }
-  for (const g of view.railSegs) add('segs', g, g[0], g[1], g[2], g[3]);
+  for (const p of view.railSegs) { let X0 = 1e9, X1 = -1e9, Y0 = 1e9, Y1 = -1e9; for (const [x, y] of p) { X0 = Math.min(X0, x); X1 = Math.max(X1, x); Y0 = Math.min(Y0, y); Y1 = Math.max(Y1, y); } add('segs', p, X0 - 0.5, Y0 - 0.5, X1 - 0.5, Y1 - 0.5); }
 }
 function drawInfraChunks(vis) {
   const T = CFG.T, n = TP.CH, S_ = n * T, PX = 4;   // 4 פיקסלים ליחידת עולם
@@ -386,19 +387,27 @@ function drawTown(i, b) { const T = CFG.T, [x, y] = XY(i), c = townArt(i, b), s 
 
 // ===================== רכבות =====================
 function drawTrain(r) {
-  const T = CFG.T, sp = 3.9 / T * RAIL_COST, cars = 4, dir = r.dir || 1, col = S.nations[r.n].color;
-  const at = k => { const t = clamp(r.t - dir * k * sp, 0, r.path.total), [x, y] = pathPos(r.path, t); return [x * T + T / 2, y * T + T / 2]; };
-  for (let k = cars; k >= 0; k--) {
-    const [x, y] = at(k), [x2, y2] = at(k - 0.4), a = Math.atan2(y2 - y, x2 - x), loco = k === 0;
-    ctx.save(); ctx.translate(x, y); ctx.rotate(a);
-    ctx.fillStyle = 'rgba(16,14,10,.45)'; ctx.fillRect(-1.5, -0.6, 3.4, 1.8);
-    ctx.fillStyle = loco ? '#2e2e2c' : k % 2 ? '#6e5a44' : '#4a4e52'; ctx.fillRect(-1.7, -0.85, 3.4, 1.7);
-    if (loco) { ctx.fillStyle = col; ctx.fillRect(-1.7, -0.85, 3.4, 0.45); ctx.fillStyle = '#c8b070'; ctx.fillRect(1.4, -0.3, 0.3, 0.6); }
-    else { ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(-1.7, -0.85, 3.4, 0.3); }
+  // קטר + 4 קרונות במרווח קבוע על עקומת המסילה; קרונות לסירוגין: מכולה בצבע האומה / משא מכוסה / מיכלית
+  const T = CFG.T, g = railGeo(r), dir = r.dir || 1, col = S.nations[r.n].color, L = WAGON_GAP * T * 0.9;
+  for (let k = 4; k >= 0; k--) {
+    const t = r.t - dir * k * WAGON_GAP; if (t < 0 || t > g.total) continue;
+    const [x, y] = geoPos(g, t), [xa, ya] = geoPos(g, t + 0.2), [xb, yb] = geoPos(g, t - 0.2), a = Math.atan2(ya - yb, xa - xb) + (dir < 0 ? Math.PI : 0), loco = k === 0;
+    ctx.save(); ctx.translate(x * T, y * T); ctx.rotate(a);
+    ctx.fillStyle = 'rgba(10,10,8,.35)'; ctx.fillRect(-L / 2 + 0.3, -0.8, L, 2);   // צל
+    if (loco) {
+      ctx.fillStyle = '#26282a'; ctx.fillRect(-L / 2, -1, L, 2);
+      ctx.fillStyle = col; ctx.fillRect(-L / 2, -1, L * 0.55, 2); ctx.fillStyle = '#1a1a1a'; ctx.fillRect(L / 2 - 1.3, -0.75, 1, 1.5);
+      ctx.fillStyle = '#ffe9a0'; ctx.fillRect(L / 2 - 0.25, -0.45, 0.25, 0.3); ctx.fillRect(L / 2 - 0.25, 0.15, 0.25, 0.3);
+    } else {
+      const kind = k % 3; ctx.fillStyle = '#1c1c1c'; ctx.fillRect(-L / 2, -0.95, L, 1.9);
+      if (kind === 1) { ctx.fillStyle = col; ctx.fillRect(-L / 2 + 0.2, -0.85, L - 0.4, 1.7); ctx.fillStyle = 'rgba(0,0,0,.25)'; for (let i = 1; i < 4; i++) ctx.fillRect(-L / 2 + i * L / 4, -0.85, 0.12, 1.7); }
+      else if (kind === 2) { ctx.fillStyle = '#7a7e84'; ctx.beginPath(); ctx.ellipse(0, 0, L / 2 - 0.3, 0.85, 0, 0, 7); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(-L / 2 + 0.6, -0.6, L - 1.2, 0.25); }
+      else { ctx.fillStyle = '#6a5a40'; ctx.fillRect(-L / 2 + 0.2, -0.85, L - 0.4, 1.7); ctx.fillStyle = '#4e4230'; ctx.fillRect(-L / 2 + 0.2, -0.15, L - 0.4, 0.3); }
+    }
     ctx.restore();
   }
-  const [lx, ly] = at(0);
-  for (let p = 0; p < 3; p++) { const ph = (view.anim / 3 + p / 3) % 1; ctx.fillStyle = `rgba(200,200,195,${0.45 * (1 - ph)})`; ctx.beginPath(); ctx.arc(lx - ph * 2, ly - 1 - ph * 3, 0.5 + ph, 0, 7); ctx.fill(); }
+  const [lx, ly] = geoPos(g, r.t);
+  for (let p = 0; p < 3; p++) { const ph = (view.anim / 3 + p / 3) % 1; ctx.fillStyle = `rgba(200,200,195,${0.4 * (1 - ph)})`; ctx.beginPath(); ctx.arc(lx * T - ph * 2, ly * T - 1 - ph * 3, 0.5 + ph, 0, 7); ctx.fill(); }
 }
 
 // ===================== ספינות מסחר =====================

@@ -268,7 +268,7 @@ function draw() {
     else drawCounter(x * T + T / 2 - 4.5, y * T + T / 2 - 3, 9, 6, S.nations[c.n].color, lead, cam.zoom >= 1.6 && c.cnt > 1 ? c.cnt : null, { dim: false });
   }
   // רכבות
-  if (z >= 0.5) for (const r of S.rails) { const [x, y] = pathPos(r.path, r.t); if (inVis(x * T, y * T, 40)) drawTrain(r); }
+  if (z >= 0.5) for (const r of S.rails) { const [x, y] = geoPos(railGeo(r), r.t); if (inVis(x * T, y * T, 60)) drawTrain(r); }
   // תוויות ערים
   if (cam.zoom >= 0.45) eachBuilding((b, i) => {
     if (b.type !== 'city' || !done(b)) return;

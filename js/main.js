@@ -48,7 +48,7 @@ function load() {
 /* ---------- 16. BOOT & LOOP ---------- */
 let last = performance.now(), acc = 0, lastUi = 0;
 // החלקת תנועה: הסימולציה מתקדמת בצעדים (כל 0.3 שניות במהירות ×1); בציור משלבים בין המיקום הקודם לנוכחי לפי הזמן שעבר מאז הצעד
-function snapPrev() { if (!S) return; for (const f of S.fronts) f.pp = [f.pos[0], f.pos[1]]; for (const d of S.divs) if (d.pos) d.pp = [d.pos[0], d.pos[1]]; for (const c of S.convoys) { c.pt = c.t; c.pPath = c.path; } for (const r of S.rails) { r.pt = r.t; r.pPath = r.path; } }
+function snapPrev() { if (!S) return; for (const f of S.fronts) f.pp = [f.pos[0], f.pos[1]]; for (const d of S.divs) { if (d.pos) d.pp = [d.pos[0], d.pos[1]]; d.gp = d.gar ? [d.gar.pos[0], d.gar.pos[1]] : null; } for (const c of S.convoys) { c.pt = c.t; c.pPath = c.path; } for (const r of S.rails) { r.pt = r.t; r.pPath = r.path; } }
 const IP = [];
 const FOGSW = { on: false };
 function interpBegin() {
@@ -57,11 +57,12 @@ function interpBegin() {
     FOGSW.on = true; FOGSW.f = S.fronts; FOGSW.c = S.convoys; FOGSW.r = S.rails;
     S.fronts = S.fronts.filter(f => !fogHide(f.n, f.pos[0], f.pos[1]));
     S.convoys = S.convoys.filter(c => { const [x, y] = pathPos(c.path, c.t); return !fogHide(c.n, x, y); });
-    S.rails = S.rails.filter(r => { const [x, y] = pathPos(r.path, r.t); return !fogHide(r.n, x, y); });
+    S.rails = S.rails.filter(r => { const [x, y] = geoPos(railGeo(r), r.t); return !fogHide(r.n, x, y); });
   }
   if (!S || a >= 1) return;
   for (const f of S.fronts) if (f.pp && Math.abs(f.pp[0] - f.pos[0]) + Math.abs(f.pp[1] - f.pos[1]) < 3 * G) { IP.push([f, 'pos', f.pos]); f.pos = [f.pp[0] + (f.pos[0] - f.pp[0]) * a, f.pp[1] + (f.pos[1] - f.pp[1]) * a]; }
   for (const d of S.divs) if (d.pp && d.pos && Math.abs(d.pp[0] - d.pos[0]) + Math.abs(d.pp[1] - d.pos[1]) < 3 * G) { IP.push([d, 'pos', d.pos]); d.pos = [d.pp[0] + (d.pos[0] - d.pp[0]) * a, d.pp[1] + (d.pos[1] - d.pp[1]) * a]; }
+  for (const d of S.divs) if (d.gar && d.gp && Math.abs(d.gp[0] - d.gar.pos[0]) + Math.abs(d.gp[1] - d.gar.pos[1]) < 3 * G) { IP.push([d.gar, 'pos', d.gar.pos]); d.gar.pos = [d.gp[0] + (d.gar.pos[0] - d.gp[0]) * a, d.gp[1] + (d.gar.pos[1] - d.gp[1]) * a]; }
   for (const c of [...S.convoys, ...S.rails]) if (c.pt != null && c.pPath === c.path) { IP.push([c, 't', c.t]); c.t = c.pt + (c.t - c.pt) * a; }
 }
 function interpEnd() { if (FOGSW.on) { S.fronts = FOGSW.f; S.convoys = FOGSW.c; S.rails = FOGSW.r; FOGSW.on = false; } for (const [o, k, v] of IP) o[k] = v; IP.length = 0; }

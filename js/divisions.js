@@ -137,8 +137,11 @@ function drawDivMarks(f, X, Y, k, project) {
     else { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x1 - ux * e - uy * 1.8, y1 - uy * e + ux * 1.8); ctx.lineTo(x1 - ux * e + uy * 1.8, y1 - uy * e - ux * 1.8); ctx.closePath(); ctx.fill(); }
     ctx.globalAlpha = 1;
   }
+  // בזום קרוב הסמל מרחף מעל הכוחות של האוגדה (מרכז המחלקות שלה) — לא "ריבוע" שרץ לפניהם
+  const v = view.cam.zoom >= CFG.UNIT_ZOOM ? VIS.get(f.id) : null;
   for (const d of ds) {
-    const wx = d.pos[0] * T + T / 2, wy = d.pos[1] * T + T / 2;
+    let wx = d.pos[0] * T + T / 2, wy = d.pos[1] * T + T / 2;
+    if (v) { let sx = 0, sy = 0, n = 0; for (const u of v.units) if (u.dv === d.id && !REAR[u.t]) { sx += u.x; sy += u.y; n++; } if (n) { wx = sx / n; wy = sy / n - 9; } }
     if (project) project(wx, wy); else { ctx.strokeStyle = 'rgba(220,230,240,.35)'; ctx.lineWidth = 0.5; ctx.setLineDash([1.5, 1.5]); ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(wx, wy); ctx.stroke(); ctx.setLineDash([]); }
     ctx.save(); ctx.translate(wx, wy); ctx.scale(k, k);
     const w = 9, h = 5.5;

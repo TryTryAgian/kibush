@@ -97,7 +97,7 @@ function buildTab() {
 function divWhere(d) {
   if (d.loc === 'moving') return '🚚 בדרך';
   const f = d.front != null && S.fronts.find(x => x.id === d.front);
-  if (!f && d.gar) return d.gar.arr ? `🛡 משמר: ${garName(d)} (עוד ${Math.max(0, Math.ceil(d.gar.until - S.time))} ימים)` : `🚶 יוצא למשמר: ${garName(d)}`;
+  if (!f && d.gar) return d.gar.arr ? `🛡 משמר: ${garName(d)} (עוד ${Math.max(0, Math.ceil(d.gar.until - S.time))} ימים)` : d.gar.back ? '🚚 חוזרת לבסיס אחרי משמר' : `🚚 בדרך למשמר: ${garName(d)}`;
   if (!f && d.rest > S.time) return '⛺ מנוחה אחרי משמר';
   if (f) return f.solo ? `🎯 ${f.status}` : f.kind === 'navy' ? `⚓ ${f.gen.name}` : `🎖 ${f.gen.name}`;
   return S.nations.some(m => m.alive && atWar(d.n, m.id)) ? '🛡 חיל מצב — מגן על סביבת המחנה' : '⛺ במחנה';

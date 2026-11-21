@@ -46,7 +46,7 @@ function daily() {
     n.res.man = Math.min(n.res.man, Math.max(manCap(n.id), 0));
     n.last = { ...y, gold: y.gold + (n.railToday || 0) }; n.railLast = n.railToday || 0; n.railToday = 0;
     shortages(n);
-    if (n.isAI) { weakCheck(n); aiFortify(n); } allocateDivisions(n.id); garrisonDaily(n);
+    if (n.isAI && !S.scenario) { weakCheck(n); aiFortify(n); } allocateDivisions(n.id); garrisonDaily(n);
     if (n.tech.cur) {
       const T = TECH[n.tech.cur], use = Math.min(T.cost - n.tech.prog, n.res.know);
       n.res.know -= use; n.tech.prog += use;

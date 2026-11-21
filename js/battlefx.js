@@ -33,7 +33,8 @@ function syncPlatoons(f, v, cx, cy) {
 function placeSlots(f, v, cx, cy) {
   const T = CFG.T, hd = frontHeading(f), fx = Math.cos(hd), fy = Math.sin(hd), px = -fy, py = fx;
   const moving = f.path && !f.engaged && (!f.zone || !f.zone.length);
-  if (moving) { v.units.forEach((u, k) => { u.sx = cx - fx * k * 3.2 + px * ((k % 2) - 0.5) * 1.2; u.sy = cy - fy * k * 3.2 + py * ((k % 2) - 0.5) * 1.2; }); return; }
+  if (moving) { v.units.forEach((u, k) => { u.ride = true; u.sx = cx - fx * k * 3.2 + px * ((k % 2) - 0.5) * 1.2; u.sy = cy - fy * k * 3.2 + py * ((k % 2) - 0.5) * 1.2; }); return; }
+  v.units.forEach(u => u.ride = false);
   // כל אוגדה פורסת את המחלקות שלה סביב העמדה שלה, מול הקטע שלה בחזית
   const byDiv = new Map(); for (const u of v.units) { if (!byDiv.has(u.dv)) byDiv.set(u.dv, []); byDiv.get(u.dv).push(u); }
   for (const [dv, us] of byDiv) {
@@ -83,14 +84,17 @@ function updateUnits(f, cx, cy, dt, now) {
     const dx = u.sx - u.x, dy = u.sy - u.y, d = Math.hypot(dx, dy);
     // תזוזה קצרה (תיקון עמדה): זזים בלי להסתובב, הפנים לאויב. רק מעבר אמיתי מסובב את היחידה לכיוון הנסיעה. הסיבוב מוגבל במהירות
     const duck = u.hit && now - u.hit < 700 ? 0.25 : 1;   // נפגע — נשכב לרגע ומתקדם לאט
-    u.mv = d > 0.3; if (u.mv) { const s = Math.min(d, (4 + d * 2.2) * dt * duck); u.x += dx / d * s; u.y += dy / d * s; if (isTank(u.t)) trackMark(u); }
+    // חי״ר רחוק מהיעד ולא במגע — עולה על משאיות (לא הולכים את כל המפה ברגל); יורדים ליד היעד
+    if (u.t === 'inf' || u.t === 'cmdo') { const dv = u.dv != null ? divById(u.dv) : null, inFight = (f.engaged || f.mEng != null) && (!dv || dv.contact);
+      if (!inFight && (u.ride || d > 22)) { if (!u.mount) { u.mount = true; } } else if (u.mount && (inFight || d < 4)) { u.mount = false; u.sq = null; } }
+    u.mv = d > 0.3; if (u.mv) { const s = Math.min(d, (u.mount ? 10 + d * 2.6 : 4 + d * 2.2) * dt * duck); u.x += dx / d * s; u.y += dy / d * s; if (isTank(u.t)) trackMark(u); }
     if (d > 0.3 && !u.reloc && d > 4) u.reloc = true; else if (d < 1.2) u.reloc = false;
     const want = u.reloc ? Math.atan2(dy, dx) : hd, turn = (u.t === 'inf' || u.t === 'cmdo' ? 5 : 1.8) * dt;
     let da = want - u.ang; da = Math.atan2(Math.sin(da), Math.cos(da)); u.ang += clamp(da, -turn, turn);
   }
   // חיילים בודדים (soldiers.js): רק לכיתות; אוגדות שלא במגע — "שקטות"
   { const qd = new Set(); if (f.dep) { const mine = S.divs.filter(d => d.front === f.id && d.depF === f.id), any = mine.some(d => d.contact); for (const d of mine) if (d.line === false || (any && !d.contact)) qd.add(d.id); }
-    for (const u of v.units) if (u.t === 'inf' || u.t === 'cmdo') { u.quiet = u.dv != null && qd.has(u.dv); if (dt > 0) sqUpdate(u, f, dt, now); } }
+    for (const u of v.units) if ((u.t === 'inf' || u.t === 'cmdo') && !u.mount) { u.quiet = u.dv != null && qd.has(u.dv); if (dt > 0) sqUpdate(u, f, dt, now); } }
   // ירי
   if ((!f.engaged && f.mEng == null && !f.bombXY) || dt <= 0) return;   // mEng: קרב מול חיל מצב של כפר
   let foes = null;
@@ -131,7 +135,8 @@ function drawUnits(f, cx, cy, now) {
   const v = VIS.get(f.id); if (!v) return;
   for (const u of v.units) {
     const s = (TD_SIZE[u.t] || 3) * 1.35, hit = u.hit && now - u.hit < 120;
-    if ((u.t === 'inf' || u.t === 'cmdo') && u.sq) sqDraw2D(u, f.n, s, now);
+    if (u.mount) tdSprite('truck', f.n, u.x, u.y, u.ang, TD_SIZE.truck * 1.2, u.mv);   /* על משאית */
+    else if ((u.t === 'inf' || u.t === 'cmdo') && u.sq) sqDraw2D(u, f.n, s, now);
     else if (u.t === 'inf' || u.t === 'cmdo') {   // כיתה: שלושה חיילים
       for (let k = 0; k < 3; k++) { const a = u.ang + Math.PI / 2, ox = Math.cos(a) * (k - 1) * 1.3 - Math.cos(u.ang) * (k === 1 ? 0.8 : 0), oy = Math.sin(a) * (k - 1) * 1.3 - Math.sin(u.ang) * (k === 1 ? 0.8 : 0); tdSprite(u.t, f.n, u.x + ox, u.y + oy, u.ang + Math.sin(now / 300 + k + u.j * 9) * 0.2, s * 0.8, u.mv); }
     } else tdSprite(u.t, f.n, u.x, u.y, u.ang, s, u.mv);

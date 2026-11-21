@@ -142,13 +142,31 @@ function planRails(nid) {
     view.railDirty = true;
   }
 }
+// גאומטריית מסילה: עקומה רכה (דילול + Chaikin) ואורך אמיתי במשבצות — הרכבת נוסעת עליה במהירות קבועה והקרונות במרווח קבוע
+const RGEO = new WeakMap();
+function railGeo(r) {
+  let g = RGEO.get(r.path); if (g) return g;
+  const tl = r.path.tiles; let pts = tl.filter((_, i) => i === 0 || i === tl.length - 1 || i % 2 === 0).map(t => { const [x, y] = XY(t); return [x + 0.5, y + 0.5]; });
+  for (let it = 0; it < 3 && pts.length > 2; it++) { const o = [pts[0]]; for (let i = 0; i < pts.length - 1; i++) { const [px, py] = pts[i], [qx, qy] = pts[i + 1]; o.push([px * 0.75 + qx * 0.25, py * 0.75 + qy * 0.25], [px * 0.25 + qx * 0.75, py * 0.25 + qy * 0.75]); } o.push(pts[pts.length - 1]); pts = o; }
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  g = { pts, cum, total: cum[cum.length - 1] || 0.01 }; RGEO.set(r.path, g); return g;
+}
+// מיקום וכיוון על העקומה (במשבצות; מרכז משבצת = x+0.5)
+function geoPos(g, t) {
+  t = clamp(t, 0, g.total); const c = g.cum; let lo = 0, hi = c.length - 1; while (lo < hi - 1) { const m = (lo + hi) >> 1; if (c[m] <= t) lo = m; else hi = m; }
+  const a = g.pts[lo], b = g.pts[Math.min(lo + 1, g.pts.length - 1)], seg = (c[lo + 1] ?? c[lo]) - c[lo] || 1, f = clamp((t - c[lo]) / seg, 0, 1);
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, Math.atan2(b[1] - a[1], b[0] - a[0])];
+}
+const TRAIN_V = 14;   // משבצות ליום (≈ 5 משבצות בשנייה במהירות ×1)
+const WAGON_GAP = 0.62;   // מרווח בין קרונות (משבצות)
 function moveTrains(dt) {
   for (const r of S.rails) {
-    r.t += CFG.TRAIN_SPD * RAIL_COST * dt * r.dir;
-    if (r.dir > 0 && r.t >= r.path.total) {
-      r.t = r.path.total; r.dir = -1;
-      const n = S.nations[r.n]; let v = RAIL_VALUE[r.kind] * tileEff(r.a, r.n) * (n.econ ? n.econ.se : 1) * mod(n, 'rail');
-      if (r.kind === 'port' && tradePartners(r.n).length) v += 2 * mod(n, 'trade');   // יצוא דרך הנמל
+    const g = railGeo(r); if (r.g !== 2) { r.g = 2; r.t = clamp(r.t / Math.max(0.01, r.path.total) * g.total, 0, g.total); }
+    r.t += TRAIN_V * dt * r.dir;
+    if (r.dir > 0 && r.t >= g.total) {
+      r.t = g.total; r.dir = -1;
+      const n = S.nations[r.n]; let v = RAIL_VALUE[r.kind] * tileEff(r.a, r.n) * (n.econ ? n.econ.se : 1) * mod(n, 'rail') * (g.total / TRAIN_V) / (r.path.total / (CFG.TRAIN_SPD * RAIL_COST));   /* הכנסה לפי זמן: נסיעה מהירה = פחות זהב לכל הגעה, אותו קצב */
+      if (r.kind === 'port' && tradePartners(r.n).length) v += 2 * mod(n, 'trade') * (g.total / TRAIN_V) / (r.path.total / (CFG.TRAIN_SPD * RAIL_COST));   // יצוא דרך הנמל
       n.res.gold += v; n.railToday = (n.railToday || 0) + v;
     } else if (r.dir < 0 && r.t <= 0) { r.t = 0; r.dir = 1; }
   }
