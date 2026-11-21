@@ -179,12 +179,14 @@ const doneInBranch = (n, b) => Object.keys(n.tech.done).filter(k => TECH[k]?.b =
 const techCost = (n, k) => Math.round(TECH[k].cost * (1 - Math.min(0.3, 0.05 * doneInBranch(n, TECH[k].b))) / 5) * 5;
 const unis = nid => { const l = []; eachBuilding((b, j) => { if (b.n === nid && b.type === 'university' && done(b)) l.push(b); }); return l; };
 const exclRival = k => TECH[k].excl ? Object.keys(TECH).find(o => o !== k && TECH[o].excl === TECH[k].excl) : null;
+// כמה מחקרים בענף נדרשים למחקר עמוק: עד 3, אבל לא יותר ממה שיש בענף לפניו (זוג בלעדי נספר פעם אחת)
+function deepNeed(k) { const T = TECH[k], seen = new Set(); let c = 0; for (const o in TECH) { const U = TECH[o]; if (o === k || U.b !== T.b || U.base >= T.base) continue; if (U.excl) { if (seen.has(U.excl)) continue; seen.add(U.excl); } c++; } return Math.min(3, c); }
 function techLock(n, k) {
   const T = TECH[k], us = unis(n.id);
   if (T.excl) { const r = exclRival(k); if (n.tech.done[r] || n.tech.cur === r) return `נבחרה החלופה: ${TECH[r].name}`;
     if (!us.some(b => !b.spec || b.spec === T.excl)) return `דורש אוניברסיטה פנויה להתמחות ב${EXCL[T.excl]}`; }
   if (T.base >= TECH_LATE && !us.length) return 'מחקר מתקדם — דורש אוניברסיטה';
-  if (T.base >= TECH_DEEP && doneInBranch(n, T.b) < 3) return `מחקר עמוק — דורש 3 מחקרים בענף (יש ${doneInBranch(n, T.b)})`;
+  if (T.base >= TECH_DEEP) { const need = deepNeed(k); if (doneInBranch(n, T.b) < need) return `מחקר עמוק — דורש ${need} מחקרים בענף (יש ${doneInBranch(n, T.b)})`; }
   return null;
 }
 const availableTechs = n => Object.keys(TECH).filter(k => !n.tech.done[k] && TECH[k].req.every(r => n.tech.done[r]) && !techLock(n, k));

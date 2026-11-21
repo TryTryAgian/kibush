@@ -37,7 +37,7 @@ function step(dt) {
   if (S.scenAtk) scenTick();
 }
 function daily() {
-  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily(); sectorsDaily(); worksDaily(); cpDaily(); tutorialTick();
+  intelUpdate(); cmdDaily(); ambitionDaily(); histSample(); momentsDaily(); minorsDaily(); sectorsDaily(); worksDaily(); cpDaily(); decisionsDaily(); tutorialTick();
   const c = counts();
   for (const n of S.nations) {
     if (!n.alive) continue;

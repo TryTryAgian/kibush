@@ -53,7 +53,9 @@ function mainComp(nid) {
   if (seed != null && seed >= 0) {
     // BFS מהיר: מערך מוכן מראש, בלי הקצאות לכל משבצת; בעלות "שלי או בעל ברית" מחושבת פעם אחת לכל אומה
     const okN = S.nations.map(m => m.id === nid || allied(nid, m.id)), st = new Int32Array(W * H), own = S.owner, ter = S.terrain; let top = 0;
-    const ok = v => { const o = own[v]; return o >= 0 && okN[o] && !TER[ter[v]].water; };
+    // כפר ידידותי (35%+) או בחסות שלנו/של בעל ברית — מחבר את השטח (עוברים בו, לא כיס)
+    const mOK = (S.minors || []).map(m => m.alive && (m.lord === nid || (m.lord != null && allied(nid, m.lord)) || inflPct(m, nid) >= TIER.FRIEND) && !minorHostile(m, nid)), MN = S.mnr;
+    const ok = v => { const o = own[v]; if (o < 0) { const k = MN ? MN[v] : -1; return k >= 0 && mOK[k] && !TER[ter[v]].water; } return okN[o] && !TER[ter[v]].water; };
     const fill = s0 => { st[top++] = s0; a[s0] = 1;
       while (top) { const u = st[--top], x = u % W;
         if (x > 0 && !a[u - 1] && ok(u - 1)) { a[u - 1] = 1; st[top++] = u - 1; }

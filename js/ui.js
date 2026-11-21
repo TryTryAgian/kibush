@@ -11,6 +11,7 @@ function bar(fn) { const el = h('div', { class: 'bar' }, h('i')), upd = () => { 
 
 function render() {
   if (!S) return;
+  if (typeof decDraw === 'function') decDraw();
   if (ui.home) { liveFns = []; document.getElementById('ui').replaceChildren(homeScreen()); return; }
   const oldSheet = document.querySelector('.sheet'), sc = oldSheet && ui.lastTab === ui.tab ? oldSheet.scrollTop : 0;
   liveFns = [];
@@ -46,7 +47,7 @@ function bottom() {
 }
 function pickHint() {
   const txt = { build: () => `🏗 ${ui.pick.dt ? 'מחנה ' + DIV_TYPES[ui.pick.dt].name : BUILD[ui.pick.type].name} — הקש על משבצת ירוקה`, order: () => { const d = divById(ui.pick.div); return d ? `🎯 ${divName(d)} — הקש על יעד לתקיפה או נקודה להחזיק` : ''; }, objective: () => '🎯 הקש על יעד שיתווסף למבצע', blockade: () => '🚫 הקש על נמל אויב לחסימה', escort: () => '🛡 הקש על נמל שלך — הצי ילווה שיירות אליו', para: () => `🪂 הקש על אזור נחיתה (עד ${CFG.PARA_RANGE} משבצות משדה תעופה)`, dline: () => `✏ קו הגנה: הקש נקודות לאורך הקו (${ui.pick.pts.length}/6)` }[ui.pick.kind]();
-  return h('div', { class: 'hint px' }, txt, ui.pick.kind === 'dline' && ui.pick.pts.length ? h('button', { class: 'btn sm pri', onclick: () => { finishLine(); ui.tab = 'fronts'; render(); } }, '✔ סיים קו') : null, h('button', { class: 'btn sm', onclick: () => { const back = ui.pick.kind === 'build' ? 'build' : ui.pick.kind === 'order' ? null : 'fronts'; ui.pick = null; ui.hint = null; ui.tab = back; render(); } }, 'ביטול'));
+  return h('div', { class: 'hint px' }, txt, ui.pick.kind === 'dline' && ui.pick.pts.length ? h('button', { class: 'btn sm pri', onclick: () => { finishLine(); ui.tab = 'fronts'; render(); } }, '✔ סיים קו') : null, h('button', { class: 'btn sm', onclick: () => { const back = ui.pick.kind === 'build' ? 'build' : ui.pick.kind === 'order' ? null : 'fronts'; const wasLine = ui.pick.kind === 'dline'; ui.pick = null; if (wasLine) decResume(); ui.hint = null; ui.tab = back; render(); } }, 'ביטול'));
 }
 function tileInfo() {
   const i = ui.sel, o = S.owner[i], b = S.buildings[i], t = TER[S.terrain[i]], owner = o >= 0 ? S.nations[o] : null;
@@ -443,12 +444,13 @@ function toast(msg, kind = '', level) {
   level = level ?? toastLevel(msg, kind); if (level >= 3) return;
   const box = document.getElementById('toasts'), key = String(msg).replace(/[\d.,]+/g, '#').slice(0, 48);
   const same = [...box.children].find(e => e.dataset.key === key);
-  if (same) { const n = (+same.dataset.n || 1) + 1; same.dataset.n = n; same.querySelector('.tn').textContent = ` ×${n}`; clearTimeout(same._t); if (level > 1) same._t = setTimeout(() => same.remove(), 4000); return; }
+  if (same) { const n = (+same.dataset.n || 1) + 1; same.dataset.n = n; same.querySelector('.tn').textContent = ` ×${n}`; clearTimeout(same._t); same._t = setTimeout(() => same.remove(), level === 1 ? 12000 : 4000); return; }
   const el = h('div', { class: 'toast px ' + kind + (level === 1 ? ' crit' : '') }, msg, h('span', { class: 'tn' }), level === 1 ? h('button', { class: 'btn xs', onclick: () => el.remove() }, '✕') : null);
   el.dataset.key = key; box.append(el);
   while (box.children.length > 5) { const old = [...box.children].find(e => !e.classList.contains('crit')) || box.firstChild; old.remove(); }
-  if (level === 1) { if (PREFS.critPause !== false && S && S.speed > 0 && !S.scenario) { S.pausedBy = S.speed; S.speed = 0; render(); } }
-  else el._t = setTimeout(() => el.remove(), 4000);
+  // קריטי: נשאר 12 שניות (או עד סגירה); עצירת המשחק — רק אם הופעלה בהגדרות
+  if (level === 1 && PREFS.critPause === true && S && S.speed > 0 && !S.scenario) { S.speed = 0; render(); }
+  el._t = setTimeout(() => el.remove(), level === 1 ? 12000 : 4000);
 }
 const modalOpen = () => document.getElementById('modal').classList.contains('open');
 function modal(...content) { const m = document.getElementById('modal'); m.replaceChildren(h('div', { class: 'box px' }, ...content)); m.classList.add('open'); }
@@ -563,7 +565,7 @@ function homeScreen() {
         h('button', { class: 'btn pri grow', onclick: () => startGame({ map: NG.map, size: NG.size, ai: NG.ai, diff: NG.diff, seed: parseInt(NG.seed) || 0, quick: NG.quick, fog: NG.fog }) }, '⚔ התחל משחק'))));
   }
   if (page === 'scen') return scenScreen(title, box);
-  if (page === 'settings') return h('div', { class: 'home' }, title, box(h('h2', {}, 'הגדרות'), prefToggle(), h('button', { class: 'btn' + (PREFS.critPause !== false ? ' on' : ''), onclick: e => { PREFS.critPause = PREFS.critPause === false; savePrefs(); render(); } }, PREFS.critPause !== false ? '⏸ עצירה בהודעה קריטית: פעיל' : '⏸ עצירה בהודעה קריטית: כבוי'), soundControls(), h('div', { class: 'dim' }, 'בלילה המפה מקבלת גוון כחול והערים נדלקות. אפשר לשנות גם מתוך התפריט במשחק.'), h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה')));
+  if (page === 'settings') return h('div', { class: 'home' }, title, box(h('h2', {}, 'הגדרות'), prefToggle(), h('button', { class: 'btn' + (PREFS.decPause !== false ? ' on' : ''), onclick: () => { PREFS.decPause = PREFS.decPause === false; savePrefs(); render(); } }, PREFS.decPause !== false ? '🧭 עצירה בזמן החלטה: פעיל' : '🧭 עצירה בזמן החלטה: כבוי — המטה מחליט אחרי כמה ימים'), h('button', { class: 'btn' + (PREFS.critPause === true ? ' on' : ''), onclick: e => { PREFS.critPause = PREFS.critPause !== true; savePrefs(); render(); } }, PREFS.critPause === true ? '⏸ עצירה בהודעה קריטית: פעיל' : '⏸ עצירה בהודעה קריטית: כבוי'), soundControls(), h('div', { class: 'dim' }, 'בלילה המפה מקבלת גוון כחול והערים נדלקות. אפשר לשנות גם מתוך התפריט במשחק.'), h('button', { class: 'btn', onclick: () => { ui.home = 'main'; render(); } }, '→ חזרה')));
   return h('div', { class: 'home' }, title, box(
     hasSave() ? h('button', { class: 'btn pri big', onclick: () => { ui.home = null; if (load()) { S.speed = 1; render(); toast(`ממשיכים מיום ${fl(S.time)}`); if (S.over) showEnd(); } else showHome('new'); } }, '▶ המשך משחק') : null,
     h('button', { class: 'btn big' + (hasSave() ? '' : ' pri'), onclick: () => { ui.home = 'new'; render(); } }, '⚔ משחק חדש'),

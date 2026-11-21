@@ -94,7 +94,12 @@ function hqPlan(nid) {
   const sectors = sectorScan(nid); n.hq.sectors = sectors; n.hq.risk = rateSectors(nid, sectors);
   for (const op of S.ops) {
     if (op.n !== nid) continue;
-    if (nid === 0 && !n.hqAuto && op.meTile != null) { hqRecommend(op, sectors); continue; }   // לשחקן: המלצה לאישור (command.js)
+    if (nid === 0 && !n.hqAuto) {   // לשחקן: המטה שואל (command.js)
+      if (op.meTile == null && chooseME(op, sectors, false) && op.main) planOp(op);
+      if (op.meTile != null && !op.axisAsked && op.target >= 0) { op.axisAsked = true; askAxis(op, sectors); }   // ציר התקפה: שואלים פעם אחת
+      else if (op.axisAsked && !decPending().some(d => d.op === op.id)) hqRecommend(op, sectors);
+      continue;
+    }
     if (chooseME(op, sectors, false) && op.main) {
       planOp(op);
       if (nid === 0) toast(`🧭 המטה: המאמץ העיקרי של מבצע ${opName(op)} עובר — ${op.meWhy}`, 'good');
@@ -271,7 +276,7 @@ function planDefense(nid) {
     if (s.posture !== 'delay') { const [sx, sy] = XY(spot), R = 4 * G; for (let y = Math.max(0, sy - R); y <= Math.min(H - 1, sy + R); y++) for (let x = Math.max(0, sx - R); x <= Math.min(W - 1, sx + R); x++) { const j = y * W + x; if (S.lastOwner[j] === nid && en.includes(S.owner[j])) { const d = dist(j, spot); if (d <= 4 && d < ld) { ld = d; lost = j; } } } }
     const localDef = lost != null ? enemyPowerNear(nid, lost, 5) : 0;
     if (lost != null && frontPower(f, 'atk') > localDef * CFG.CA_RATIO + 2) { f.target = lost; f.defend = null; }
-    else { f.target = null; f.zone = []; f.defend = spot; if (s.kind !== 'incursion' && s.posture !== 'delay' && s.posture !== 'screen') f.dplan = makeDPlan(f, spot, ef, { sector: s.tile }); }
+    else { f.target = null; f.zone = []; f.defend = spot; if (s.kind !== 'incursion' && s.posture !== 'delay' && s.posture !== 'screen') { f.dplan = makeDPlan(f, spot, ef, { sector: s.tile }); if (nid === 0) askLine(f); } }
   }
   if (!reserve) return;
   strikers.forEach((r, k) => strike(nid, r, k, ranked, en, ef, mobile));

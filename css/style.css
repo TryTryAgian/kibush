@@ -162,3 +162,7 @@ body.calm #moment{transition:none}
 #tut{position:fixed;top:96px;left:10px;z-index:30;max-width:300px;background:rgba(10,16,26,.92);border:1px solid #5fe0ff;border-radius:8px;padding:8px 10px;font-size:12.5px;display:flex;flex-direction:column;gap:4px;direction:rtl}
 #tut .done{color:#7ae0a0}#tut .cur{color:#fff}#tut .next{color:#8090a0}#tut .dim{font-size:11.5px;margin:2px 0 4px}
 .cx-def{position:absolute;transform:translate(-50%,-78px);white-space:nowrap;background:rgba(10,20,36,.9);border:1px solid #5fa8ff;color:#bfe0ff;font-size:12px;padding:2px 8px;border-radius:10px;cursor:help;pointer-events:auto}
+.toast.crit{pointer-events:auto}
+#decs{position:fixed;left:10px;bottom:70px;z-index:31;width:360px;max-height:55vh;overflow:auto;background:rgba(14,18,10,.94);border:1px solid #ffd060;border-radius:8px;padding:8px 10px;font-size:12.5px;display:flex;flex-direction:column;gap:6px;direction:rtl;box-shadow:0 0 14px rgba(255,200,80,.25)}
+#decs .dec{border-top:1px solid rgba(255,210,100,.25);padding-top:5px;display:flex;flex-direction:column;gap:3px}
+#decs .row{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
